@@ -11,7 +11,7 @@
  * @module dsh-zotero/client/components/workspace/SourceInspector
  */
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SourceItem, SourceWorkspace } from '../../sources/model.ts'
@@ -61,7 +61,16 @@ export function SourceInspector({
   t,
 }: SourceInspectorProps) {
   const [panel, setPanel] = useState<InspectorPanelId>('overview')
-  const selected = workspace.sources.find((item) => item.key === selectedKey)
+  const selected = useMemo(
+    () => workspace.sources.find((item) => item.key === selectedKey),
+    [workspace.sources, selectedKey],
+  )
+
+  // A new selection opens on Overview: the previous panel (e.g. Exports of a
+  // source that had exports) must not strand the next source on an empty tab.
+  useEffect(() => {
+    setPanel('overview')
+  }, [selectedKey])
 
   if (selected === undefined) {
     return (
@@ -91,13 +100,48 @@ export function SourceInspector({
         </div>
       </div>
       {selectionHidden && <p className={css.warning}>{t('selectionHiddenNote')}</p>}
-      <div className={css.inspectorTabs} role="group">
+      <div
+        className={css.inspectorTabs}
+        role="tablist"
+        aria-label={t('inspectorTabsLabel')}
+        onKeyDown={(event) => {
+          // Automatic activation: arrows move the panel, matching click.
+          const entries = panelEntriesOf(selected)
+          const at = entries.findIndex((entry) => entry.id === panel)
+          const move = (next: number): void => {
+            const entry = entries[(next + entries.length) % entries.length]
+            if (entry !== undefined) setPanel(entry.id)
+          }
+          switch (event.key) {
+            case 'ArrowRight':
+              event.preventDefault()
+              move(at + 1)
+              break
+            case 'ArrowLeft':
+              event.preventDefault()
+              move(at - 1)
+              break
+            case 'Home':
+              event.preventDefault()
+              move(0)
+              break
+            case 'End':
+              event.preventDefault()
+              move(entries.length - 1)
+              break
+            default:
+              break
+          }
+        }}
+      >
         {panelEntriesOf(selected).map((entry) => (
           <button
             type="button"
             key={entry.id}
+            role="tab"
+            aria-selected={panel === entry.id}
+            tabIndex={panel === entry.id ? 0 : -1}
             className={clsx(css.detailTab, panel === entry.id && css.detailTabActive)}
-            aria-pressed={panel === entry.id}
             data-inspector-panel={entry.id}
             onClick={() => {
               setPanel(entry.id)

@@ -2,7 +2,7 @@
 
 # Features
 
-dsh-zotero lets DSH's LLM conversations query your Zotero library directly. Five tools cover the full workflow from search to export, and the web-side Sources panel shows literature, evidence, and citations in real time.
+dsh-zotero lets DSH's LLM conversations query your Zotero library directly. Eight tools cover the full workflow from search to export, and the web-side Sources panel shows literature, evidence, and citations in real time.
 
 ## Search
 

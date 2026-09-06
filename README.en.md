@@ -128,7 +128,7 @@ More examples in [Features](docs/features.md).
 ## Development
 
 ```sh
-npm install --no-workspaces   # this repo lives inside the deepseek-harness workspace
+npm install                  # sibling of ../deepseek-harness; add --no-workspaces only for a nested copy
 npm test                      # vitest unit tests against the mock Zotero server
 npm run typecheck             # tsc --noEmit for node, test, and client projects
 npm run build                 # tsc emits node half into lib/; esbuild emits browser half lib/client.js

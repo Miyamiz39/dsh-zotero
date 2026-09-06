@@ -373,7 +373,7 @@ describe('status projection helpers', () => {
 
   it('builds the failure diagnosis line', () => {
     expect(connectionDiagnosisOf({ kind: 'remote-error', message: 'gateway offline' }, t)).toBe(
-      'gateway offline',
+      '诊断: gateway offline',
     )
     expect(
       connectionDiagnosisOf({ kind: 'unavailable', data: UNAVAILABLE, checkedAt: '10:00:00' }, t),
@@ -468,7 +468,7 @@ describe('SourcesTab', () => {
     }))
     const { view } = mountTab(chatOf(), status)
     await act(async () => {})
-    expect(screen.getByText('gateway offline')).toBeDefined()
+    expect(screen.getByText('诊断: gateway offline')).toBeDefined()
     view.unmount()
   })
 
@@ -479,7 +479,7 @@ describe('SourcesTab', () => {
     const { view } = mountTab(chatOf(), status)
     expect(screen.getByText(zh.checking)).toBeDefined()
     await act(async () => {})
-    expect(screen.getByText('remote face unmounted')).toBeDefined()
+    expect(screen.getByText('诊断: remote face unmounted')).toBeDefined()
     view.unmount()
   })
 
@@ -489,7 +489,7 @@ describe('SourcesTab', () => {
     })
     const { view } = mountTab(chatOf(), status)
     await act(async () => {})
-    expect(screen.getByText('remote face unmounted')).toBeDefined()
+    expect(screen.getByText('诊断: remote face unmounted')).toBeDefined()
     view.unmount()
   })
 
@@ -536,7 +536,7 @@ describe('SourcesTab', () => {
     const { view } = mountTab(chatOf([toolRow(search), toolRow(get)]), status)
     await act(async () => {})
     const lensTab = view.container.querySelector('[data-workspace-lens="sources"]')!
-    expect(lensTab.getAttribute('aria-pressed')).toBe('true')
+    expect(lensTab.getAttribute('aria-selected')).toBe('true')
     expect(view.container.querySelectorAll('[data-provenance]')).toHaveLength(20)
     // The workflow stats strip is gone; the filter bar is the only count line.
     expect(screen.getByText(`${zh.filterAll} 20`)).toBeDefined()

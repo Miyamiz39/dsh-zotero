@@ -2,7 +2,7 @@
 
 # dsh-zotero 工具参考
 
-dsh-zotero 注册 6 个工具，通过本地 Zotero HTTP API 操作用户的文献库。所有 ref 均为 `zotero://user/0/item/<KEY>`（个人库）或 `zotero://group/<ID>/item/<KEY>`（群组库）格式的稳定标识符，个人库恒为 `user/0` canonical。
+dsh-zotero 注册 8 个工具，通过本地 Zotero HTTP API 操作用户的文献库。所有 ref 均为 `zotero://user/0/item/<KEY>`（个人库）或 `zotero://group/<ID>/item/<KEY>`（群组库）格式的稳定标识符，个人库恒为 `user/0` canonical。
 
 ---
 
@@ -116,7 +116,7 @@ zotero_retrieve(ref="zotero://user/0/item/ABC123", query="attention mechanism", 
 - `{kind: "file", path, ref, title, contentType}` — 本地文件（经 `existsSync` 验证存在）
 - `{kind: "url", url, ref, title, contentType}` — 链接型附件
 
-条目 ref 首先跟随 Zotero 的 best-attachment 链接，回退到最早的 PDF 子项。
+条目 ref 首先跟随 Zotero 的 best-attachment 链接，回退到最早的 PDF 子项。文件型位置经异步 stat 验证存在后再返回。
 
 ### 示例
 
@@ -168,14 +168,14 @@ zotero_export(refs=["zotero://user/0/item/ABC123", "zotero://user/0/item/DEF456"
 
 分页诚实性对所有分页列表端点统一生效：`zotero_search` 与 `zotero_browse` 的数组型列表读取要求响应携带合法的 `Total-Results` 头，缺失或非法时整个调用以 `ZOTERO_UNEXPECTED` 失败，而不是用响应体长度猜测总数。`zotero_changes` 的 `format=versions` 差异是 key→version 映射，本地 API 在此不返回该头（已对真机验证）：短页即为完整，满页如实标记 `truncated`。
 
-| 参数      | 类型                                                             | 默认值     | 说明                                                                        |
-| --------- | ---------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------- |
-| `kind`    | `libraries`\|`collections`\|`savedSearches`\|`tags`\|`itemTypes` | —          | 浏览类型                                                                    |
-| `library` | object `{type, id}`                                              | `user/0`   | 目标库（`collections/savedSearches/tags` 有效；`libraries/itemTypes` 忽略） |
-| `q`       | string                                                           | —          | `tags` 时 substring 过滤                                                    |
-| `match`   | `contains`\|`startsWith`                                         | `contains` | `tags` 时 `q` 的匹配方式（需 `q`）                                          |
-| `offset`  | integer                                                          | `0`        | 分页偏移                                                                    |
-| `limit`   | integer                                                          | `20`       | 返回上限                                                                    |
+| 参数      | 类型                                                                           | 默认值     | 说明                                                                        |
+| --------- | ------------------------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------- |
+| `kind`    | `libraries`\|`collections`\|`savedSearches`\|`tags`\|`itemTypes`\|`itemFields` | —          | 浏览类型（`itemFields` 需 `itemType`）                                      |
+| `library` | object `{type, id}`                                                            | `user/0`   | 目标库（`collections/savedSearches/tags` 有效；`libraries/itemTypes` 忽略） |
+| `q`       | string                                                                         | —          | `tags` 时 substring 过滤                                                    |
+| `match`   | `contains`\|`startsWith`                                                       | `contains` | `tags` 时 `q` 的匹配方式（需 `q`）                                          |
+| `offset`  | integer                                                                        | `0`        | 分页偏移                                                                    |
+| `limit`   | integer                                                                        | `20`       | 返回上限                                                                    |
 
 ### 输出
 
@@ -192,6 +192,54 @@ zotero_export(refs=["zotero://user/0/item/ABC123", "zotero://user/0/item/DEF456"
 ```
 zotero_browse(kind="collections", library={type:"group", id:42}, limit=20)
 zotero_browse(kind="tags", q="review", match="contains")
+```
+
+---
+
+## zotero_children
+
+探索条目或附件的子对象图。条目 ref 返回其直接笔记、附件，以及每个附件下的批注（Zotero 把批注存为 PDF 的子项而非条目的子项）；附件 ref 返回该文件自身的批注。先用它枚举结构，再用 `zotero_get` 读完整元数据。
+
+### 参数
+
+| 参数      | 类型     | 必填 | 说明                                                                              |
+| --------- | -------- | ---- | --------------------------------------------------------------------------------- |
+| `ref`     | string   | ✓    | 条目 ref 或附件 ref                                                               |
+| `include` | string[] | —    | `notes` / `attachments` / `annotations`（省略返回全部三类；显式空数组报参数错误） |
+
+### 输出
+
+`{ref, itemType?, serverId?, notes?, attachments?, annotations?}`，每类为 `{total, returned, items}`。笔记项含 `parentRef`（产生它的父条目 ref）。
+
+### 示例
+
+```
+zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
+```
+
+---
+
+## zotero_changes
+
+查看库的增量变化。Zotero 10+ 的版本号是本地事务版本——任何编辑、同步或本地写入都会推进它。不带 `since` 调用先取基线（仅当前版本），之后把该版本作为 `since` 传回即得差异。
+
+### 参数
+
+| 参数      | 类型     | 默认值 | 说明                                                                                       |
+| --------- | -------- | ------ | ------------------------------------------------------------------------------------------ |
+| `library` | object   | —      | `{type, id}`，省略默认个人库 `user/0`                                                      |
+| `since`   | integer  | —      | 起始版本；省略取基线                                                                       |
+| `include` | string[] | 全部   | `items` / `collections` / `savedSearches` / `fulltext` / `deleted`（显式空数组报参数错误） |
+
+### 输出
+
+`{library, serverId?, fromVersion?, toVersion?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, truncated?}`。每种资源按 `maxChangesResults`（默认 50）截断并如实标记 `truncated`；当前构建不支持的资源（如某些版本的 `/deleted`）按缺席降级，不会导致整个调用失败。
+
+### 示例
+
+```
+zotero_changes()
+zotero_changes(since=1234, include=["items", "deleted"])
 ```
 
 ---
@@ -215,5 +263,5 @@ zotero_browse(kind="tags", q="review", match="contains")
 | `ZOTERO_RESPONSE_TOO_LARGE`     | 响应流式传输超出资源限制                            |
 | `ZOTERO_OUTPUT_TOO_LARGE`       | 导出输出超过提供方硬上限                            |
 | `ZOTERO_CAPABILITY_UNAVAILABLE` | 提供方未声明所需能力                                |
-| `ZOTERO_PROVIDER_UNAVAILABLE`   | 配置的提供方未注册                                  |
+| `ZOTERO_PROVIDER_UNAVAILABLE`   | 配置的提供方未注册，或声明了能力却未实现对应方法    |
 | `ZOTERO_UNEXPECTED`             | 响应无法解析或行为异常                              |

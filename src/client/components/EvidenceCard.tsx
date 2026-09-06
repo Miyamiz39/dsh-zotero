@@ -24,13 +24,6 @@ import { BlockedOpenAction } from './open/BlockedOpenAction.tsx'
 import { ZoteroOpenLink } from './open/ZoteroOpenLink.tsx'
 import css from './cards.module.css'
 
-export {
-  availabilityLineOf,
-  coverageLineOf,
-  emptyEvidenceNoteOf,
-  sourceLabelKeyOf,
-} from '../evidence-labels.ts'
-
 /** One deduplicated passage with its tags and optional annotation deep link. */
 function PassageRow({
   passage,

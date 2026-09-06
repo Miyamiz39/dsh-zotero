@@ -2,9 +2,9 @@
  * Shared client-lane test shims.
  *
  * The harness seam the card consumes — `@deepseek-ai/dsh-client-store` — is a
- * plain library, so the suite drives the card against the real snapshot
- * store; no module mock is needed. Only the jsdom gaps remain here: the
- * environment stubs below stand in for layout primitives jsdom does not
+ * shell-shared platform module (harness `platform.ts` + `seed.ts`), so the
+ * suite drives the card against the real snapshot store; no module mock is
+ * needed. Only the jsdom gaps remain here: the environment stubs below stand in for layout primitives jsdom does not
  * implement. `scripts/build-client.mjs` still proves the client bundle
  * resolves its loader externals.
  * @module tests/client/setup

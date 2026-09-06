@@ -85,7 +85,11 @@ export function currentTime(): string {
  * skips them. Only zotero rows contribute, so unrelated tool activity never
  * rebuilds the workspace. A nested dispatch appearing under an already
  * running call keeps that call's id, so it lands with the next signature
- * change — an accepted delay, not an omission. Encoded with `JSON.stringify`
+ * change — an accepted delay, not an omission. A settled block whose content
+ * changes without an order or running-set change (presentation meta arriving
+ * late) likewise waits one publication: harness evidence blocks are frozen
+ * at settle, so the memo reuses the previous blocks until the next
+ * signature change. Encoded with `JSON.stringify`
  * so arbitrary order keys and call ids (the harness never promises they
  * exclude control characters) cannot collide.
  * @param snapshot - the chat snapshot, undefined while none is open.

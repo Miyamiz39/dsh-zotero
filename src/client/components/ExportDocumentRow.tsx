@@ -18,7 +18,7 @@ import { citeCommandOf } from '../sources/bibtex.ts'
 import type { ExportedDocument } from '../sources/selectors.ts'
 import { downloadBlob } from '../download.ts'
 import { CopyButton } from './CopyButton.tsx'
-import { extensionOf, formatLabelOf, mimeOf } from './ExportCard.tsx'
+import { extensionOf, formatLabelOf, mimeOf, sanitizeFileStem } from './ExportCard.tsx'
 import css from './cards.module.css'
 
 export interface ExportDocumentRowProps {
@@ -35,7 +35,7 @@ export function ExportDocumentRow({ doc, t }: ExportDocumentRowProps) {
     [doc.key],
   )
   const download = (): void => {
-    const base = doc.key ?? shortKeyOf(doc.ref) ?? 'export'
+    const base = sanitizeFileStem(doc.key ?? shortKeyOf(doc.ref) ?? 'export')
     downloadBlob(doc.text, `zotero-${base}${extensionOf(doc.format)}`, mimeOf(doc.format))
   }
 

@@ -2,7 +2,7 @@
 
 # 功能概览
 
-dsh-zotero 让 DSH 的 LLM 对话直接查询你的 Zotero 文献库。五个工具覆盖从搜索到导出的完整工作流，配合 web 端的 Sources 面板实时展示会话中的文献、证据和引用。
+dsh-zotero 让 DSH 的 LLM 对话直接查询你的 Zotero 文献库。八个工具覆盖从搜索到导出的完整工作流，配合 web 端的 Sources 面板实时展示会话中的文献、证据和引用。
 
 ## 搜索文献
 

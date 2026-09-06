@@ -104,7 +104,7 @@ export function effectiveSelectionOf(
   if (selection.key !== undefined && workspace.some((item) => item.key === selection.key)) {
     return selection.key
   }
-  return visible.length === 0 ? undefined : visible[0]!.key
+  return visible[0]?.key
 }
 
 /** The minimal item shape the selection logic needs. */
@@ -126,14 +126,17 @@ export function ZoteroWorkspaceView({
   const [selection, setSelection] = useState<SelectionState>({ key: undefined, focusIndex: 0 })
   const [mobilePane, setMobilePane] = useState<MobilePane>('list')
   const [evidenceOpen, setEvidenceOpen] = useState(false)
-  const listRef = useRef<HTMLElement>(null)
+  const asideRef = useRef<HTMLElement>(null)
 
   const counts = useMemo(() => filterCountsOf(workspace.sources), [workspace.sources])
   const visible = useMemo(
     () => filterSources(workspace.sources, filter),
     [workspace.sources, filter],
   )
-  const selectedKey = effectiveSelectionOf(selection, workspace.sources, visible)
+  const selectedKey = useMemo(
+    () => effectiveSelectionOf(selection, workspace.sources, visible),
+    [selection, workspace.sources, visible],
+  )
   // The exports lens counts distinct exported documents, not export calls.
   const exportedCount = useMemo(() => exportedRefCountOf(workspace.exports), [workspace.exports])
 
@@ -169,13 +172,47 @@ export function ZoteroWorkspaceView({
       }}
     >
       <WorkspaceToolbar connection={connection} onRefresh={onRefresh} t={t} />
-      <div className={css.lensBar} role="group">
+      <div
+        className={css.lensBar}
+        role="tablist"
+        aria-label={t('lensBarLabel')}
+        onKeyDown={(event) => {
+          // Automatic activation: arrows move the lens, matching click.
+          const at = LENSES.findIndex((entry) => entry.id === lens)
+          const move = (next: number): void => {
+            const entry = LENSES[(next + LENSES.length) % LENSES.length]
+            if (entry !== undefined) setLens(entry.id)
+          }
+          switch (event.key) {
+            case 'ArrowRight':
+              event.preventDefault()
+              move(at + 1)
+              break
+            case 'ArrowLeft':
+              event.preventDefault()
+              move(at - 1)
+              break
+            case 'Home':
+              event.preventDefault()
+              move(0)
+              break
+            case 'End':
+              event.preventDefault()
+              move(LENSES.length - 1)
+              break
+            default:
+              break
+          }
+        }}
+      >
         {LENSES.map((entry) => (
           <button
             type="button"
             key={entry.id}
+            role="tab"
+            aria-selected={lens === entry.id}
+            tabIndex={lens === entry.id ? 0 : -1}
             className={clsx(css.lensTab, lens === entry.id && css.lensTabActive)}
-            aria-pressed={lens === entry.id}
             data-workspace-lens={entry.id}
             onClick={() => {
               setLens(entry.id)
@@ -207,7 +244,7 @@ export function ZoteroWorkspaceView({
             onOpenEvidence={() => {
               setEvidenceOpen(true)
             }}
-            listRef={listRef}
+            asideRef={asideRef}
             t={t}
           />
           <SourceInspector

@@ -69,6 +69,46 @@ describe('searchMetaOf', () => {
       { ref: 'zotero://user/0/item/ABCDEFGH', title: 'T', creatorSummary: 'C' },
     ])
   })
+
+  it('decodes the resolved library for personal and group scopes', () => {
+    const user = searchMetaOf({
+      items: [],
+      scope: { kind: 'library', library: { type: 'user', id: 0 } },
+      library: { type: 'user', id: 0 },
+    })
+    expect(user.library).toEqual({ type: 'user', id: 0 })
+    expect(user.scope).toEqual({ kind: 'library', library: { type: 'user', id: 0 } })
+    const group = searchMetaOf({
+      items: [],
+      scope: { kind: 'library', library: { type: 'group', id: 42 } },
+      library: { type: 'group', id: 42 },
+    })
+    expect(group.library).toEqual({ type: 'group', id: 42 })
+    const publications = searchMetaOf({
+      items: [],
+      scope: { kind: 'publications', library: { type: 'group', id: 7 } },
+      library: { type: 'group', id: 7 },
+    })
+    expect(publications.scope).toEqual({ kind: 'publications', library: { type: 'group', id: 7 } })
+  })
+
+  it('degrades unparseable or unsupported scope libraries to null, never personal', () => {
+    expect(searchMetaOf({ items: [], library: { type: 'user', id: 5 } }).library).toBeNull()
+    expect(
+      searchMetaOf({ items: [], library: { type: 'group', id: 99999999999999999999 } }).library,
+    ).toBeNull()
+    expect(searchMetaOf({ items: [], library: { type: 'group', id: 0 } }).library).toBeNull()
+    expect(searchMetaOf({ items: [], library: 'user/0' }).library).toBeNull()
+    expect(searchMetaOf({ items: [] }).library).toBeNull()
+    expect(searchMetaOf({ items: [], scope: { kind: 'library' } }).scope).toBeNull()
+    expect(
+      searchMetaOf({
+        items: [],
+        scope: { kind: 'collection', ref: 'zotero://user/0/collection/C1', name: 'C' },
+      }).scope,
+    ).toEqual({ kind: 'collection', ref: 'zotero://user/0/collection/C1', name: 'C' })
+    expect(searchMetaOf({ items: [], scope: { kind: 'tags' } }).scope).toBeNull()
+  })
 })
 
 describe('getMetaOf', () => {

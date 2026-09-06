@@ -11,6 +11,7 @@ import type { ItemProvenance } from './model.ts'
 
 /** The item identity: the ref without its query, lowercased. */
 export function normalizeRefKey(ref: string): string {
+  // split with a limit always yields a non-empty array; indexing is safe.
   return ref.split('?', 1)[0]!.toLowerCase()
 }
 

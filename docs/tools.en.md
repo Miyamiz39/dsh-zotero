@@ -2,7 +2,7 @@
 
 # dsh-zotero Tool Reference
 
-dsh-zotero registers 6 tools that operate on the user's library through the local Zotero HTTP API. All refs are stable identifiers in `zotero://user/0/item/<KEY>` (personal) or `zotero://group/<ID>/item/<KEY>` (group) format; personal is always `user/0` canonical.
+dsh-zotero registers 8 tools that operate on the user's library through the local Zotero HTTP API. All refs are stable identifiers in `zotero://user/0/item/<KEY>` (personal) or `zotero://group/<ID>/item/<KEY>` (group) format; personal is always `user/0` canonical.
 
 ---
 
@@ -113,7 +113,7 @@ Resolve a ref to an accessible attachment location. Accepts an item ref (auto-pi
 
 Discriminated union type:
 
-- `{kind: "file", path, ref, title, contentType}` — local file (verified via `existsSync`)
+- `{kind: "file", path, ref, title, contentType}` — local file (verified to exist via async stat)
 - `{kind: "url", url, ref, title, contentType}` — linked attachment
 
 Item refs follow Zotero's best-attachment link first, falling back to the earliest PDF child.
@@ -162,24 +162,105 @@ zotero_export(refs=["zotero://user/0/item/ABC123", "zotero://user/0/item/DEF456"
 
 ---
 
+## zotero_browse
+
+Discover library structure. Every `kind` pages with `offset/limit` (default `20`, capped by `maxBrowseResults` at 50) and returns `total/returned/nextOffset`.
+
+Pagination honesty applies uniformly: `zotero_search` and `zotero_browse` array listings require a valid `Total-Results` header and fail the whole call with `ZOTERO_UNEXPECTED` without it, instead of guessing totals from body length. `zotero_changes` `format=versions` diffs are key→version maps where the local API omits that header (verified against a live build): a short page is complete, a full page is honestly marked `truncated`.
+
+| Parameter | Type                                                                           | Default    | Description                                                 |
+| --------- | ------------------------------------------------------------------------------ | ---------- | ----------------------------------------------------------- |
+| `kind`    | `libraries`\|`collections`\|`savedSearches`\|`tags`\|`itemTypes`\|`itemFields` | —          | What to browse (`itemFields` requires `itemType`)           |
+| `library` | object `{type, id}`                                                            | `user/0`   | Target library (valid for `collections/savedSearches/tags`) |
+| `q`       | string                                                                         | —          | `tags` substring filter                                     |
+| `match`   | `contains`\|`startsWith`                                                       | `contains` | How `q` matches tags (requires `q`)                         |
+| `offset`  | integer                                                                        | `0`        | Pagination offset                                           |
+| `limit`   | integer                                                                        | `20`       | Return cap                                                  |
+
+### Output
+
+- `libraries`: `{library, name}`
+- `collections`: `{ref, name, parentRef?, path: string[], depth}` (full breadcrumb path)
+- `savedSearches`: `{ref, name, conditions?}`
+- `tags`: `{tag, count?}`
+- `itemTypes`: `{itemType, localized?}`
+- `itemFields`: `{field, localized?}` or `{creatorType, localized?}` for the given `itemType`
+
+### Example
+
+```
+zotero_browse(kind="collections", library={type:"group", id:42}, limit=20)
+zotero_browse(kind="tags", q="review", match="contains")
+```
+
+---
+
+## zotero_children
+
+Explore one item's or attachment's child-object graph. An item ref returns its direct notes and attachments plus the annotations living under each attachment (Zotero stores annotations as children of the PDF, not of the paper); an attachment ref returns that file's own annotations. Enumerate structure here before reading full metadata with `zotero_get`.
+
+### Parameters
+
+| Parameter | Type     | Required | Description                                                                                                       |
+| --------- | -------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ref`     | string   | ✓        | Item ref or attachment ref                                                                                        |
+| `include` | string[] | —        | `notes` / `attachments` / `annotations` (omitted returns all three; an explicit empty array is an argument error) |
+
+### Output
+
+`{ref, itemType?, serverId?, notes?, attachments?, annotations?}`, each section a `{total, returned, items}` collection. Note items carry `parentRef` (the parent item ref that produced them).
+
+### Example
+
+```
+zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
+```
+
+---
+
+## zotero_changes
+
+See what changed in the library since a version. Zotero 10+ versions are local transaction versions — any edit, sync, or local write advances them. Call without `since` first for a baseline reading (current version only), then pass it back as `since`.
+
+### Parameters
+
+| Parameter | Type     | Default | Description                                                                                                       |
+| --------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `library` | object   | —       | `{type, id}`; omitted defaults to personal `user/0`                                                               |
+| `since`   | integer  | —       | Library version to diff from; omitted takes a baseline reading                                                    |
+| `include` | string[] | all     | `items` / `collections` / `savedSearches` / `fulltext` / `deleted` (an explicit empty array is an argument error) |
+
+### Output
+
+`{library, serverId?, fromVersion?, toVersion?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, truncated?}`. Each resource truncates at `maxChangesResults` (default 50) and honestly marks `truncated`; a resource the current build cannot serve (e.g. `/deleted` on some versions) degrades to absence instead of failing the whole read.
+
+### Example
+
+```
+zotero_changes()
+zotero_changes(since=1234, include=["items", "deleted"])
+```
+
+---
+
 ## Error codes
 
-| Error code                      | Description                                                                    |
-| ------------------------------- | ------------------------------------------------------------------------------ |
-| `ZOTERO_NOT_RUNNING`            | Zotero not running or local API unreachable                                    |
-| `ZOTERO_API_DISABLED`           | Zotero running but local API disabled (403)                                    |
-| `ZOTERO_API_VERSION`            | Zotero API version not supported                                               |
-| `ZOTERO_SERVER_MISMATCH`        | Ref from a different Zotero instance                                           |
-| `ZOTERO_NOT_FOUND`              | Referenced item, collection, or saved search does not exist                    |
-| `ZOTERO_NO_ATTACHMENT`          | Item has no attachment of the specified type                                   |
-| `ZOTERO_NO_FULLTEXT`            | Attachment has no full-text index                                              |
-| `ZOTERO_FILE_MISSING`           | Local file reported by Zotero does not exist on disk                           |
-| `ZOTERO_INVALID_REF`            | Ref string does not match `zotero://` syntax or references unsupported library |
-| `ZOTERO_INVALID_ARGUMENT`       | Parameter violates domain constraints not expressible in schema                |
-| `ZOTERO_SCOPE_AMBIGUOUS`        | Collection or saved search name matched multiple objects                       |
-| `ZOTERO_TIMEOUT`                | Provider internal timeout                                                      |
-| `ZOTERO_RESPONSE_TOO_LARGE`     | Response stream exceeded resource limit                                        |
-| `ZOTERO_OUTPUT_TOO_LARGE`       | Export output exceeded provider hard limit                                     |
-| `ZOTERO_CAPABILITY_UNAVAILABLE` | Provider did not declare the required capability                               |
-| `ZOTERO_PROVIDER_UNAVAILABLE`   | Configured provider not registered                                             |
-| `ZOTERO_UNEXPECTED`             | Response could not be parsed or behaved unexpectedly                           |
+| Error code                      | Description                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `ZOTERO_NOT_RUNNING`            | Zotero not running or local API unreachable                                                  |
+| `ZOTERO_API_DISABLED`           | Zotero running but local API disabled (403)                                                  |
+| `ZOTERO_API_VERSION`            | Zotero API version not supported                                                             |
+| `ZOTERO_SERVER_MISMATCH`        | Ref from a different Zotero instance                                                         |
+| `ZOTERO_NOT_FOUND`              | Referenced item, collection, or saved search does not exist                                  |
+| `ZOTERO_NO_ATTACHMENT`          | Item has no attachment of the specified type                                                 |
+| `ZOTERO_NO_FULLTEXT`            | Attachment has no full-text index                                                            |
+| `ZOTERO_FILE_MISSING`           | Local file reported by Zotero does not exist on disk                                         |
+| `ZOTERO_INVALID_REF`            | Ref string does not match `zotero://` syntax or references unsupported library               |
+| `ZOTERO_INVALID_ARGUMENT`       | Parameter violates domain constraints not expressible in schema                              |
+| `ZOTERO_SCOPE_AMBIGUOUS`        | Collection or saved search name matched multiple objects                                     |
+| `ZOTERO_TIMEOUT`                | Provider internal timeout                                                                    |
+| `ZOTERO_RESPONSE_TOO_LARGE`     | Response stream exceeded resource limit                                                      |
+| `ZOTERO_OUTPUT_TOO_LARGE`       | Export output exceeded provider hard limit                                                   |
+| `ZOTERO_CAPABILITY_UNAVAILABLE` | Provider did not declare the required capability                                             |
+| `ZOTERO_PROVIDER_UNAVAILABLE`   | Configured provider not registered, or declares a capability without implementing its method |
+| `ZOTERO_UNEXPECTED`             | Response could not be parsed or behaved unexpectedly                                         |

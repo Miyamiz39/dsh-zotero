@@ -17,7 +17,14 @@ import { downloadBlob } from '../download.ts'
 import { exportSectionsOf, type ExportSection } from '../sources/selectors.ts'
 import { CopyButton } from './CopyButton.tsx'
 import { ExportDocumentRow } from './ExportDocumentRow.tsx'
-import { ExportCard, extensionOf, fileNameOf, formatLabelOf, mimeOf } from './ExportCard.tsx'
+import {
+  ExportCard,
+  extensionOf,
+  fileNameOf,
+  formatLabelOf,
+  mimeOf,
+  sanitizeFileStem,
+} from './ExportCard.tsx'
 import css from './cards.module.css'
 
 export interface ExportSectionsProps {
@@ -36,7 +43,7 @@ function downloadSection(section: ExportSection): void {
   // extension lookup keeps the fallback for unknown ids.
   downloadBlob(
     sectionTextOf(section),
-    `zotero-${section.format}${extensionOf(section.format)}`,
+    `zotero-${sanitizeFileStem(section.format)}${extensionOf(section.format)}`,
     mimeOf(section.format),
   )
 }

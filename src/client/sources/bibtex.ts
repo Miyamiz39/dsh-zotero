@@ -15,6 +15,8 @@ export function bibTexKeysOf(text: string): string[] {
   const keys: string[] = []
   const seen = new Set<string>()
   for (const match of text.matchAll(BIBTEX_KEY)) {
+    // The key source pins exactly one required capture group, so a
+    // successful match always carries group 1; indexing is safe.
     const key = match[1]!
     if (!seen.has(key)) {
       seen.add(key)

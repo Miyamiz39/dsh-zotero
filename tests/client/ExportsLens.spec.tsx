@@ -20,6 +20,7 @@ import {
   fileNameOf,
   formatLabelOf,
   mimeOf,
+  sanitizeFileStem,
 } from '../../src/client/components/ExportCard.tsx'
 import { ExportSections, sectionTextOf } from '../../src/client/components/ExportSections.tsx'
 import { incompleteExportsNoteOf } from '../../src/client/components/operations.ts'
@@ -115,6 +116,15 @@ const RIS_DOC: ExportedDocument = {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+})
+
+describe('sanitizeFileStem', () => {
+  it('replaces path, separator, and control characters with dashes', () => {
+    expect(sanitizeFileStem('a/b\\c:d*e?f"g<h>i|j')).toBe('a-b-c-d-e-f-g-h-i-j')
+    expect(sanitizeFileStem('with\ttab')).toBe('with-tab')
+    expect(sanitizeFileStem('plain-key_1')).toBe('plain-key_1')
+    expect(sanitizeFileStem('')).toBe('export')
+  })
 })
 
 describe('formatLabelOf', () => {

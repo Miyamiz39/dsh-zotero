@@ -7,7 +7,7 @@
  * @module dsh-zotero/client/components/CopyButton
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './cards.module.css'
 
@@ -21,6 +21,9 @@ export interface CopyButtonProps {
 
 export function CopyButton({ value, label, copiedLabel }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
+  // A click epoch: a slow clipboard promise resolving after a newer click
+  // (or after unmount) must not flip the flag for a value it did not write.
+  const epoch = useRef(0)
   useEffect(() => {
     if (!copied) return
     const timer = window.setTimeout(() => {
@@ -36,8 +39,12 @@ export function CopyButton({ value, label, copiedLabel }: CopyButtonProps) {
       className={css.lineAction}
       aria-label={label}
       onClick={() => {
-        void writeClipboard(value)
-        setCopied(true)
+        const mine = (epoch.current += 1)
+        void writeClipboard(value).then((ok) => {
+          // Only a successful write earns the feedback; a denial (iframe
+          // permissions, insecure context) stays on the action label.
+          if (ok && epoch.current === mine) setCopied(true)
+        })
       }}
     >
       {copied ? copiedLabel : label}

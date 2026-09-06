@@ -122,6 +122,9 @@ export function SourceOverview({ item, t, setDraft }: SourceOverviewProps) {
           }
           items={[{ id: 'copyRef', label: t('copyRef') }]}
           onSelect={() => {
+            // Fire-and-forget by necessity: the menu unmounts on select, so
+            // there is no surface for copied feedback here. Wherever a label
+            // persists, CopyButton (which gates on the write result) is used.
             void writeClipboard(item.ref)
             setMenuOpen(false)
           }}

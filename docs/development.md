@@ -32,17 +32,17 @@ tests/                  # 单元测试（mock Zotero server）
 ## 安装与构建
 
 ```sh
-npm install --no-workspaces  # 本仓库位于 deepseek-harness workspace 内
+npm install                  # 本仓库与 deepseek-harness 并列，仅嵌套副本才加 --no-workspaces
 npm test                     # 单元测试（mock Zotero server + browser card tests）
 npm run typecheck            # tsc --noEmit（node/test/client projects）
 npm run build                # tsc + esbuild（node lib/ + browser lib/client.js）
 npm run build:client         # 仅重新构建浏览器端
-npm run test:coverage        # src/ 100% 覆盖率
+npm run test:coverage        # 覆盖率门禁（97 语句 / 95 分支 / 98 函数 / 97 行）
 npm run format               # prettier --write
 npm run format:check         # 格式化检查
 ```
 
-> 本仓库嵌套在 deepseek-harness workspace 中，必须使用 `npm install --no-workspaces`。
+> 本仓库与 deepseek-harness 并列为 sibling 目录（见 AGENTS.md），直接 `npm install`；只有把它嵌套进 harness workspace 副本时才加 `--no-workspaces`。
 
 ## 集成测试
 
@@ -98,14 +98,14 @@ npm run dev:client                # esbuild watch
 
 - 单元测试使用 MockZotero（mock HTTP server）
 - 浏览器卡片测试使用 jsdom + @testing-library/react
-- src/ 100% 覆盖率（src/index.ts 和 src/types.ts 除外）
+- 覆盖率门禁见 `vitest.config.ts`（97 语句 / 95 分支 / 98 函数 / 97 行；`src/index.ts`、`src/types.ts`、`css-modules.d.ts`、`sources/model.ts` 为纯类型/重导出除外项）
 - 集成测试运行在真实 Zotero 上，默认跳过
 
 ## 发布检查清单
 
 - `npm test` 通过
 - `npm run typecheck` 通过
-- `npm run test:coverage` 通过（100%）
+- `npm run test:coverage` 通过（门禁见上）
 - `npm run format:check` 通过
 - `npm run build` 成功
 - tarball 安装后 smoke.mjs 通过

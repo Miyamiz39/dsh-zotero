@@ -141,18 +141,50 @@ describe('badgesOf', () => {
 })
 
 describe('CopyButton', () => {
-  it('copies the value, shows the caller label, and swaps to the copied label briefly', () => {
+  it('copies the value, shows the caller label, and swaps to the copied label briefly', async () => {
     vi.useFakeTimers()
     render(<CopyButton value="zotero://user/0/item/A" label={zh.copyRef} copiedLabel={zh.copied} />)
     expect(screen.getByText(zh.copyRef)).toBeDefined()
     fireEvent.click(screen.getByRole('button'))
     expect(writeClipboard).toHaveBeenCalledWith('zotero://user/0/item/A')
+    // The copied flag lands on the clipboard promise, not on the click.
+    await act(async () => {})
     expect(screen.getByText(zh.copied)).toBeDefined()
     act(() => {
       vi.advanceTimersByTime(1600)
     })
     expect(screen.getByText(zh.copyRef)).toBeDefined()
     vi.useRealTimers()
+  })
+
+  it('stays on the action label when the clipboard write is denied', async () => {
+    vi.mocked(writeClipboard).mockResolvedValueOnce(false)
+    render(<CopyButton value="x" label={zh.copyRef} copiedLabel={zh.copied} />)
+    fireEvent.click(screen.getByRole('button'))
+    await act(async () => {})
+    expect(screen.getByText(zh.copyRef)).toBeDefined()
+    expect(screen.queryByText(zh.copied)).toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('ignores a stale clipboard resolution after a newer click', async () => {
+    let resolveFirst!: (ok: boolean) => void
+    let resolveSecond!: (ok: boolean) => void
+    vi.mocked(writeClipboard)
+      .mockImplementationOnce(() => new Promise<boolean>((resolve) => (resolveFirst = resolve)))
+      .mockImplementationOnce(() => new Promise<boolean>((resolve) => (resolveSecond = resolve)))
+    render(<CopyButton value="x" label={zh.copyRef} copiedLabel={zh.copied} />)
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('button'))
+    // The first click resolves late with success, but its epoch is stale:
+    // the flag must not flip for it.
+    resolveFirst(true)
+    await act(async () => {})
+    expect(screen.queryByText(zh.copied)).toBeNull()
+    // The second click's own resolution still earns the feedback.
+    resolveSecond(true)
+    await act(async () => {})
+    expect(screen.getByText(zh.copied)).toBeDefined()
   })
 })
 

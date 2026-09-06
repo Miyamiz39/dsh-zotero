@@ -18,6 +18,24 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ZoteroService from 'dsh-zotero'
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
+import { resolve } from 'node:path'
+
+// Fail loud when run from this repository instead of a dsh profile: the bare
+// import above must resolve to the profile's installed tarball (the
+// production stack), not to this checkout's devDependencies. Resolution is
+// anchored at the current working directory — which the header requires to
+// be the profile directory — not at this script's location.
+{
+  const cwdRequire = createRequire(pathToFileURL(resolve(process.cwd(), 'package.json')).href)
+  const resolved = cwdRequire.resolve('dsh-zotero/package.json')
+  if (!resolved.includes('node_modules')) {
+    throw new Error(
+      `smoke must run from inside a dsh profile directory (resolved ${resolved}); see the header`,
+    )
+  }
+}
 
 const ctx = new Context()
 await ctx.plugin(SystemPrompt, {})
@@ -27,9 +45,14 @@ const zotero = ctx.zotero
 
 /** Build a `ZoteroObjectRef` from a model-facing item ref string (the seam's public grammar). */
 function itemRef(ref) {
-  const key = /zotero:\/\/user\/0\/item\/([A-Z0-9]{8})/.exec(ref)?.[1]
-  if (key === undefined) throw new Error(`unexpected item ref ${ref}`)
-  return { library: { type: 'user', id: 0 }, kind: 'item', key }
+  const key = /zotero:\/\/(?:user\/0|group\/(\d+))\/item\/([A-Z0-9]{8})/.exec(ref)
+  if (key === null) throw new Error(`unexpected item ref ${ref}`)
+  const groupId = key[1] === undefined ? undefined : Number(key[1])
+  return {
+    library: groupId === undefined ? { type: 'user', id: 0 } : { type: 'group', id: groupId },
+    kind: 'item',
+    key: key[2],
+  }
 }
 
 const status = await zotero.status()
@@ -51,18 +74,45 @@ if (search.items.length > 0) {
   const detail = await zotero.get({ ref, include: new Set() })
   console.log(`get: ${detail.title} [${detail.itemType}] (children ${detail.children.total})`)
 
+  const children = await zotero.children({
+    ref,
+    include: new Set(['notes', 'attachments', 'annotations']),
+  })
+  console.log(
+    `children: notes ${children.notes?.returned ?? 0}, attachments ${children.attachments?.returned ?? 0}, annotations ${children.annotations?.returned ?? 0}`,
+  )
+
   const evidence = await zotero.retrieve({ ref, query: 'a', sources: ['abstract'], passages: 1 })
   console.log(
     `retrieve: ${evidence.evidence.length} evidence passage(s), truncated ${evidence.truncated}`,
   )
 
+  // 'a' is an arbitrary single-term recall probe: any indexed term works, the
+  // smoke only needs one ranked pass over the evidence pipeline.
   const exported = await zotero.export({ refs: [ref], format: 'citation' })
   console.log(
     `export: ${exported.format}, ${exported.citations.length} citation(s), ${exported.citations[0].text.length} chars`,
   )
+
+  try {
+    const location = await zotero.attachment({ ref })
+    console.log(
+      `attachment: ${location.kind} ${location.kind === 'file' ? location.path : location.url}`,
+    )
+  } catch (error) {
+    // An item without attachments has nothing to resolve; the typed error is
+    // the honest outcome, not a smoke failure.
+    console.log(`attachment: skipped (${error.code ?? error.message})`)
+  }
 } else {
   console.log('library empty; item-level calls skipped')
 }
+
+const libraries = await zotero.browse({ kind: 'libraries', offset: 0, limit: 10 })
+console.log(`browse: ${libraries.returned}/${libraries.total} libraries`)
+
+const baseline = await zotero.changes({})
+console.log(`changes: baseline at version ${baseline.toVersion ?? 'unknown'}`)
 
 const assembly = await ctx.systemPrompt.assemble()
 if (assembly.sections.find((entry) => entry.name === 'zotero:policy') === undefined) {
@@ -71,11 +121,19 @@ if (assembly.sections.find((entry) => entry.name === 'zotero:policy') === undefi
 for (const name of [
   'zotero_search',
   'zotero_get',
+  'zotero_children',
   'zotero_retrieve',
   'zotero_attachment',
   'zotero_export',
+  'zotero_browse',
+  'zotero_changes',
 ]) {
   if (ctx.tools.get(name) === undefined) throw new Error(`tool ${name} not registered`)
 }
-console.log('assembly: zotero:policy present, all 5 tools registered')
-console.log('SMOKE PASS')
+if (search.items.length === 0) {
+  console.log('assembly: zotero:policy present, all 8 tools registered')
+  console.log('SMOKE PASS (empty library: item-level checks skipped, discovery covered)')
+} else {
+  console.log('assembly: zotero:policy present, all 8 tools registered')
+  console.log('SMOKE PASS')
+}

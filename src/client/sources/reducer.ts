@@ -10,11 +10,12 @@
  * @module dsh-zotero/client/sources/reducer
  */
 
-import type { ToolCallBlock, ToolResultNode } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
   argsOf,
   callNameOf,
   isRecord,
+  isSettledTool,
   metaOf,
   orderKeyOf,
   resultTextOf,
@@ -315,11 +316,14 @@ export function buildSourceWorkspace(
   }
 
   /**
-   * The event time of a settled block. `rowStateOf` maps kind-less blocks
-   * to 'running', so every caller reaches here only with a tool result —
-   * the cast documents what the state check already proved.
+   * The event time of a settled block. Guarded by isSettledTool (which
+   * `rowStateOf` also funnels through), so an unsettled block never arrives
+   * here — the early return, not a cast, carries the proof.
    */
-  const eventTimeOf = (block: ToolCallBlock): number => (block as ToolResultNode).time
+  const eventTimeOf = (block: ToolCallBlock): number => {
+    if (!isSettledTool(block)) return 0
+    return block.time
+  }
 
   const pushEvidence = (
     draft: Draft,
@@ -448,12 +452,24 @@ export function buildSourceWorkspace(
           const libraryForEpisode: SupportedLocalLibrary | undefined =
             resolvedLibrary ??
             (() => {
+              // Same contract as the host `isSupportedLocalLibrary` and the
+              // scope decoder (user/0 or a positive safe-integer group id),
+              // spelled inline: the client bundle must not value-import host
+              // modules, so the check lives in both halves by design.
               const libArg = args?.['library']
-              return isRecord(libArg) &&
-                (libArg['type'] === 'user' || libArg['type'] === 'group') &&
-                typeof libArg['id'] === 'number'
-                ? (libArg as unknown as SupportedLocalLibrary)
-                : undefined
+              if (!isRecord(libArg)) return undefined
+              const type = libArg['type']
+              const id = libArg['id']
+              if (type === 'user' && id === 0) return { type: 'user', id: 0 as const }
+              if (
+                type === 'group' &&
+                typeof id === 'number' &&
+                Number.isSafeInteger(id) &&
+                id > 0
+              ) {
+                return { type: 'group', id }
+              }
+              return undefined
             })()
           lastEpisode = {
             identity,

@@ -256,6 +256,8 @@ describe('toolbar', () => {
       data: {
         providerId: 'local',
         connected: false,
+        serverId: 'sPMHtLD6HHBd',
+        apiVersion: '3',
         diagnosis: 'connection refused',
       } as ZoteroStatusView,
       checkedAt: '10:00:01',
@@ -264,6 +266,10 @@ describe('toolbar', () => {
     expect(screen.getByText(/connection refused/)).toBeDefined()
     fireEvent.click(screen.getByText(zh.refresh))
     expect(onRefresh).toHaveBeenCalledTimes(1)
+    // An unavailable probe still carries instance facts: the menu shows them.
+    fireEvent.click(screen.getByLabelText(zh.detailsLabel))
+    expect(screen.getByText(/sPMHtLD6HHBd/)).toBeDefined()
+    expect(screen.getByText(/API 版本 3/)).toBeDefined()
     view.unmount()
   })
 })
@@ -282,6 +288,86 @@ describe('inspector', () => {
     expect(screen.getByText(/报告 4 条/)).toBeDefined()
     fireEvent.click(view.container.querySelector('[data-inspector-panel="exports"]')!)
     expect(screen.getByText(/BibTeX/)).toBeDefined()
+    view.unmount()
+  })
+
+  it('exposes the lens bar and inspector tabs as tablists with roving selection', () => {
+    const workspace = singleFixture()
+    const { view } = mountView(workspace)
+    const tabs = view.container.querySelector('[data-inspector-panel="overview"]')!.parentElement!
+    expect(tabs.getAttribute('role')).toBe('tablist')
+    expect(tabs.getAttribute('aria-label')).toBe(zh.inspectorTabsLabel)
+    fireEvent.keyDown(tabs, { key: 'ArrowRight' })
+    expect(
+      view.container
+        .querySelector('[data-inspector-panel="evidence"]')!
+        .getAttribute('aria-selected'),
+    ).toBe('true')
+    fireEvent.keyDown(tabs, { key: 'ArrowLeft' })
+    expect(
+      view.container
+        .querySelector('[data-inspector-panel="overview"]')!
+        .getAttribute('aria-selected'),
+    ).toBe('true')
+    fireEvent.keyDown(tabs, { key: 'End' })
+    expect(
+      view.container
+        .querySelector('[data-inspector-panel="exports"]')!
+        .getAttribute('aria-selected'),
+    ).toBe('true')
+    fireEvent.keyDown(tabs, { key: 'Home' })
+    expect(
+      view.container
+        .querySelector('[data-inspector-panel="overview"]')!
+        .getAttribute('aria-selected'),
+    ).toBe('true')
+    const lensBar = view.container.querySelector('[data-workspace-lens="sources"]')!.parentElement!
+    expect(lensBar.getAttribute('role')).toBe('tablist')
+    expect(lensBar.getAttribute('aria-label')).toBe(zh.lensBarLabel)
+    const lensTab = view.container.querySelector('[data-workspace-lens="sources"]')!
+    expect(lensTab.getAttribute('role')).toBe('tab')
+    expect(lensTab.getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(lensBar, { key: 'ArrowRight' })
+    expect(
+      view.container
+        .querySelector('[data-workspace-lens="exports"]')!
+        .getAttribute('aria-selected'),
+    ).toBe('true')
+    view.unmount()
+  })
+
+  it('resets to the overview panel when the selection changes', () => {
+    const workspace = mixedFixture()
+    const { view } = mountView(workspace)
+    fireEvent.click(view.container.querySelector('[data-inspector-panel="exports"]')!)
+    expect(
+      view.container
+        .querySelector('[data-inspector-panel="exports"]')!
+        .getAttribute('aria-selected'),
+    ).toBe('true')
+    // Select the second visible row: the inspector returns to overview.
+    const options = view.container.querySelectorAll('[role="option"]')
+    expect(options.length).toBeGreaterThan(1)
+    fireEvent.click(options[1]!)
+    expect(
+      view.container
+        .querySelector('[data-inspector-panel="overview"]')!
+        .getAttribute('aria-selected'),
+    ).toBe('true')
+    view.unmount()
+  })
+
+  it('confirms a listbox option with Space as well as Enter', () => {
+    const workspace = mixedFixture()
+    const { view } = mountView(workspace)
+    const options = view.container.querySelectorAll('[role="option"]')
+    expect(options.length).toBeGreaterThan(1)
+    fireEvent.keyDown(options[1]!, { key: ' ' })
+    expect(
+      view.container
+        .querySelector('[data-inspector-panel="overview"]')!
+        .getAttribute('aria-selected'),
+    ).toBe('true')
     view.unmount()
   })
 

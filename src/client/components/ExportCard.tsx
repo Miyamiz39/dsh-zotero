@@ -80,11 +80,15 @@ export function mimeOf(format: string): string {
   }
 }
 
-/** Sanitize a title into a download filename: no path, separator, or control chars. */
+/** Sanitize a download filename stem: no path, separator, or control chars. */
+export function sanitizeFileStem(stem: string): string {
+  const cleaned = stem === '' ? 'export' : stem
+  return cleaned.replace(/[/\\:*?"<>|\x00-\x1F]/g, '-')
+}
+
+/** The download filename of one export artifact, from its translator format. */
 export function fileNameOf(artifact: ExportArtifact): string {
-  const base = artifact.format === '' ? 'export' : artifact.format
-  const cleaned = base.replace(/[/\\:*?"<>|\x00-\x1F]/g, '-')
-  return `zotero-${cleaned}${extensionOf(artifact.format)}`
+  return `zotero-${sanitizeFileStem(artifact.format)}${extensionOf(artifact.format)}`
 }
 
 /** Format the artifact's settled event time as an absolute HH:MM time. */

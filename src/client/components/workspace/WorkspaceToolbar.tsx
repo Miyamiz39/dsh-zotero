@@ -26,11 +26,15 @@ export interface WorkspaceToolbarProps {
 export function WorkspaceToolbar({ connection, onRefresh, t }: WorkspaceToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const failed = connection.kind === 'unavailable' || connection.kind === 'remote-error'
+  const diagnosis = failed ? connectionDiagnosisOf(connection, t) : ''
   const checkedAt =
     connection.kind === 'connected' || connection.kind === 'unavailable'
       ? connection.checkedAt
       : undefined
-  const data = connection.kind === 'connected' ? connection.data : undefined
+  const data =
+    connection.kind === 'connected' || connection.kind === 'unavailable'
+      ? connection.data
+      : undefined
 
   const menuItems = [
     ...(data?.serverId !== undefined
@@ -76,10 +80,10 @@ export function WorkspaceToolbar({ connection, onRefresh, t }: WorkspaceToolbarP
         {failed && t('statusUnavailable')}
       </span>
       {failed && (
-        <span className={css.diagnosis} title={connectionDiagnosisOf(connection, t)}>
-          {connectionDiagnosisOf(connection, t)}
+        <span className={css.diagnosis} title={diagnosis}>
+          {diagnosis}
         </span>
-      )}{' '}
+      )}
       <span className={css.spacer} />
       <Menu
         open={menuOpen}

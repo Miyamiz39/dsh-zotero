@@ -101,6 +101,10 @@ export function apply(ctx: ClientContext): void {
     // reload.
     let tabDispose: (() => void) | undefined
     const tabT = ctx.locale.bind(NS)
+    // Captured once the mount resolves: the tab face closes over this local,
+    // never over the mutable `zotero` slot the cleanup clears — a resolve in
+    // the remount gap cannot throw on a cleared namespace.
+    const face: ZoteroRemoteFace = zotero
     const sync = (): void => {
       const snapshot = scope.getSnapshot()
       const enabled = snapshot.status !== 'ready' || snapshot.value?.webEnabled !== false
@@ -114,7 +118,7 @@ export function apply(ctx: ClientContext): void {
               locale: NS,
               label: () => tabT('nav'),
               inject: (): SourcesTabFace => ({
-                status: () => zotero!.status(),
+                status: () => face.status(),
               }),
             },
             SourcesTab,

@@ -31,7 +31,9 @@ export function connectionDiagnosisOf(
   connection: ConnectionView,
   t: TranslateNS<'zotero'>,
 ): string {
-  if (connection.kind === 'remote-error') return connection.message
+  // Both failure kinds carry the localized prefix so a raw English probe
+  // string never renders bare inside the zh interface.
+  if (connection.kind === 'remote-error') return `${t('diagnosisLabel')}: ${connection.message}`
   if (connection.kind === 'unavailable') {
     const diagnosis = connection.data.diagnosis
     return diagnosis === '' ? t('statusUnavailable') : `${t('diagnosisLabel')}: ${diagnosis}`

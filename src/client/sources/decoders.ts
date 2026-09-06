@@ -141,11 +141,13 @@ function decodeSupportedLibrary(value: unknown): SupportedLocalLibrary | null {
   if (!isRecord(value)) return null
   const type = stringField(value, 'type')
   const id = numberField(value, 'id')
-  if ((type !== 'user' && type !== 'group') || id === undefined || !Number.isInteger(id))
-    return null
-  if (type === 'user' && id !== 0) return null
-  if (type === 'group' && id <= 0) return null
-  return { type, id } as SupportedLocalLibrary
+  if (type === 'user' && id === 0) return { type: 'user', id: 0 }
+  // isSafeInteger: an over-long group id loses precision in transit, so an
+  // unsafe integer never names its digits.
+  if (type === 'group' && id !== undefined && Number.isSafeInteger(id) && id > 0) {
+    return { type: 'group', id }
+  }
+  return null
 }
 
 function decodeResolvedScope(value: unknown): ZoteroResolvedScope | null {
@@ -168,7 +170,9 @@ function decodeResolvedScope(value: unknown): ZoteroResolvedScope | null {
     const ref = stringField(value, 'ref')
     const name = stringField(value, 'name')
     if (ref === undefined || name === undefined) return null
-    return { kind, ref, name } as ZoteroResolvedScope
+    return kind === 'collection'
+      ? { kind: 'collection', ref, name }
+      : { kind: 'savedSearch', ref, name }
   }
   return null
 }

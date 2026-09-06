@@ -11,13 +11,13 @@
  * → parse the `globalThis["__DSH_BOOT__"]` manifest → assert the dsh-zotero
  * → assert 200 and the __ModuleLoader__.load handoff → shutdown.
  *
- * Usage: node scripts/discovery-smoke.mjs [--dsh <dsh-binary>] [--profile <dir>]
+ * Usage: node scripts/discovery-smoke.mjs [--dsh <dsh-binary>] [--home <dir>]
  * @module scripts/discovery-smoke
  */
 
 import { execFile, spawn } from 'node:child_process'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, openSync, readFileSync, rmSync, closeSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -132,16 +132,39 @@ async function main() {
 
   await execFileAsync(DSH, ['plugin', '--profile', PROFILE, 'add', tarball], { env: ENV })
 
-  const port = await reservePort()
-  const logFd = openSync(join(HOME, 'dsh-web.log'), 'a')
+  // The reserved port can be stolen between reserve and bind; retry the whole
+  // serve on EADDRINUSE instead of failing the run on a TOCTOU loss.
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await serveOnce(await reservePort())
+      break
+    } catch (error) {
+      if (error?.code !== 'EADDRINUSE' || attempt === 3) throw error
+      console.log(`port stolen (attempt ${attempt}); retrying on a fresh port`)
+    }
+  }
+
+  try {
+    rmSync(tarball, { force: true })
+    if (argAfter('--home') === undefined) rmSync(HOME, { recursive: true, force: true })
+  } catch {
+    // Best effort cleanup: a failed smoke run must not mask its own error.
+  }
+  console.log('discovery-smoke: passed')
+}
+
+async function serveOnce(port) {
+  const logPath = join(HOME, 'dsh-web.log')
+  const logFd = openSync(logPath, 'a')
   const child = spawn(DSH, ['web', '--port', String(port)], {
     // Both pipes go to the log file: an undrained pipe deadlocks the child
     // once its boot output exceeds the pipe buffer.
     stdio: ['ignore', logFd, logFd],
     env: ENV,
   })
-  const closed = new Promise((resolveClosed) => {
+  const closed = new Promise((resolveClosed, rejectClosed) => {
     child.once('exit', resolveClosed)
+    child.once('error', rejectClosed)
   })
   try {
     // The web CLI authenticates the composition behind a per-instance
@@ -177,13 +200,37 @@ async function main() {
     }
     console.log(`discovery ok: ${entry.url}`)
   } finally {
-    child.kill('SIGTERM')
-    await closed
+    try {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+    } catch {
+      // The child already failed to spawn; `closed` below carries the error.
+    }
+    try {
+      await closed
+    } finally {
+      try {
+        closeSync(logFd)
+      } catch {
+        // Best effort: the log fd must not leak even when the child failed.
+      }
+    }
   }
-
-  rmSync(tarball, { force: true })
-  if (argAfter('--home') === undefined) rmSync(HOME, { recursive: true, force: true })
-  console.log('discovery-smoke: passed')
+  // Attribute a dead child: a stolen port reads as EADDRINUSE in the log and
+  // retries on a fresh port; anything else fails the run as-is.
+  if (child.exitCode !== null && child.exitCode !== 0) {
+    let log = ''
+    try {
+      log = readFileSync(logPath, 'utf8')
+    } catch {
+      // No log to attribute with; fall through to the generic failure below.
+    }
+    if (log.includes('EADDRINUSE')) {
+      const stolen = new Error(`dsh web could not bind port ${port} (EADDRINUSE)`)
+      stolen.code = 'EADDRINUSE'
+      throw stolen
+    }
+    throw new Error(`dsh web exited with code ${child.exitCode} before serving`)
+  }
 }
 
 main().catch((error) => {

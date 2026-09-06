@@ -8,12 +8,12 @@
 
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EvidenceCard } from '../../src/client/components/EvidenceCard.tsx'
 import {
-  EvidenceCard,
   availabilityLineOf,
   coverageLineOf,
   sourceLabelKeyOf,
-} from '../../src/client/components/EvidenceCard.tsx'
+} from '../../src/client/evidence-labels.ts'
 import { EvidenceOverview } from '../../src/client/components/workspace/EvidenceOverview.tsx'
 import { zh } from '../../src/client/locales.ts'
 import type { SourceItem } from '../../src/client/sources/model.ts'

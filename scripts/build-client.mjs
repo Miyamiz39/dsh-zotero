@@ -66,9 +66,16 @@ function buildCommitOf() {
 }
 
 /** Platform modules the loader's module table answers; never bundled. The
- *  snapshot-store library (`@deepseek-ai/dsh-client-store`) is deliberately
- *  absent: it is a plain library with no module-table row, so it bundles in. */
-const EXTERNALS = ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives']
+ *  snapshot-store library (`@deepseek-ai/dsh-client-store`) shares the shell
+ *  singleton via the module table (harness `packages/client/web/src/platform.ts`
+ *  `PLATFORM_MODULES` + `seed.ts:getStaticModules`), so it stays external
+ *  alongside react and the UI primitives instead of bundling zustand/immer. */
+const EXTERNALS = [
+  'react',
+  'react/jsx-runtime',
+  '@deepseek-ai/dsh-client-store',
+  '@deepseek-ai/dsh-client-ui-primitives',
+]
 
 /** Inline `.module.css` files as scoped style injections (mirrors the harness
  *  tsdown preset's CSS handling; the loader executes the bundle as a classic
@@ -123,7 +130,7 @@ const options = {
   external: EXTERNALS,
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-    // The bundled snapshot store's dependencies (zustand/immer) probe the
+    // The external snapshot store's dependencies (zustand/immer) probe the
     // bundler mode exactly the way the harness tsdown preset substitutes
     // them: the bare `import.meta.env` truthiness probe AND the MODE key.
     'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),

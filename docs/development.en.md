@@ -32,17 +32,17 @@ tests/                  # Unit tests (mock Zotero server)
 ## Install and build
 
 ```sh
-npm install --no-workspaces  # this repo lives inside the deepseek-harness workspace
+npm install                  # sibling of deepseek-harness; add --no-workspaces only for a nested copy
 npm test                     # unit tests (mock Zotero server + browser card tests)
 npm run typecheck            # tsc --noEmit (node/test/client projects)
 npm run build                # tsc + esbuild (node lib/ + browser lib/client.js)
 npm run build:client         # rebuild browser side only
-npm run test:coverage        # 100% coverage on src/
+npm run test:coverage        # coverage gate (97 statements / 95 branches / 98 functions / 97 lines)
 npm run format               # prettier --write
 npm run format:check         # format check
 ```
 
-> This repo is nested inside the deepseek-harness workspace and requires `npm install --no-workspaces`.
+> This repo sits beside deepseek-harness as a sibling (see AGENTS.md): plain `npm install`. Add `--no-workspaces` only when nested inside the harness workspace.
 
 ## Integration tests
 
@@ -98,14 +98,14 @@ npm run dev:client                # esbuild watch
 
 - Unit tests use MockZotero (mock HTTP server)
 - Browser card tests use jsdom + @testing-library/react
-- src/ 100% coverage (excluding src/index.ts and src/types.ts)
+- Coverage gate lives in `vitest.config.ts` (97 statements / 95 branches / 98 functions / 97 lines; `src/index.ts`, `src/types.ts`, `css-modules.d.ts`, `sources/model.ts` are types-only/re-export exclusions)
 - Integration tests run against real Zotero, skipped by default
 
 ## Release checklist
 
 - `npm test` passes
 - `npm run typecheck` passes
-- `npm run test:coverage` passes (100%)
+- `npm run test:coverage` passes (gate above)
 - `npm run format:check` passes
 - `npm run build` succeeds
 - smoke.mjs passes after tarball install

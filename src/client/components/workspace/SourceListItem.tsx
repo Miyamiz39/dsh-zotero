@@ -62,9 +62,10 @@ export function SourceListItem({
       className={clsx(css.listItem, selected && css.listItemSelected)}
       onClick={onSelect}
       onKeyDown={(event) => {
-        // Enter confirms the selection on narrow surfaces (the parent moves
-        // to the detail pane); the arrows are handled by the listbox.
-        if (event.key === 'Enter') {
+        // Enter and Space confirm the selection on narrow surfaces (the
+        // parent moves to the detail pane); the arrows are handled by the
+        // listbox. Space needs preventDefault or the list scrolls instead.
+        if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           onSelect()
         }
