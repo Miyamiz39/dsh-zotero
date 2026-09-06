@@ -3,7 +3,7 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
     "noEmit": true,
     "allowImportingTsExtensions": true,
@@ -11,7 +11,19 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": []
+    "types": [],
+    // The npm registry lags the harness checkout this repo develops against,
+    // so the UI primitives resolve to the sibling workspace source instead of
+    // the installed (older) package types. The client bundle marks the
+    // package external and the 0.1.3-alpha.1 host serves the real
+    // implementation; this mapping is the type side of that same contract.
+    // Re-check the path on any harness relocation; prefer the published
+    // types only once the registry actually carries them.
+    "paths": {
+      "@deepseek-ai/dsh-client-ui-primitives": [
+        "../deepseek-harness/packages/client/ui-primitives/src/index.ts"
+      ]
+    }
   },
   "include": ["src/client", "tests/client"]
 }
