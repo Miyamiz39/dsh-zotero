@@ -158,6 +158,10 @@ export async function withConnectivityAsk<T>(
     }
     const answerItem = answer.answers.find((item) => item.id === 'zotero-failure')
     const selected = answerItem?.selected ?? []
+    // Matched by label string because the answer protocol carries only
+    // selected labels (no stable option ids); the labels are code constants
+    // (FAILURE_SPECS), never i18n copy, so a rename breaks the build's
+    // contract visibly in one place. Revisit if the protocol gains option ids.
     if (!selected.includes(spec.retryLabel)) throw error
     // Outside the catch: a second failure propagates as-is, never re-asking.
     return await run()

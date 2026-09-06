@@ -5,13 +5,15 @@
  * @module dsh-zotero/local/attachment-location
  */
 
-import { existsSync } from 'node:fs'
+import { access } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { ZoteroHttpClient } from '../http-client.js'
 import {
+  errnoCodeOf,
   ZOTERO_FILE_MISSING,
   ZOTERO_INVALID_ARGUMENT,
   ZOTERO_NO_ATTACHMENT,
+  ZOTERO_UNEXPECTED,
   ZoteroError,
 } from '../errors.js'
 import { asRecord, asString } from '../json.js'
@@ -115,12 +117,28 @@ export async function getAttachmentLocation(
     `Zotero reported no usable file location for attachment ${attachmentKey}.`,
   )
   if (target.protocol === 'file:') {
-    const path = fileURLToPath(target)
-    if (!existsSync(path)) {
+    let path: string
+    try {
+      path = fileURLToPath(target)
+    } catch (error) {
       throw new ZoteroError(
-        `The attachment file is missing from disk: ${path}`,
-        ZOTERO_FILE_MISSING,
+        `Zotero reported an attachment file location that is not a usable local path.`,
+        ZOTERO_NO_ATTACHMENT,
+        { cause: error },
       )
+    }
+    try {
+      await access(path)
+    } catch (error) {
+      if (errnoCodeOf(error) === 'ENOENT') {
+        throw new ZoteroError(
+          `The attachment file is missing from disk: ${path}`,
+          ZOTERO_FILE_MISSING,
+        )
+      }
+      throw new ZoteroError(`The attachment file cannot be accessed: ${path}`, ZOTERO_UNEXPECTED, {
+        cause: error,
+      })
     }
     return { ref: formattedRef, title, contentType, kind: 'file', path }
   }

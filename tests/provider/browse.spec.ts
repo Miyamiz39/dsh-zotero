@@ -56,6 +56,11 @@ describe('browse: validation', () => {
       'q/match are only valid when kind="tags"',
     )
     await zoteroError(
+      provider.browse({ kind: 'tags', match: 'contains', offset: 0, limit: 5 }),
+      ZOTERO_INVALID_ARGUMENT,
+      'match requires q',
+    )
+    await zoteroError(
       provider.browse({
         kind: 'tags',
         scope: { kind: 'collection', refOrName: '' },

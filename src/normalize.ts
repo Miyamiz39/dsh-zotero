@@ -386,7 +386,14 @@ export function partitionChildren(
       if (wantsAttachments) attachments.push(normalizeAttachmentRecord(row))
     }
   }
-  annotationRows.sort((a, b) => annotationSortIndex(a).localeCompare(annotationSortIndex(b)))
+  // sortIndex is Zotero's opaque ordering token: compare by code unit so
+  // the order stays faithful to Zotero (and stable across ICU versions)
+  // instead of drifting with locale collation.
+  annotationRows.sort((a, b) => {
+    const indexA = annotationSortIndex(a)
+    const indexB = annotationSortIndex(b)
+    return indexA < indexB ? -1 : indexA > indexB ? 1 : 0
+  })
   return {
     notes,
     annotations: annotationRows.map((row) => normalizeAnnotationRecord(row, context)),

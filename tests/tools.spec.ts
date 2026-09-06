@@ -632,6 +632,34 @@ describe('zotero_children tool', () => {
     )
     expect((text[0] as { text: string }).text).toContain('No child kinds requested.')
   })
+
+  it('renders annotations without page labels bare', async () => {
+    const text = renderChildren(
+      { ref: 'zotero://user/0/item/ABCD1234' },
+      {
+        ref: 'zotero://user/0/item/ABCD1234',
+        annotations: {
+          total: 1,
+          returned: 1,
+          items: [{ ref: 'zotero://user/0/annotation/A1', type: 'highlight', text: 't' }],
+        },
+      },
+    )
+    expect((text[0] as { text: string }).text).toContain('- zotero://user/0/annotation/A1: t')
+  })
+
+  it('rejects an explicit empty include before any request', async () => {
+    const result = await runTool('zotero_children', {
+      ref: 'zotero://user/0/item/ABCD1234',
+      include: [],
+    })
+    expect(result.isError).toBe(true)
+    if (!result.isError) throw new Error('unreachable')
+    expect((result.content[0] as { text: string }).text).toContain(
+      'include must list at least one child kind',
+    )
+    expect(mock.requests).toEqual([])
+  })
 })
 
 describe('zotero_attachment tool', () => {
@@ -680,6 +708,21 @@ describe('zotero_attachment tool', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('rejects a file location no local path can express', async () => {
+    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
+      helpers.json(FILE_ATTACHMENT),
+    )
+    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
+      helpers.text('file://otherhost/shared/paper.pdf'),
+    )
+    const result = await runTool('zotero_attachment', {
+      ref: 'zotero://user/0/attachment/WXYZ6789',
+    })
+    expect(result.isError).toBe(true)
+    if (!result.isError) throw new Error('unreachable')
+    expect((result.content[0] as { text: string }).text).toContain('not a usable local path')
   })
 
   it('resolves an item ref to its best attachment', async () => {
@@ -1449,6 +1492,16 @@ describe('zotero_changes tool', () => {
     expect(mock.requests).toEqual([])
   })
 
+  it('rejects an explicit empty include before any request', async () => {
+    const result = await runTool('zotero_changes', { since: 42, include: [] })
+    expect(result.isError).toBe(true)
+    if (!result.isError) throw new Error('unreachable')
+    expect((result.content[0] as { text: string }).text).toContain(
+      'include must list at least one resource kind',
+    )
+    expect(mock.requests).toEqual([])
+  })
+
   it('renders bare baselines, truncation markers, and long lists honestly', () => {
     const bare = renderChanges({}, { changed: {} } as never)
     expect((bare[0] as { text: string }).text).toContain('Baseline reading.')
@@ -1491,6 +1544,16 @@ describe('zotero_browse validation', () => {
       { args: { kind: 'unsupported' }, contains: 'kind' },
       // match is only meaningful alongside q
       { args: { kind: 'tags', match: 'contains' }, contains: 'match requires q' },
+      // blank free text is invalid wherever it is meaningful
+      { args: { kind: 'tags', q: '   ' }, contains: 'q must be a non-empty string' },
+      {
+        args: { kind: 'tags', tagScope: 'library', itemQuery: '  ' },
+        contains: 'itemQuery must be a non-empty string',
+      },
+      {
+        args: { kind: 'tags', tagScope: 'collection', tagCollection: ' ' },
+        contains: 'tagCollection must be a non-empty string',
+      },
       // the global kinds refuse a library parameter
       {
         args: { kind: 'libraries', library: { type: 'group', id: 1 } },
@@ -1647,6 +1710,18 @@ describe('tool presentation', () => {
       rawInput: 'zotero://user/0/attachment/WXYZ6789',
     })
     expect(
+      definition('zotero_children').presentCall!({ ref: 'zotero://user/0/item/ABCD1234' }),
+    ).toEqual({
+      card: 'generic',
+      kind: 'read',
+      title: 'Read Zotero children',
+      rawInput: 'zotero://user/0/item/ABCD1234',
+    })
+    expect(definition('zotero_children').isConcurrencySafe?.({})).toBe(false)
+    expect(
+      definition('zotero_children').isConcurrencySafe?.({ ref: 'zotero://user/0/item/ABCD1234' }),
+    ).toBe(true)
+    expect(
       definition('zotero_retrieve').presentCall!({
         ref: 'zotero://user/0/item/ABCD1234',
         query: 'tiling',
@@ -1751,37 +1826,146 @@ describe('tool presentation', () => {
     })
   })
 
-  it('falls back to the generic card on failed calls and absent metadata', () => {
-    const tool = definition('zotero_search')
+  it.each([
+    [
+      'zotero_get',
+      { ref: 'zotero://user/0/item/ABCD1234' },
+      { title: 'FlashAttention-2', year: 2023 },
+      'Zotero item: FlashAttention-2 (2023)',
+    ],
+    [
+      'zotero_get',
+      { ref: 'zotero://user/0/item/ABCD1234' },
+      { title: 'Paper' },
+      'Zotero item: Paper',
+    ],
+    [
+      'zotero_children',
+      { ref: 'zotero://user/0/item/ABCD1234' },
+      { notes: { total: 2, returned: 2 }, attachments: { total: 1, returned: 1 } },
+      'Zotero children: 2 notes, 1 attachments',
+    ],
+    [
+      'zotero_attachment',
+      { ref: 'zotero://user/0/item/ABCD1234' },
+      { title: 'paper.pdf', kind: 'file' },
+      'Zotero attachment: paper.pdf (file)',
+    ],
+    [
+      'zotero_retrieve',
+      { ref: 'zotero://user/0/item/ABCD1234', query: 'tiling' },
+      { count: 4, truncated: true },
+      'Zotero evidence: 4 passages (truncated)',
+    ],
+    [
+      'zotero_export',
+      { refs: ['zotero://user/0/item/ABCD1234'], format: 'citation' },
+      { format: 'citation', count: 2 },
+      'Zotero export: 2 citations',
+    ],
+    [
+      'zotero_export',
+      { refs: ['zotero://user/0/item/ABCD1234'], format: 'bibtex' },
+      { format: 'bibtex', requested: 3 },
+      'Zotero export: 3 refs as bibtex',
+    ],
+    [
+      'zotero_browse',
+      { kind: 'tags' },
+      { kind: 'tags', returned: 5, total: 20 },
+      'Zotero browse: tags (5 of 20)',
+    ],
+    [
+      'zotero_changes',
+      {},
+      { changed: { items: [{ key: 'A', version: 2 }] }, deleted: { items: [] } },
+      'Zotero changes: 1 changed or deleted',
+    ],
+    ['zotero_changes', {}, { toVersion: 7 }, 'Zotero changes: baseline at version 7'],
+    ['zotero_changes', {}, { fromVersion: 3, toVersion: 7 }, 'Zotero changes: 3 → 7'],
+  ])('renders a completed card for %s', (name, args, meta, title) => {
+    const result: ToolResult = {
+      content: [{ type: 'text', text: 'x' }],
+      isError: false,
+      meta: meta as ToolResult['meta'],
+    }
+    expect(definition(name).presentResult!(args, result)).toEqual({ card: 'generic', title })
+  })
+
+  it('falls back to the generic card for the other tools on bad metadata', () => {
+    const err = (meta: unknown): ToolResult => ({
+      content: [{ type: 'text', text: 'Error: x' }],
+      isError: true,
+      ...(meta === undefined ? {} : { meta: meta as ToolResult['meta'] }),
+    })
+    const ok = (meta: unknown): ToolResult => ({
+      content: [{ type: 'text', text: 'x' }],
+      isError: false,
+      ...(meta === undefined ? {} : { meta: meta as ToolResult['meta'] }),
+    })
+    const argsFor: Record<string, Record<string, unknown>> = {
+      zotero_get: { ref: 'zotero://user/0/item/ABCD1234' },
+      zotero_children: { ref: 'zotero://user/0/item/ABCD1234' },
+      zotero_attachment: { ref: 'zotero://user/0/item/ABCD1234' },
+      zotero_retrieve: { ref: 'zotero://user/0/item/ABCD1234', query: 'tiling' },
+      zotero_export: { refs: ['zotero://user/0/item/ABCD1234'], format: 'citation' },
+      zotero_browse: { kind: 'tags' },
+      zotero_changes: {},
+    }
+    for (const name of Object.keys(argsFor)) {
+      const tool = definition(name)
+      const args = argsFor[name]
+      expect(tool.presentResult).toBeDefined()
+      expect(tool.presentResult!(args, err({}))).toBeUndefined()
+      expect(tool.presentResult!(args, ok(undefined))).toBeUndefined()
+      expect(tool.presentResult!(args, ok('junk'))).toBeUndefined()
+      expect(tool.presentResult!(args, ok([]))).toBeUndefined()
+    }
+    const getArgs = argsFor.zotero_get
+    expect(definition('zotero_get').presentResult!(getArgs, ok({}))).toBeUndefined()
+    expect(definition('zotero_get').presentResult!(getArgs, ok({ title: '' }))).toBeUndefined()
+    const childrenArgs = argsFor.zotero_children
+    expect(definition('zotero_children').presentResult!(childrenArgs, ok({}))).toBeUndefined()
     expect(
-      tool.presentResult!(
-        {},
-        {
-          content: [{ type: 'text', text: 'Error: x' }],
-          isError: true,
-          meta: { returned: 1, total: 1, nextOffset: null },
-        },
+      definition('zotero_children').presentResult!(childrenArgs, ok({ notes: { total: 'x' } })),
+    ).toBeUndefined()
+    expect(
+      definition('zotero_children').presentResult!(childrenArgs, ok({ notes: 'x' })),
+    ).toBeUndefined()
+    const attachmentArgs = argsFor.zotero_attachment
+    expect(
+      definition('zotero_attachment').presentResult!(
+        attachmentArgs,
+        ok({ title: 'a', kind: 'other' }),
       ),
     ).toBeUndefined()
     expect(
-      tool.presentResult!({}, { content: [{ type: 'text', text: 'x' }], isError: false }),
+      definition('zotero_attachment').presentResult!(attachmentArgs, ok({ kind: 'file' })),
+    ).toBeUndefined()
+    const retrieveArgs = argsFor.zotero_retrieve
+    expect(definition('zotero_retrieve').presentResult!(retrieveArgs, ok({}))).toBeUndefined()
+    expect(definition('zotero_retrieve').presentResult!(retrieveArgs, ok({ count: 2 }))).toEqual({
+      card: 'generic',
+      title: 'Zotero evidence: 2 passages',
+    })
+    const exportArgs = argsFor.zotero_export
+    expect(definition('zotero_export').presentResult!(exportArgs, ok({}))).toBeUndefined()
+    expect(
+      definition('zotero_export').presentResult!(exportArgs, ok({ format: 'citation' })),
     ).toBeUndefined()
     expect(
-      tool.presentResult!(
-        {},
-        { content: [{ type: 'text', text: 'x' }], isError: false, meta: 'junk' },
-      ),
+      definition('zotero_export').presentResult!(exportArgs, ok({ format: '', requested: 1 })),
     ).toBeUndefined()
     expect(
-      tool.presentResult!(
-        {},
-        {
-          content: [{ type: 'text', text: 'x' }],
-          isError: false,
-          meta: { returned: 'x', total: 42 },
-        },
-      ),
+      definition('zotero_export').presentResult!(exportArgs, ok({ format: 'ris' })),
     ).toBeUndefined()
+    const browseArgs = argsFor.zotero_browse
+    expect(definition('zotero_browse').presentResult!(browseArgs, ok({}))).toBeUndefined()
+    expect(
+      definition('zotero_browse').presentResult!(browseArgs, ok({ kind: 'tags', returned: 1 })),
+    ).toBeUndefined()
+    const changesArgs = argsFor.zotero_changes
+    expect(definition('zotero_changes').presentResult!(changesArgs, ok({}))).toBeUndefined()
   })
 })
 

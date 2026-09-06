@@ -71,7 +71,12 @@ export interface ZoteroSearchPresentationMeta {
   readonly noteMatches: number | null
   readonly items: ZoteroSearchPresentationRow[]
   readonly scope: ZoteroResolvedScope
-  readonly library: SupportedLocalLibrary
+  /**
+   * The library the scope resolved to; absent when the scope ref is
+   * unparseable or names an unsupported library — callers omit the badge
+   * instead of mislabeling the page as personal.
+   */
+  readonly library?: SupportedLocalLibrary
 }
 
 /** One bounded child preview: personal note/annotation, kept distinct from item metadata. */
@@ -217,15 +222,15 @@ function sourcesOf(evidence: ReadonlyArray<{ readonly source: string }>): Zotero
   return sources
 }
 
-function libraryOfScope(scope: ZoteroResolvedScope): SupportedLocalLibrary {
+function libraryOfScope(scope: ZoteroResolvedScope): SupportedLocalLibrary | undefined {
   if (scope.kind === 'library' || scope.kind === 'publications') return scope.library
   try {
     const parsed = parseRef(scope.ref)
-    if (!isSupportedLocalLibrary(parsed.library)) return { type: 'user', id: 0 }
+    if (!isSupportedLocalLibrary(parsed.library)) return undefined
     if (parsed.library.type === 'group') return { type: 'group', id: parsed.library.id }
     return { type: 'user', id: 0 }
   } catch {
-    return { type: 'user', id: 0 }
+    return undefined
   }
 }
 
@@ -265,6 +270,7 @@ export function projectSearchMeta(value: SearchProjectionInput): ZoteroSearchPre
   }
   const displayed = items.length
   const supplementCount = value.supplemental?.items.length ?? 0
+  const library = libraryOfScope(value.scope)
   return {
     returned: value.returned,
     total: value.total,
@@ -274,7 +280,7 @@ export function projectSearchMeta(value: SearchProjectionInput): ZoteroSearchPre
     noteMatches: value.supplemental === undefined ? null : supplementCount,
     items,
     scope: value.scope,
-    library: libraryOfScope(value.scope),
+    ...(library === undefined ? {} : { library }),
   }
 }
 
@@ -423,13 +429,11 @@ export function projectAttachmentMeta(
  * key, title — never the entry text) in the same bound; the byte-budget
  * guard may drop them entirely (see `boundedPresentationMeta`), never part
  * of it.
- * @param requested - the requested ref count from the call arguments.
  * @param value - the canonical export result.
- * @param refs - the exported refs, in the caller's order.
+ * @param refs - the exported refs, in the caller's order; their count is the request size.
  * @returns the bounded projection.
  */
 export function projectExportMeta(
-  requested: number,
   value: {
     readonly format: string
     readonly style?: string
@@ -449,7 +453,7 @@ export function projectExportMeta(
 ): ZoteroExportPresentationMeta {
   const base = {
     format: value.format,
-    requested,
+    requested: refs.length,
     ...(value.style === undefined
       ? {}
       : { style: truncateChars(value.style, MAX_PRESENTATION_GET_TITLE_CHARS) }),

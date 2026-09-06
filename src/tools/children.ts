@@ -10,10 +10,18 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { defineTool, type InferArgs, type InferValue } from '@deepseek-ai/dsh-tools'
+import {
+  defineTool,
+  type InferArgs,
+  type InferValue,
+  type ToolResult,
+  type ToolResultView,
+} from '@deepseek-ai/dsh-tools'
 import { withConnectivityAsk } from '../ask.js'
+import { asRecord } from '../json.js'
 import { boundedPresentationMeta } from '../presentation-meta.js'
-import { parseSupportedRef } from './validate.js'
+import { metaRecordOf } from './present.js'
+import { assertNonEmptyList, parseSupportedRef } from './validate.js'
 import type { ZoteroService } from '../service.js'
 import type { ZoteroChildrenInclude, ZoteroChildrenRequest } from '../types.js'
 
@@ -117,6 +125,9 @@ type ChildrenOutput = InferValue<typeof CHILDREN_OUTPUT_SCHEMA>
 
 function buildRequest(args: ChildrenArgs): ZoteroChildrenRequest {
   const ref = parseSupportedRef(args.ref, ['item', 'attachment'])
+  if (args.include !== undefined) {
+    assertNonEmptyList(args.include, 'include must list at least one child kind when provided')
+  }
   const include = new Set<ZoteroChildrenInclude>(
     (args.include as ZoteroChildrenInclude[] | undefined) ?? [
       'notes',
@@ -152,6 +163,28 @@ export function renderChildren(_args: ChildrenArgs, value: ChildrenOutput): Cont
   return [{ type: 'text', text: lines.join('\n') }]
 }
 
+/**
+ * The completed children card: per-kind totals for the sections the call
+ * returned. `meta` is absent on nested code dispatch or malformed replay
+ * records, and a failed call keeps the raw error content — both fall back to
+ * the generic card.
+ */
+function presentChildrenResult(
+  _args: ChildrenArgs,
+  result: ToolResult,
+): ToolResultView | undefined {
+  const record = metaRecordOf(result)
+  if (record === undefined) return undefined
+  const parts: string[] = []
+  for (const key of ['notes', 'attachments', 'annotations'] as const) {
+    const total = asRecord(record[key])?.total
+    if (typeof total !== 'number') continue
+    parts.push(`${total} ${key}`)
+  }
+  if (parts.length === 0) return undefined
+  return { card: 'generic', title: `Zotero children: ${parts.join(', ')}` }
+}
+
 export function registerChildrenTool(ctx: Context, service: ZoteroService): void {
   ctx.tools.register(
     defineTool({
@@ -166,7 +199,8 @@ export function registerChildrenTool(ctx: Context, service: ZoteroService): void
       output: {
         schema: CHILDREN_OUTPUT_SCHEMA,
         render: renderChildren,
-        presentationMeta: (_args, value) => boundedPresentationMeta(value, []),
+        presentationMeta: (_args, value) =>
+          boundedPresentationMeta(value, ['notes', 'attachments', 'annotations']),
       },
       presentCall: (args) => ({
         card: 'generic',
@@ -174,6 +208,7 @@ export function registerChildrenTool(ctx: Context, service: ZoteroService): void
         title: 'Read Zotero children',
         rawInput: args.ref,
       }),
+      presentResult: presentChildrenResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         return await withConnectivityAsk(ctx, exec, () =>

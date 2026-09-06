@@ -65,6 +65,7 @@ import type {
   ZoteroExportRequest,
   ZoteroExportResult,
   ZoteroProvider,
+  ZoteroProviderMethod,
   ZoteroRetrieveRequest,
   ZoteroRetrieveResult,
   ZoteroSearchRequest,
@@ -211,7 +212,8 @@ export class ZoteroService extends Service {
   async search(request: ZoteroSearchRequest, signal?: AbortSignal): Promise<ZoteroSearchResult> {
     const provider = this.resolveProvider()
     this.requireCapability(provider, 'search')
-    return await provider.search(request, signal)
+    const search = this.requireMethod(provider, 'search')
+    return await search(request, signal)
   }
 
   /**
@@ -223,7 +225,8 @@ export class ZoteroService extends Service {
   async get(request: ZoteroGetRequest, signal?: AbortSignal): Promise<ZoteroItemDetail> {
     const provider = this.resolveProvider()
     this.requireCapability(provider, 'metadata')
-    return await provider.getItem(request, signal)
+    const getItem = this.requireMethod(provider, 'getItem')
+    return await getItem(request, signal)
   }
 
   /**
@@ -238,7 +241,8 @@ export class ZoteroService extends Service {
   ): Promise<ZoteroChildrenResult> {
     const provider = this.resolveProvider()
     this.requireCapability(provider, 'metadata')
-    return await provider.children(request, signal)
+    const children = this.requireMethod(provider, 'children')
+    return await children(request, signal)
   }
 
   /**
@@ -250,7 +254,8 @@ export class ZoteroService extends Service {
   async attachment(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<ZoteroAttachmentLocation> {
     const provider = this.resolveProvider()
     this.requireCapability(provider, 'attachments')
-    return await provider.getAttachmentLocation(ref, signal)
+    const getAttachmentLocation = this.requireMethod(provider, 'getAttachmentLocation')
+    return await getAttachmentLocation(ref, signal)
   }
 
   /**
@@ -267,7 +272,8 @@ export class ZoteroService extends Service {
     // Retrieve is ranked evidence across sources — a broader contract than
     // raw fulltext access, so it gates on its own capability.
     this.requireCapability(provider, 'retrieve')
-    return await provider.retrieve(request, signal)
+    const retrieve = this.requireMethod(provider, 'retrieve')
+    return await retrieve(request, signal)
   }
 
   /**
@@ -279,13 +285,15 @@ export class ZoteroService extends Service {
   async export(request: ZoteroExportRequest, signal?: AbortSignal): Promise<ZoteroExportResult> {
     const provider = this.resolveProvider()
     this.requireCapability(provider, 'citation')
-    return await provider.export(request, signal)
+    const doExport = this.requireMethod(provider, 'export')
+    return await doExport(request, signal)
   }
 
   async browse(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult> {
     const provider = this.resolveProvider()
     this.requireCapability(provider, 'browse')
-    return await provider.browse(request, signal)
+    const browse = this.requireMethod(provider, 'browse')
+    return await browse(request, signal)
   }
 
   /**
@@ -297,10 +305,11 @@ export class ZoteroService extends Service {
   async changes(request: ZoteroChangesRequest, signal?: AbortSignal): Promise<ZoteroChangesResult> {
     const provider = this.resolveProvider()
     this.requireCapability(provider, 'changes')
-    return await provider.changes(request, signal)
+    const changes = this.requireMethod(provider, 'changes')
+    return await changes(request, signal)
   }
 
-  protected resolveProvider(): ZoteroProvider {
+  private resolveProvider(): ZoteroProvider {
     const provider = this.providers.get(this.config.provider)
     if (provider === undefined) {
       throw new ZoteroError(
@@ -311,13 +320,36 @@ export class ZoteroService extends Service {
     return provider
   }
 
-  protected requireCapability(provider: ZoteroProvider, capability: ZoteroCapability): void {
+  private requireCapability(provider: ZoteroProvider, capability: ZoteroCapability): void {
     if (!provider.capabilities.has(capability)) {
       throw new ZoteroError(
         `Zotero provider "${provider.id}" does not support the ${capability} capability.`,
         ZOTERO_CAPABILITY_UNAVAILABLE,
       )
     }
+  }
+
+  /**
+   * Second gate behind `requireCapability`: the method itself must exist.
+   * A provider that declares a capability but leaves the method undefined is
+   * miswired, so this fails with `ZOTERO_PROVIDER_UNAVAILABLE` (provider bug)
+   * rather than the capability code (unsupported domain). The returned
+   * function is bound to the provider so class-method `this` survives the
+   * detachment.
+   */
+  private requireMethod<M extends ZoteroProviderMethod>(
+    provider: ZoteroProvider,
+    method: M,
+  ): NonNullable<ZoteroProvider[M]> {
+    const fn: unknown = provider[method]
+    if (typeof fn !== 'function') {
+      throw new ZoteroError(
+        `Zotero provider "${provider.id}" declares support but does not implement ${method}.`,
+        ZOTERO_PROVIDER_UNAVAILABLE,
+      )
+    }
+    const bound = (fn as (...args: never[]) => unknown).bind(provider)
+    return bound as NonNullable<ZoteroProvider[M]>
   }
 }
 
@@ -341,6 +373,7 @@ function localProviderLimits(config: ResolvedConfig): LocalApiLimits {
     maxFulltextChars: config.maxFulltextChars,
     maxExportChars: config.maxExportChars,
     maxBrowseResults: config.maxBrowseResults,
+    maxChangesResults: config.maxChangesResults,
     defaultStyle: config.defaultStyle,
     defaultLocale: config.defaultLocale,
   }

@@ -22,6 +22,7 @@ describe('resolveConfig', () => {
       maxExportChars: 1_000_000,
       maxExportRefs: 50,
       maxBrowseResults: 50,
+      maxChangesResults: 50,
       defaultStyle: 'apa',
       defaultLocale: 'en-US',
       webEnabled: true,
@@ -67,6 +68,14 @@ describe('resolveConfig', () => {
     )
     expect(resolveConfig({ baseUrl: 'http://[::1]:23119/api' }).baseUrl).toBe(
       'http://[::1]:23119/api',
+    )
+  })
+
+  it('rejects base URLs whose path is not the Local API root', () => {
+    expect(() => resolveConfig({ baseUrl: 'http://127.0.0.1:23119/' })).toThrowError(/\/api/)
+    expect(() => resolveConfig({ baseUrl: 'http://127.0.0.1:23119/v2' })).toThrowError(/\/api/)
+    expect(resolveConfig({ baseUrl: 'http://127.0.0.1:23119/api/v3' }).baseUrl).toBe(
+      'http://127.0.0.1:23119/api/v3',
     )
   })
 

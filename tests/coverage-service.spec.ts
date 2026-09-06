@@ -162,6 +162,7 @@ describe('service browse and search new filters', () => {
       defaultStyle: 'apa',
       defaultLocale: 'en-US',
       maxBrowseResults: 50,
+      maxChangesResults: 50,
     })
     // Directly test buildSearchParams via search call with tagMatch any and excludeTags
     mock.route('GET', '/api/users/0/items/top', (req, res, helpers) => {

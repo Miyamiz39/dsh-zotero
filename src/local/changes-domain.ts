@@ -7,13 +7,12 @@
  */
 
 import type { ZoteroHttpClient } from '../http-client.js'
-import { isNotFoundError, ZOTERO_NOT_FOUND } from '../errors.js'
-import { asRecord, asString, isObjectKey } from '../json.js'
+import { ZOTERO_NOT_FOUND } from '../errors.js'
+import { asRecord, isObjectKey } from '../json.js'
 import { libraryPrefix, PERSONAL_LIBRARY } from '../refs.js'
 import type { LocalApiLimits } from './limits.js'
-import { ZOTERO_INVALID_ARGUMENT, ZOTERO_UNEXPECTED, ZoteroError } from '../errors.js'
+import { ZoteroError } from '../errors.js'
 import type {
-  SupportedLocalLibrary,
   ZoteroChangesInclude,
   ZoteroChangesRequest,
   ZoteroChangedObject,
@@ -45,7 +44,7 @@ export async function changes(
 ): Promise<ZoteroChangesResult> {
   const library = request.library ?? PERSONAL_LIBRARY
   const prefix = libraryPrefix(library)
-  const cap = deps.limits.maxBrowseResults
+  const cap = deps.limits.maxChangesResults
   const include = request.include ?? new Set(ZOTERO_CHANGES_INCLUDES)
   let serverId: string | undefined
   let toVersion: number | undefined

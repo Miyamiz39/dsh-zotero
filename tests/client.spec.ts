@@ -131,6 +131,21 @@ describe('identity protection', () => {
     expect(client.serverId).toBe('NEWID')
   })
 
+  it('fails closed instead of looping when the identity refresh itself 412s', async () => {
+    let rootHits = 0
+    mock.route('GET', '/api/', (req, res, helpers) => {
+      rootHits += 1
+      helpers.raw(412, { 'Content-Type': 'text/plain' }, 'no identity to match')
+    })
+    routeServerMismatch()
+    await expectZoteroError(client.getJson('users/0/items'), ZOTERO_SERVER_MISMATCH)
+    // One original request plus exactly one guarded refresh: no 412→refresh loop.
+    expect(rootHits).toBe(1)
+    expect(
+      mock.requests.filter((request) => request.pathname === '/api/users/0/items'),
+    ).toHaveLength(1)
+  })
+
   it('keeps SERVER_MISMATCH when the identity refresh fails with a non-2xx status', async () => {
     mock.route('GET', '/api/', (req, res, helpers) =>
       helpers.raw(500, { 'Content-Type': 'text/plain' }, 'boom'),

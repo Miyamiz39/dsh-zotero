@@ -46,11 +46,18 @@ export interface Config {
   maxExportRefs?: number
   /** Upper bound for items a browse call may return */
   maxBrowseResults?: number
+  /** Per-resource listing cap for `zotero_changes` diffs; kept apart from the browse page cap. */
+  maxChangesResults?: number
   /** CSL style for citation/bibliography formats; must be bundled with Zotero (e.g. `apa`). */
   defaultStyle?: string
   /** CSL locale for citation/bibliography formats. */
   defaultLocale?: string
-  /** Whether the dedicated Zotero web view (tool cards in a conversation tab) is enabled. */
+  /**
+   * Whether the dedicated Zotero web view (tool cards in a conversation tab) is enabled.
+   * Client-only: the host half never reads this (it shares the `zotero`
+   * settings namespace so the card and the tab stay on one document); only
+   * `src/client/` gates on it. Do not branch host behavior on it.
+   */
   webEnabled?: boolean
 }
 
@@ -73,6 +80,7 @@ export const Config: Schema<Config> = Schema.object({
   maxExportChars: Schema.number().default(1_000_000),
   maxExportRefs: Schema.number().default(50),
   maxBrowseResults: Schema.number().default(50),
+  maxChangesResults: Schema.number().default(50),
   defaultStyle: Schema.string().default('apa'),
   defaultLocale: Schema.string().default('en-US'),
   webEnabled: Schema.boolean().default(true),
@@ -97,6 +105,7 @@ export interface ResolvedConfig {
   readonly maxExportChars: number
   readonly maxExportRefs: number
   readonly maxBrowseResults: number
+  readonly maxChangesResults: number
   readonly defaultStyle: string
   readonly defaultLocale: string
   readonly webEnabled: boolean
@@ -108,11 +117,10 @@ const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
  * Pin a loopback hostname to a loopback IP literal. `localhost` would
  * otherwise resolve through the system resolver, whose answer a hosts-file
  * change can redirect after validation; rewriting it here locks every
- * request to a verified loopback address. Node removed the synchronous
- * resolver (`dns.lookupSync` removed in 20.13), so `localhost` pins
- * directly to the IPv4 loopback literal — the address every mainstream
- * platform resolves it to — keeping validation synchronous and the
- * resolver out of every request.
+ * request to a verified loopback address. The pin is a plain string rewrite
+ * — `localhost` to the IPv4 loopback literal, the address every mainstream
+ * platform resolves it to — keeping validation synchronous and the resolver
+ * out of every request.
  */
 function pinLoopbackHostname(hostname: string): string {
   if (hostname !== 'localhost') return hostname
@@ -168,6 +176,11 @@ export function resolveConfig(config: Config): ResolvedConfig {
       `dsh-zotero: baseUrl must point at loopback (127.0.0.1, localhost, or ::1) to reach the Zotero Local API; got ${applied.baseUrl}`,
     )
   }
+  if (url.pathname !== '/api' && !url.pathname.startsWith('/api/')) {
+    throw new Error(
+      `dsh-zotero: baseUrl path must be the Local API root (/api); got ${applied.baseUrl}`,
+    )
+  }
   const hostname = pinLoopbackHostname(url.hostname)
   if (hostname !== url.hostname) {
     // The pin only rewrites `localhost` (to the IPv4 loopback literal), so
@@ -198,5 +211,6 @@ export function resolveConfig(config: Config): ResolvedConfig {
   assertPositiveInteger('maxExportChars', applied.maxExportChars)
   assertPositiveInteger('maxExportRefs', applied.maxExportRefs)
   assertPositiveInteger('maxBrowseResults', applied.maxBrowseResults)
+  assertPositiveInteger('maxChangesResults', applied.maxChangesResults)
   return { ...applied, baseUrl: url.toString() }
 }

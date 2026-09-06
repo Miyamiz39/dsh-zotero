@@ -52,8 +52,10 @@ export interface ExportItemInput {
 
 /** The start of one entry: `@type{` in letters, anywhere in the body. */
 const ENTRY_START = /@[A-Za-z]+\{/g
-const RIS_RECORD_END = /^ER  -[ ]?$/gm
-const RIS_ID = /^ID  - (.+)$/m
+// Line endings ride along in `^…$` matches, so the terminator tolerates the
+// carriage return Zotero builds that emit CRLF leave behind.
+const RIS_RECORD_END = /^ER  -[ ]?\r?$/gm
+const RIS_ID = /^ID  - (.+?)\r?$/m
 
 /** Strip an entry's citation key so batch and single-item bodies compare by content. */
 function normalizeBibtexEntry(text: string): string {

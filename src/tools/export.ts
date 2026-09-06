@@ -11,12 +11,19 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { defineTool, type InferArgs, type InferValue } from '@deepseek-ai/dsh-tools'
+import {
+  defineTool,
+  type InferArgs,
+  type InferValue,
+  type ToolResult,
+  type ToolResultView,
+} from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from '../config.js'
 import { withConnectivityAsk } from '../ask.js'
 import { boundedPresentationMeta, projectExportMeta } from '../presentation-meta.js'
+import { metaRecordOf } from './present.js'
 import { ZOTERO_ITEMKEY_BATCH } from '../constants.js'
-import { invalid, parseSupportedRef, REF_ARG_HINT } from './validate.js'
+import { assertNonEmptyList, invalid, parseSupportedRef, REF_ARG_HINT } from './validate.js'
 import type { ZoteroService } from '../service.js'
 import type { ZoteroExportFormat, ZoteroExportRequest } from '../types.js'
 
@@ -101,9 +108,9 @@ const EXPORT_OUTPUT_SCHEMA = {
               ref: { type: 'string', required: true },
               key: { type: 'string' },
               title: { type: 'string' },
-              entryIndex: { type: 'number' },
-              start: { type: 'number' },
-              end: { type: 'number' },
+              entryIndex: { type: 'integer' },
+              start: { type: 'integer' },
+              end: { type: 'integer' },
             },
           },
         },
@@ -115,7 +122,7 @@ const EXPORT_OUTPUT_SCHEMA = {
 type ExportOutput = InferValue<typeof EXPORT_OUTPUT_SCHEMA>
 
 function buildRequest(args: ExportArgs, config: ResolvedConfig): ZoteroExportRequest {
-  if (args.refs.length === 0) invalid('refs must list at least one zotero:// item ref')
+  assertNonEmptyList(args.refs, 'refs must list at least one zotero:// item ref')
   if (args.refs.length > config.maxExportRefs) {
     invalid(
       `refs must list at most ${config.maxExportRefs} item refs per call; got ${args.refs.length} — export in batches`,
@@ -152,6 +159,24 @@ function renderExport(_args: ExportArgs, value: ExportOutput): ContentBlock[] {
 }
 
 /**
+ * The completed export card: the exported citation count in citation mode,
+ * else the requested ref count with the translator format. `meta` is absent
+ * on nested code dispatch or malformed replay records, and a failed call
+ * keeps the raw error content — both fall back to the generic card.
+ */
+function presentExportResult(_args: ExportArgs, result: ToolResult): ToolResultView | undefined {
+  const record = metaRecordOf(result)
+  if (record === undefined) return undefined
+  if (typeof record.format !== 'string' || record.format === '') return undefined
+  if (record.format === 'citation') {
+    if (typeof record.count !== 'number') return undefined
+    return { card: 'generic', title: `Zotero export: ${record.count} citations` }
+  }
+  if (typeof record.requested !== 'number') return undefined
+  return { card: 'generic', title: `Zotero export: ${record.requested} refs as ${record.format}` }
+}
+
+/**
  * Register the `zotero_export` tool. The service's live config is read per
  * request so a settings edit takes effect on the next call without
  * re-registration.
@@ -175,16 +200,14 @@ export function registerExportTool(ctx: Context, service: ZoteroService): void {
         // shared byte budget drops them (with detailOmitted) rather than
         // mid-cutting the artifact facts.
         presentationMeta: (args, value) =>
-          boundedPresentationMeta(projectExportMeta(args.refs.length, value, args.refs), [
-            'refs',
-            'items',
-          ]),
+          boundedPresentationMeta(projectExportMeta(value, args.refs), ['refs', 'items']),
       },
       presentCall: (args) => ({
         card: 'generic',
         title: 'Export Zotero citations',
         rawInput: `${args.refs.length} refs · ${args.format}`,
       }),
+      presentResult: presentExportResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         return await withConnectivityAsk(ctx, exec, () =>

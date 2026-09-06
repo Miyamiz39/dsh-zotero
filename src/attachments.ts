@@ -79,6 +79,10 @@ export function normalizeAttachmentRecord(json: unknown): ZoteroAttachmentCandid
  * several PDFs (publisher copy, manuscript, supplement) can enter evidence
  * ranking as several first-class sources.
  */
+
+/** dateAdded stand-in sorting after every real ISO timestamp (unknown is not earliest). */
+const UNKNOWN_DATE_LAST = '\uffff'
+
 export function selectAttachments(
   rows: readonly unknown[],
   kind: string,
@@ -91,15 +95,19 @@ export function selectAttachments(
     if (asString(data?.contentType) === undefined) continue
     const candidate = normalizeAttachmentRecord(row)
     if (candidate.contentType !== wantedContentType) continue
-    scored.push({ candidate, dateAdded: asString(data?.dateAdded) ?? '' })
+    // Unknown dates sort last: '' would collate before any ISO timestamp and
+    // steal the earliest-added fallback, while unknown is not earliest.
+    scored.push({ candidate, dateAdded: asString(data?.dateAdded) ?? UNKNOWN_DATE_LAST })
   }
+  // dateAdded is an ISO timestamp and key an opaque token: code-unit order
+  // is chronological (and Zotero-faithful) without depending on ICU locale.
   scored.sort((a, b) => {
     const rankA = a.candidate.linkMode === 'imported_file' ? 0 : 1
     const rankB = b.candidate.linkMode === 'imported_file' ? 0 : 1
     if (rankA !== rankB) return rankA - rankB
-    const byDate = a.dateAdded.localeCompare(b.dateAdded)
-    if (byDate !== 0) return byDate
-    return a.candidate.key.localeCompare(b.candidate.key)
+    if (a.dateAdded !== b.dateAdded) return a.dateAdded < b.dateAdded ? -1 : 1
+    if (a.candidate.key !== b.candidate.key) return a.candidate.key < b.candidate.key ? -1 : 1
+    return 0
   })
   return scored.map((entry) => entry.candidate)
 }

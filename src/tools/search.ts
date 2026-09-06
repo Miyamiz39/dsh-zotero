@@ -28,7 +28,7 @@ import {
 import type { ResolvedConfig } from '../config.js'
 import { withConnectivityAsk } from '../ask.js'
 import { boundedPresentationMeta, projectSearchMeta } from '../presentation-meta.js'
-import { formatSearchLine } from './present.js'
+import { formatSearchLine, metaRecordOf } from './present.js'
 import { assertIntInRange, invalid, parseLibrary } from './validate.js'
 import type { ZoteroService } from '../service.js'
 import type { ZoteroSearchRequest } from '../types.js'
@@ -380,10 +380,8 @@ function searchPresentationMeta(_args: SearchArgs, value: SearchOutput): JsonVal
  * the raw error content — both fall back to the generic card.
  */
 function presentSearchResult(_args: SearchArgs, result: ToolResult): ToolResultView | undefined {
-  if (result.isError) return undefined
-  const meta = result.meta
-  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
-  const record = meta as Record<string, unknown>
+  const record = metaRecordOf(result)
+  if (record === undefined) return undefined
   if (typeof record.returned !== 'number' || typeof record.total !== 'number') return undefined
   const noteMatches = typeof record.noteMatches === 'number' ? record.noteMatches : 0
   return {

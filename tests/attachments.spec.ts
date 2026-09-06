@@ -91,6 +91,8 @@ describe('selectAttachments', () => {
     const tieA = { ...older, key: 'CCCC3333' }
     const tieB = { ...older, key: 'DDDD4444' }
     expect(selectAttachments([tieB, tieA], 'pdf')[0]!.key).toBe('CCCC3333')
+    // Fully tied rows keep their input order (stable sort, deterministic pick).
+    expect(selectAttachments([PDF_CHILD, { ...PDF_CHILD }], 'pdf')).toHaveLength(2)
   })
 
   it('returns undefined when no attachment of the requested kind exists', () => {
@@ -154,13 +156,13 @@ describe('attachment failure modes', () => {
 })
 
 describe('selectAttachments tie-breaking', () => {
-  it('treats a missing dateAdded as the earliest addition', () => {
+  it('sorts a missing dateAdded last (unknown is not earliest)', () => {
     const noDate = {
       key: 'AAAA1111',
       data: { itemType: 'attachment', contentType: 'application/pdf', linkMode: 'imported_file' },
     }
     const withDate = { ...PDF_CHILD, key: 'BBBB2222' }
-    expect(selectAttachments([withDate, noDate], 'pdf')[0]!.key).toBe('AAAA1111')
+    expect(selectAttachments([noDate, withDate], 'pdf')[0]!.key).toBe('BBBB2222')
   })
 })
 

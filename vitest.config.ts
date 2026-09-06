@@ -13,8 +13,8 @@ export default defineConfig({
       // The package entry is a pure re-export module; `types.ts`, the
       // sources domain model, and the ambient `css-modules.d.ts` are
       // types-only modules: none has runtime statements, so v8 reports them
-      // as permanently uncovered. Every other runtime-bearing source file
-      // must meet the 100% gate.
+      // as permanently uncovered. The global thresholds below are the gate;
+      // per-file 100% is the aspiration, not the enforced bar.
       exclude: [
         'src/index.ts',
         'src/types.ts',

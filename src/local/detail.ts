@@ -8,7 +8,7 @@
 
 import type { ZoteroHttpClient } from '../http-client.js'
 import { loadItemGraph } from '../item-graph.js'
-import { ZOTERO_GRAPH_CONCURRENCY } from '../constants.js'
+import { ZOTERO_GRAPH_CONCURRENCY, ZOTERO_SERVER_ID_HEADER } from '../constants.js'
 import { asRecord, asString } from '../json.js'
 import { ZOTERO_INVALID_ARGUMENT, ZoteroError } from '../errors.js'
 import type { NormalizeContext } from '../normalize.js'
@@ -23,7 +23,6 @@ import {
 import { formatRef, libraryPrefix, refForLibrary, requireSupportedLocalRef } from '../refs.js'
 import type { ScopeDirectory } from './scope-directory.js'
 import type { LocalApiLimits } from './limits.js'
-import { bestAttachmentFromLinks } from '../attachments.js'
 import type {
   SupportedLocalLibrary,
   ZoteroChildrenRequest,
@@ -59,7 +58,7 @@ export async function getItem(
     signal,
     serverId: ref.serverId,
   })
-  const serverId = parent.headers.get('zotero-server-id') ?? ref.serverId
+  const serverId = parent.headers.get(ZOTERO_SERVER_ID_HEADER) ?? ref.serverId
   const includes = INCLUDE_ORDER.filter((kind) => request.include.has(kind))
   const keys = collectionKeysOf(parent.json)
   // Children and the collections listing are independent once the parent
@@ -117,7 +116,7 @@ export async function children(
     signal,
     serverId: ref.serverId,
   })
-  const serverId = row.headers.get('zotero-server-id') ?? ref.serverId
+  const serverId = row.headers.get(ZOTERO_SERVER_ID_HEADER) ?? ref.serverId
   const ctx: NormalizeContext = { library, serverId: serverId ?? undefined }
   const data = asRecord(asRecord(row.json)?.data)
   const itemType = asString(data?.itemType) ?? ''

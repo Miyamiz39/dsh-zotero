@@ -79,6 +79,34 @@ describe('projectSearchMeta', () => {
       year: 2020,
       itemType: 'journalArticle',
     })
+    expect(meta.library).toEqual({ type: 'user', id: 0 })
+  })
+
+  it('omits the library badge instead of mislabeling an unresolvable scope', () => {
+    const base = searchResult(1)
+    const unsupported = projectSearchMeta({
+      ...base,
+      scope: {
+        kind: 'collection',
+        ref: 'zotero://user/5/collection/COLL0001',
+        name: 'Nowhere',
+      },
+    })
+    expect(unsupported.library).toBeUndefined()
+    const unparseable = projectSearchMeta({
+      ...base,
+      scope: { kind: 'collection', ref: 'not a ref', name: 'Nowhere' },
+    })
+    expect(unparseable.library).toBeUndefined()
+    const group = projectSearchMeta({
+      ...base,
+      scope: {
+        kind: 'collection',
+        ref: 'zotero://group/42/collection/COLL0001',
+        name: 'Group',
+      },
+    })
+    expect(group.library).toEqual({ type: 'group', id: 42 })
   })
 
   it('caps the projected rows at the logical limit for huge pages', () => {
@@ -502,7 +530,6 @@ describe('projectExportMeta', () => {
 
   it('counts the actually exported citations for the citation arm', () => {
     const meta = projectExportMeta(
-      3,
       {
         format: 'citation',
         style: 'apa',
@@ -527,21 +554,19 @@ describe('projectExportMeta', () => {
   })
 
   it('counts zero when the citation arm carries no citations', () => {
-    expect(projectExportMeta(2, { format: 'citation' }, ['zotero://user/0/item/AAAAAAA1'])).toEqual(
-      {
-        format: 'citation',
-        requested: 2,
-        count: 0,
-        refs: ['zotero://user/0/item/AAAAAAA1'],
-        refsOmitted: 0,
-      },
-    )
+    expect(projectExportMeta({ format: 'citation' }, ['zotero://user/0/item/AAAAAAA1'])).toEqual({
+      format: 'citation',
+      requested: 1,
+      count: 0,
+      refs: ['zotero://user/0/item/AAAAAAA1'],
+      refsOmitted: 0,
+    })
   })
 
   it('reports only the requested count for the opaque text formats', () => {
-    expect(projectExportMeta(12, { format: 'bibtex', text: 'raw' }, REFS)).toEqual({
+    expect(projectExportMeta({ format: 'bibtex', text: 'raw' }, REFS)).toEqual({
       format: 'bibtex',
-      requested: 12,
+      requested: 3,
       refs: REFS,
       refsOmitted: 0,
     })
@@ -549,7 +574,7 @@ describe('projectExportMeta', () => {
 
   it('bounds the itemized refs and counts the rest', () => {
     const refs = Array.from({ length: 25 }, (_, index) => `zotero://user/0/item/ITEM${index}`)
-    const meta = projectExportMeta(25, { format: 'bibtex', text: 'raw' }, refs)
+    const meta = projectExportMeta({ format: 'bibtex', text: 'raw' }, refs)
     expect(meta.refs).toHaveLength(20)
     expect(meta.refsOmitted).toBe(5)
     expect(meta.refs[0]).toBe('zotero://user/0/item/ITEM0')
@@ -557,7 +582,6 @@ describe('projectExportMeta', () => {
 
   it('itemizes the per-document facts with their located entry', () => {
     const meta = projectExportMeta(
-      3,
       {
         format: 'bibtex',
         text: 'raw',
@@ -585,7 +609,6 @@ describe('projectExportMeta', () => {
   it('bounds the per-document items to the same ref bound', () => {
     const refs = Array.from({ length: 25 }, (_, index) => `zotero://user/0/item/ITEM${index}`)
     const meta = projectExportMeta(
-      25,
       {
         format: 'ris',
         text: 'raw',
@@ -599,9 +622,9 @@ describe('projectExportMeta', () => {
   })
 
   it('omits the items for exports without per-document data', () => {
-    expect(projectExportMeta(2, { format: 'bibliography', text: 'x' }, REFS)).toEqual({
+    expect(projectExportMeta({ format: 'bibliography', text: 'x' }, REFS)).toEqual({
       format: 'bibliography',
-      requested: 2,
+      requested: 3,
       refs: REFS,
       refsOmitted: 0,
     })
@@ -641,7 +664,6 @@ describe('boundedPresentationMeta', () => {
   it('drops the export items and refs wholesale when the projection overflows', () => {
     const filler = 'x'.repeat(MAX_PRESENTATION_META_BYTES)
     const meta = projectExportMeta(
-      2,
       {
         format: 'bibtex',
         text: 'raw',
@@ -650,7 +672,7 @@ describe('boundedPresentationMeta', () => {
       ['zotero://user/0/item/AAAAAAA1'],
     )
     const bounded = boundedPresentationMeta(meta, ['refs', 'items'])
-    expect(bounded).toEqual({ detailOmitted: true, format: 'bibtex', requested: 2, refsOmitted: 0 })
+    expect(bounded).toEqual({ detailOmitted: true, format: 'bibtex', requested: 1, refsOmitted: 0 })
   })
 
   it('honors the byte budget at the exact boundary', () => {

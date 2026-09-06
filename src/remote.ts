@@ -16,6 +16,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { LOCAL_PROVIDER_ID } from './constants.js'
 import type { ZoteroStatusView } from './contract.js'
 import type { ZoteroService } from './service.js'
 import { ZOTERO_SETTINGS_NAMESPACE } from './settings-namespace.js'
@@ -41,7 +42,7 @@ export class ZoteroRuntime extends TypertRemoteService {
     const status = await (this.ctx.get('zotero') as ZoteroService | undefined)?.status()
     if (status === undefined) {
       return {
-        providerId: 'zotero',
+        providerId: LOCAL_PROVIDER_ID,
         connected: false,
         diagnosis: 'The Zotero service is not composed.',
       }

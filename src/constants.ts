@@ -13,6 +13,9 @@ import type { ZoteroSortField } from './types.js'
 /** The id the built-in local provider registers under; also the provider config default. */
 export const LOCAL_PROVIDER_ID = 'local'
 
+/** The Local API response/request header carrying the serving instance identity. */
+export const ZOTERO_SERVER_ID_HEADER = 'zotero-server-id'
+
 /** The sort fields `zotero_search` accepts, in Zotero's own vocabulary. */
 export const ZOTERO_SORT_FIELDS: readonly ZoteroSortField[] = [
   'dateModified',
@@ -45,6 +48,15 @@ export const ZOTERO_ITEMKEY_BATCH = 50
  * cannot storm the local server.
  */
 export const ZOTERO_EXPORT_CONCURRENCY = 4
+
+/**
+ * The bounded concurrency of the parent-item attribution queries the search
+ * domain issues in `ZOTERO_ITEMKEY_BATCH`-sized chunks. A pool — not a bare
+ * `Promise.all` — keeps the in-flight membership requests small. Kept apart
+ * from `ZOTERO_EXPORT_CONCURRENCY` (same value, different blast radius) so
+ * tuning export throughput never silently retunes search attribution.
+ */
+export const ZOTERO_SEARCH_CONCURRENCY = 4
 
 /**
  * The bounded concurrency of the per-attachment `/children` requests the

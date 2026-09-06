@@ -101,6 +101,9 @@ const UNREACHABLE_CODES = new Set([
   'ENETUNREACH',
   'ENOTFOUND',
   'ETIMEDOUT',
+  'EPIPE',
+  'EAI_AGAIN',
+  'ECONNABORTED',
 ])
 
 /** Render any thrown value's message; non-Error values fall back to String(). */
@@ -115,13 +118,19 @@ export function errorCauseOf(error: unknown): unknown {
 
 /** The Errno-style code of an error's cause chain, when one exists. */
 export function errnoCodeOf(error: unknown): string | undefined {
-  const cause = errorCauseOf(error)
-  return typeof cause === 'object' &&
-    cause !== null &&
-    'code' in cause &&
-    typeof cause.code === 'string'
-    ? cause.code
-    : undefined
+  const seen = new Set<object>()
+  const queue: unknown[] = [error]
+  for (let depth = 0; depth < 10 && queue.length > 0; depth += 1) {
+    const current = queue.shift()
+    if (typeof current !== 'object' || current === null || seen.has(current)) continue
+    seen.add(current)
+    if ('code' in current && typeof current.code === 'string' && current.code !== '') {
+      return current.code
+    }
+    if (current instanceof Error && current.cause !== undefined) queue.push(current.cause)
+    if (current instanceof AggregateError) queue.push(...current.errors)
+  }
+  return undefined
 }
 
 /** True for a translated 404 domain error, which specific endpoints reinterpret. */

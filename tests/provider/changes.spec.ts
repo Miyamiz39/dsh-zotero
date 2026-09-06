@@ -20,7 +20,7 @@ let provider: LocalApiProvider
 let harness: ProviderHarness
 
 beforeEach(async () => {
-  harness = await setupProvider({ maxBrowseResults: 3 })
+  harness = await setupProvider({ maxChangesResults: 3 })
   mock = harness.mock
   provider = harness.provider
 })

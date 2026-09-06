@@ -8,7 +8,7 @@
 
 import type { ZoteroHttpClient } from '../http-client.js'
 import { mapWithConcurrency } from '../concurrency.js'
-import { ZOTERO_EXPORT_CONCURRENCY, ZOTERO_ITEMKEY_BATCH } from '../constants.js'
+import { ZOTERO_ITEMKEY_BATCH, ZOTERO_SEARCH_CONCURRENCY } from '../constants.js'
 import { tokenize } from '../evidence.js'
 import { ZOTERO_INVALID_ARGUMENT, ZoteroError } from '../errors.js'
 import { nextOffsetOf, requireTotalResults } from './pagination.js'
@@ -287,7 +287,7 @@ async function fetchParentCollections(
   }
   const membershipsPerChunk = await mapWithConcurrency(
     chunks,
-    ZOTERO_EXPORT_CONCURRENCY,
+    ZOTERO_SEARCH_CONCURRENCY,
     async (chunk) => {
       const params = new URLSearchParams()
       params.set('itemKey', chunk.join(','))

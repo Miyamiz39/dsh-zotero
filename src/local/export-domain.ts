@@ -156,7 +156,7 @@ async function fetchExportItems(
   serverId: string | undefined,
   signal: AbortSignal | undefined,
 ): Promise<ZoteroExportItem[]> {
-  let totalChars = 0
+  let totalChars = text.length
   const inputs = await mapWithConcurrency(refs, ZOTERO_EXPORT_CONCURRENCY, async (ref) => {
     const search = new URLSearchParams()
     search.set('itemKey', ref.key)
@@ -168,6 +168,10 @@ async function fetchExportItems(
         ZOTERO_NOT_FOUND,
       )
     }
+    // The batch body stays in the result, so it opens the account: peak
+    // memory is batch + singles, never singles alone. Workers race ahead by
+    // at most (concurrency - 1) in-flight bodies before the next check
+    // trips — a bounded overshoot on a fail-closed cap.
     totalChars += body.length
     if (totalChars > deps.limits.maxExportChars) {
       throw new ZoteroError(

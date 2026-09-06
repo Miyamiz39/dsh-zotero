@@ -78,7 +78,7 @@ describe('the zotero status endpoint', () => {
     await context.plugin(MemorySettings)
     new ZoteroRuntime(context)
     await expect(context.get('zoteroRemote')!.status()).resolves.toEqual({
-      providerId: 'zotero',
+      providerId: 'local',
       connected: false,
       diagnosis: 'The Zotero service is not composed.',
     })

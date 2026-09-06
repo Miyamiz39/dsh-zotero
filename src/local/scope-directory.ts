@@ -11,10 +11,11 @@
  * @module dsh-zotero/local/scope-directory
  */
 
-import { ZOTERO_SCOPE_LISTING_TTL_MS } from '../constants.js'
+import { ZOTERO_SCOPE_LISTING_TTL_MS, ZOTERO_SERVER_ID_HEADER } from '../constants.js'
 import {
   isNotFoundError,
   ZOTERO_INVALID_ARGUMENT,
+  ZOTERO_INVALID_REF,
   ZOTERO_NOT_FOUND,
   ZOTERO_SCOPE_AMBIGUOUS,
   ZoteroError,
@@ -128,7 +129,7 @@ export class ScopeDirectory {
       serverId: ctx.serverId,
     })
     const entries = (Array.isArray(json) ? json : []).map((row) => normalizeScopeEntry(row))
-    const servedBy = headers.get('zotero-server-id') ?? ctx.serverId
+    const servedBy = headers.get(ZOTERO_SERVER_ID_HEADER) ?? ctx.serverId
     const listing: ScopeListing =
       servedBy === undefined
         ? { entries, fetchedAt: Date.now() }
@@ -175,7 +176,7 @@ export class ScopeDirectory {
           ref.library as SupportedLocalLibrary,
           kind,
           entry.key,
-          headers.get('zotero-server-id') ?? ref.serverId,
+          headers.get(ZOTERO_SERVER_ID_HEADER) ?? ref.serverId,
         ),
         name: entry.name,
       }
@@ -282,7 +283,7 @@ export class ScopeDirectory {
       return cached.node
     }
     try {
-      const { json } = await this.client.getJson<unknown>(
+      const { json, headers } = await this.client.getJson<unknown>(
         `${libraryPrefix(library)}/collections/${key}`,
         undefined,
         { signal, serverId },
@@ -292,9 +293,13 @@ export class ScopeDirectory {
         name: entry.name,
         ...(entry.parentKey !== undefined ? { parentKey: entry.parentKey } : {}),
       }
+      // Pin the serving identity from the response headers (falling back to
+      // the claim only when the build omits the header), like scopeListingOf —
+      // storing the claim alone leaves a headerless first read unclaimable.
+      const servedBy = headers.get(ZOTERO_SERVER_ID_HEADER) ?? serverId
       this.collectionNodeCache.set(nodeCacheKey, {
         node,
-        ...(serverId !== undefined ? { serverId } : {}),
+        ...(servedBy !== undefined ? { serverId: servedBy } : {}),
         fetchedAt: Date.now(),
       })
       return node
@@ -328,7 +333,10 @@ export async function resolveScope(
     if (isSupportedLocalLibrary(parsed.library)) {
       effectiveLibrary = parsed.library as SupportedLocalLibrary
     } else {
-      effectiveLibrary = PERSONAL_LIBRARY
+      throw new ZoteroError(
+        `Unsupported library zotero://${parsed.library.type}/${parsed.library.id}: only user/0 and groups are supported.`,
+        ZOTERO_INVALID_REF,
+      )
     }
   } else {
     effectiveLibrary = PERSONAL_LIBRARY

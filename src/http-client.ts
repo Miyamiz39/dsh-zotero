@@ -10,6 +10,7 @@
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
+import { ZOTERO_SERVER_ID_HEADER } from './constants.js'
 import {
   API_DISABLED_MESSAGE,
   NOT_RUNNING_MESSAGE,
@@ -160,6 +161,20 @@ export class ZoteroHttpClient {
     search?: URLSearchParams,
     opts: ZoteroHttpGetOptions = {},
   ): Promise<ZoteroHttpResponse> {
+    return this.doGet(path, search, opts, false)
+  }
+
+  /**
+   * GET with the single-refresh guard carried as a positional parameter —
+   * deliberately not part of `ZoteroHttpGetOptions`, so no caller can set
+   * (or bypass) the identity-refresh recursion guard from outside.
+   */
+  private async doGet(
+    path: string,
+    search: URLSearchParams | undefined,
+    opts: ZoteroHttpGetOptions,
+    isIdentityRefresh: boolean,
+  ): Promise<ZoteroHttpResponse> {
     const url = new URL(path, this.baseUrlWithSlash)
     url.search = search?.toString() ?? ''
     // The deadline fuses caller cancellation with the provider timeout; its
@@ -168,7 +183,7 @@ export class ZoteroHttpClient {
     const headers: Record<string, string> = { 'Zotero-API-Version': '3' }
     const serverId =
       opts.serverId ?? (opts.sendServerId === false ? undefined : this.currentServerId)
-    if (serverId !== undefined) headers['Zotero-Server-ID'] = serverId
+    if (serverId !== undefined) headers[ZOTERO_SERVER_ID_HEADER] = serverId
     let response: Response
     try {
       response = await fetch(url, { method: 'GET', headers, redirect: 'manual', signal: d.signal })
@@ -184,6 +199,12 @@ export class ZoteroHttpClient {
       // mismatch itself — the original error stays stable and the refresh
       // error rides along as its cause. Caller cancellation still wins, so
       // an aborted refresh aborts the call like any other.
+      // Single-refresh guard: the identity refresh runs with
+      // `isIdentityRefresh`, so a refresh endpoint that also 412s fails loud
+      // instead of recursing into an unbounded 412→refresh→412 loop.
+      if (isIdentityRefresh) {
+        throw new ZoteroError(SERVER_MISMATCH_MESSAGE, ZOTERO_SERVER_MISMATCH)
+      }
       let refreshError: unknown
       try {
         await this.refreshIdentity(opts.signal)
@@ -231,12 +252,12 @@ export class ZoteroHttpClient {
   }
 
   private rememberServerId(headers: Headers): void {
-    const id = headers.get('zotero-server-id')
+    const id = headers.get(ZOTERO_SERVER_ID_HEADER)
     if (id !== null && id !== '') this.currentServerId = id
   }
 
   /** Re-read `/api/` without the remembered id so a stale id cannot 412 the refresh. */
   private async refreshIdentity(signal?: AbortSignal): Promise<void> {
-    await this.get('', undefined, { signal, sendServerId: false })
+    await this.doGet('', undefined, { signal, sendServerId: false }, true)
   }
 }

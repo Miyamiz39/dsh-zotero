@@ -7,9 +7,16 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { defineTool, type InferArgs, type InferValue } from '@deepseek-ai/dsh-tools'
+import {
+  defineTool,
+  type InferArgs,
+  type InferValue,
+  type ToolResult,
+  type ToolResultView,
+} from '@deepseek-ai/dsh-tools'
 import { withConnectivityAsk } from '../ask.js'
 import { boundedPresentationMeta, projectAttachmentMeta } from '../presentation-meta.js'
+import { metaRecordOf } from './present.js'
 import { parseSupportedRef } from './validate.js'
 import type { ZoteroService } from '../service.js'
 
@@ -63,6 +70,23 @@ function renderAttachment(_args: AttachmentArgs, value: AttachmentOutput): Conte
   return [{ type: 'text', text: `${label} ${value.contentType || 'unknown type'} → ${target}` }]
 }
 
+/**
+ * The completed attachment card: the resolved title plus whether it is a
+ * local file or a linked URL. `meta` is absent on nested code dispatch or
+ * malformed replay records, and a failed call keeps the raw error content —
+ * both fall back to the generic card.
+ */
+function presentAttachmentResult(
+  _args: AttachmentArgs,
+  result: ToolResult,
+): ToolResultView | undefined {
+  const record = metaRecordOf(result)
+  if (record === undefined) return undefined
+  if (typeof record.title !== 'string' || record.title === '') return undefined
+  if (record.kind !== 'file' && record.kind !== 'url') return undefined
+  return { card: 'generic', title: `Zotero attachment: ${record.title} (${record.kind})` }
+}
+
 export function registerAttachmentTool(ctx: Context, service: ZoteroService): void {
   ctx.tools.register(
     defineTool({
@@ -84,6 +108,7 @@ export function registerAttachmentTool(ctx: Context, service: ZoteroService): vo
         title: 'Resolve Zotero attachment',
         rawInput: args.ref,
       }),
+      presentResult: presentAttachmentResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         const { ref } = buildRequest(args)

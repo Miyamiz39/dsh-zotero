@@ -8,10 +8,16 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { defineTool, type InferArgs, type InferValue } from '@deepseek-ai/dsh-tools'
+import {
+  defineTool,
+  type InferArgs,
+  type InferValue,
+  type ToolResult,
+  type ToolResultView,
+} from '@deepseek-ai/dsh-tools'
 import { withConnectivityAsk } from '../ask.js'
 import { boundedPresentationMeta, projectGetMeta } from '../presentation-meta.js'
-import { formatSearchLine } from './present.js'
+import { formatSearchLine, metaRecordOf } from './present.js'
 import { parseSupportedRef, REF_ARG_HINT } from './validate.js'
 import type { ZoteroService } from '../service.js'
 import type { ZoteroGetRequest, ZoteroInclude } from '../types.js'
@@ -230,6 +236,19 @@ export function renderGet(_args: GetArgs, value: GetOutput): ContentBlock[] {
   return [{ type: 'text', text: lines.join('\n') }]
 }
 
+/**
+ * The completed item card: the item title plus its year when known. `meta`
+ * is absent on nested code dispatch or malformed replay records, and a failed
+ * call keeps the raw error content — both fall back to the generic card.
+ */
+function presentGetResult(_args: GetArgs, result: ToolResult): ToolResultView | undefined {
+  const record = metaRecordOf(result)
+  if (record === undefined) return undefined
+  if (typeof record.title !== 'string' || record.title === '') return undefined
+  const year = typeof record.year === 'number' ? ` (${record.year})` : ''
+  return { card: 'generic', title: `Zotero item: ${record.title}${year}` }
+}
+
 export function registerGetTool(ctx: Context, service: ZoteroService): void {
   ctx.tools.register(
     defineTool({
@@ -258,6 +277,7 @@ export function registerGetTool(ctx: Context, service: ZoteroService): void {
         title: 'Read Zotero item',
         rawInput: args.ref,
       }),
+      presentResult: presentGetResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         return await withConnectivityAsk(ctx, exec, () =>

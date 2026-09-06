@@ -7,11 +7,18 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { defineTool, type InferArgs, type InferValue } from '@deepseek-ai/dsh-tools'
+import {
+  defineTool,
+  type InferArgs,
+  type InferValue,
+  type ToolResult,
+  type ToolResultView,
+} from '@deepseek-ai/dsh-tools'
 import { withConnectivityAsk } from '../ask.js'
 import { boundedPresentationMeta } from '../presentation-meta.js'
+import { metaRecordOf } from './present.js'
 import { asRecord } from '../json.js'
-import { assertIntInRange, invalid, parseLibrary } from './validate.js'
+import { assertIntInRange, assertNonBlank, invalid, parseLibrary } from './validate.js'
 import type { ZoteroService } from '../service.js'
 import type { SupportedLocalLibrary, ZoteroBrowseKind, ZoteroBrowseRequest } from '../types.js'
 
@@ -29,7 +36,8 @@ const BROWSE_PARAMETERS = {
     type: 'string',
     enum: [...BROWSE_KINDS],
     required: true,
-    description: 'What to browse: libraries, collections, savedSearches, tags, itemTypes',
+    description:
+      'What to browse: libraries, collections, savedSearches, tags, itemTypes, itemFields (itemFields requires itemType)',
   },
   library: {
     type: 'object',
@@ -236,9 +244,7 @@ function buildRequest(args: BrowseArgs, config: { maxBrowseResults: number }): Z
   if (match !== undefined && q === undefined) {
     invalid('match requires q')
   }
-  if (q !== undefined && q.trim() === '') {
-    invalid('q must be a non-empty string when provided')
-  }
+  const query = q === undefined ? undefined : assertNonBlank('q', q)
   const parentRef = (args as Record<string, unknown>).parentRef as string | undefined
   if (parentRef !== undefined && kind !== 'collections') {
     invalid('parentRef is only valid when kind="collections"')
@@ -265,17 +271,20 @@ function buildRequest(args: BrowseArgs, config: { maxBrowseResults: number }): Z
   if (tagScope === 'collection' && tagCollection === undefined) {
     invalid('tagScope="collection" requires tagCollection (a zotero:// ref or a collection name)')
   }
+  const collection =
+    tagCollection === undefined ? undefined : assertNonBlank('tagCollection', tagCollection)
   if ((itemLevel !== undefined || itemQuery !== undefined) && tagScope === undefined) {
     invalid('itemLevel/itemQuery require tagScope (library, collection, or publications)')
   }
   if (itemQueryMode !== undefined && itemQuery === undefined) {
     invalid('itemQueryMode requires itemQuery')
   }
+  const facetedQuery = itemQuery === undefined ? undefined : assertNonBlank('itemQuery', itemQuery)
   const scope =
     tagScope === undefined
       ? undefined
       : tagScope === 'collection'
-        ? { kind: 'collection' as const, refOrName: tagCollection! }
+        ? { kind: 'collection' as const, refOrName: collection! }
         : { kind: tagScope as 'library' | 'publications' }
   return {
     kind,
@@ -283,10 +292,10 @@ function buildRequest(args: BrowseArgs, config: { maxBrowseResults: number }): Z
     ...(parentRef !== undefined ? { parentRef } : {}),
     ...(scope !== undefined ? { scope } : {}),
     ...(itemLevel !== undefined ? { itemLevel } : {}),
-    ...(itemQuery !== undefined ? { itemQuery } : {}),
+    ...(facetedQuery !== undefined ? { itemQuery: facetedQuery } : {}),
     ...(itemQueryMode !== undefined ? { itemQueryMode } : {}),
     ...(itemType !== undefined ? { itemType } : {}),
-    ...(q !== undefined ? { q } : {}),
+    ...(query !== undefined ? { q: query } : {}),
     ...(match !== undefined ? { match } : {}),
     offset,
     limit,
@@ -334,6 +343,22 @@ export function renderBrowse(_args: BrowseArgs, value: BrowseOutput): ContentBlo
   return [{ type: 'text', text: lines.join('\n') }]
 }
 
+/**
+ * The completed browse card: the browsed kind plus the page facts. `meta`
+ * is absent on nested code dispatch or malformed replay records, and a failed
+ * call keeps the raw error content — both fall back to the generic card.
+ */
+function presentBrowseResult(_args: BrowseArgs, result: ToolResult): ToolResultView | undefined {
+  const record = metaRecordOf(result)
+  if (record === undefined) return undefined
+  if (typeof record.kind !== 'string' || record.kind === '') return undefined
+  if (typeof record.returned !== 'number' || typeof record.total !== 'number') return undefined
+  return {
+    card: 'generic',
+    title: `Zotero browse: ${record.kind} (${record.returned} of ${record.total})`,
+  }
+}
+
 export function registerBrowseTool(ctx: Context, service: ZoteroService): void {
   ctx.tools.register(
     defineTool({
@@ -357,10 +382,11 @@ export function registerBrowseTool(ctx: Context, service: ZoteroService): void {
         title: `Browse Zotero ${args.kind}`,
         rawInput: args.kind,
       }),
+      presentResult: presentBrowseResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         return await withConnectivityAsk(ctx, exec, () =>
-          service.browse(buildRequest(args as BrowseArgs, service.config), exec.signal),
+          service.browse(buildRequest(args, service.config), exec.signal),
         )
       },
     }),

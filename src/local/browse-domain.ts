@@ -91,6 +91,9 @@ export async function runBrowse(
   if ((request.q !== undefined || request.match !== undefined) && request.kind !== 'tags') {
     throw new ZoteroError('q/match are only valid when kind="tags"', ZOTERO_INVALID_ARGUMENT)
   }
+  if (request.match !== undefined && request.q === undefined) {
+    throw new ZoteroError('match requires q', ZOTERO_INVALID_ARGUMENT)
+  }
   if (request.parentRef !== undefined && request.kind !== 'collections') {
     throw new ZoteroError(
       'parentRef is only valid when kind="collections"',

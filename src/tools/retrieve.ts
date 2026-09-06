@@ -10,11 +10,24 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { defineTool, type InferArgs, type InferValue } from '@deepseek-ai/dsh-tools'
+import {
+  defineTool,
+  type InferArgs,
+  type InferValue,
+  type ToolResult,
+  type ToolResultView,
+} from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from '../config.js'
 import { withConnectivityAsk } from '../ask.js'
 import { boundedPresentationMeta, projectRetrieveMeta } from '../presentation-meta.js'
-import { assertIntInRange, invalid, parseSupportedRef, REF_ARG_HINT } from './validate.js'
+import { metaRecordOf } from './present.js'
+import {
+  assertIntInRange,
+  assertNonEmptyList,
+  invalid,
+  parseSupportedRef,
+  REF_ARG_HINT,
+} from './validate.js'
 import type { ZoteroService } from '../service.js'
 import type { ZoteroEvidenceSource, ZoteroObjectRef, ZoteroRetrieveRequest } from '../types.js'
 
@@ -117,7 +130,7 @@ function buildRequest(args: RetrieveArgs, config: ResolvedConfig): ZoteroRetriev
   const passages = args.passages ?? DEFAULT_PASSAGES
   assertIntInRange('passages', passages, 1, config.maxEvidencePassages)
   const sources = args.sources ?? ALL_SOURCES
-  if (sources.length === 0) invalid('sources must list at least one evidence source')
+  assertNonEmptyList(sources, 'sources must list at least one evidence source')
   const ref = parseSupportedRef(args.ref, ['item'])
   const policy = args.attachmentPolicy ?? 'best'
   let attachmentRefs: ZoteroObjectRef[] | undefined
@@ -195,6 +208,23 @@ export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): Cont
 }
 
 /**
+ * The completed retrieve card: the evidence passage count plus whether the
+ * budget cut the list. `meta` is absent on nested code dispatch or malformed
+ * replay records, and a failed call keeps the raw error content — both fall
+ * back to the generic card.
+ */
+function presentRetrieveResult(
+  _args: RetrieveArgs,
+  result: ToolResult,
+): ToolResultView | undefined {
+  const record = metaRecordOf(result)
+  if (record === undefined) return undefined
+  if (typeof record.count !== 'number') return undefined
+  const truncated = record.truncated === true ? ' (truncated)' : ''
+  return { card: 'generic', title: `Zotero evidence: ${record.count} passages${truncated}` }
+}
+
+/**
  * Register the `zotero_retrieve` tool. The service's live config is read per
  * request so a settings edit takes effect on the next call without
  * re-registration.
@@ -228,6 +258,7 @@ export function registerRetrieveTool(ctx: Context, service: ZoteroService): void
         title: 'Retrieve Zotero evidence',
         rawInput: args.query,
       }),
+      presentResult: presentRetrieveResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         return await withConnectivityAsk(ctx, exec, () =>

@@ -251,7 +251,7 @@ describe('export', () => {
   })
 
   it('accepts a raw export body that lands exactly on the output cap', async () => {
-    const narrow = makeProvider({ maxExportChars: 10 })
+    const narrow = makeProvider({ maxExportChars: 20 })
     mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
@@ -260,6 +260,8 @@ describe('export', () => {
       }
       helpers.text('12345')
     })
+    // The cap accounts batch + singles (both stay in the result): 10 + 5 + 5
+    // lands exactly on 20 and must pass; an off-by-one (>=) would reject it.
     const result = await narrow.export(exportRequest({ format: 'bibtex' }))
     expect(result).toEqual({
       format: 'bibtex',

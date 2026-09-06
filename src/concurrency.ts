@@ -14,6 +14,11 @@ export async function mapWithConcurrency<T, R>(
   concurrency: number,
   worker: (item: T) => Promise<R>,
 ): Promise<R[]> {
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error(
+      `mapWithConcurrency requires a positive integer concurrency, got ${concurrency}`,
+    )
+  }
   const results = new Array<R>(items.length)
   let next = 0
   let failed = false

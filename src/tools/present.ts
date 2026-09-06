@@ -3,6 +3,23 @@
  * @module dsh-zotero/tools/present
  */
 
+import type { ToolResult } from '@deepseek-ai/dsh-tools'
+import { asRecord } from '../json.js'
+
+/**
+ * The completed-result metadata as a record: undefined for failed calls
+ * (which keep the raw error content), for absent metadata on nested code
+ * dispatch or malformed replay records, and for non-object shapes. Every
+ * `presentResult` funnels through here so the completed card falls back to
+ * the generic card the same way on every tool.
+ * @param result - the settled tool result.
+ * @returns the metadata record, or undefined for the generic fallback.
+ */
+export function metaRecordOf(result: ToolResult): Record<string, unknown> | undefined {
+  if (result.isError) return undefined
+  return asRecord(result.meta)
+}
+
 /**
  * The canonical search-hit title line: `ref — title (year) [itemType]`.
  * `zotero_search` and `zotero_get` render it identically so a hit reads the

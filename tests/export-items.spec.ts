@@ -29,6 +29,23 @@ describe('parseExportItem', () => {
     })
   })
 
+  it('reads nested-brace and quoted BibTeX titles', () => {
+    expect(parseExportItem('bibtex', '@article{k,\n  title = {{Carbon} price},\n}')).toEqual({
+      key: 'k',
+      title: '{Carbon} price',
+    })
+    expect(parseExportItem('bibtex', '@article{k,\n  title = "Quoted title",\n}')).toEqual({
+      key: 'k',
+      title: 'Quoted title',
+    })
+    expect(parseExportItem('bibtex', '@article{k,\n  title = {Unclosed,\n')).toEqual({ key: 'k' })
+    expect(parseExportItem('bibtex', '@article{k,\n  title = "Unclosed,\n}')).toEqual({
+      key: 'k',
+    })
+    expect(parseExportItem('bibtex', '@article{k,\n  title = 5,\n}')).toEqual({ key: 'k' })
+    expect(parseExportItem('bibtex', 'TY  - JOUR')).toEqual({})
+  })
+
   it('omits the key when a BibTeX entry has none', () => {
     expect(parseExportItem('bibtex', 'plain text without fields')).toEqual({})
   })
@@ -54,6 +71,14 @@ describe('parseExportItem', () => {
     expect(parseExportItem('csljson', 'not json')).toEqual({})
     expect(parseExportItem('csljson', '{}')).toEqual({})
     expect(parseExportItem('csljson', '[]')).toEqual({})
+  })
+
+  it('returns nothing for non-record CSL JSON array members', () => {
+    expect(parseExportItem('csljson', '[null]')).toEqual({})
+    expect(parseExportItem('csljson', '[42]')).toEqual({})
+    expect(parseExportItem('csljson', '["x"]')).toEqual({})
+    expect(parseExportItem('csljson', '[[]]')).toEqual({})
+    expect(parseExportItem('csljson', '[{}]')).toEqual({})
   })
 
   it('drops non-string CSL JSON id and title fields', () => {

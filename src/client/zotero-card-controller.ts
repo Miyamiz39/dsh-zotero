@@ -54,6 +54,7 @@ const FIELD_SPECS = [
   { key: 'maxExportChars', kind: 'number', group: 'groupOutput' },
   { key: 'maxExportRefs', kind: 'number', group: 'groupOutput' },
   { key: 'maxBrowseResults', kind: 'number', group: 'groupOutput' },
+  { key: 'maxChangesResults', kind: 'number', group: 'groupOutput' },
   { key: 'defaultStyle', kind: 'text', group: 'groupDefaults' },
   { key: 'defaultLocale', kind: 'text', group: 'groupDefaults' },
 ] as const satisfies readonly {

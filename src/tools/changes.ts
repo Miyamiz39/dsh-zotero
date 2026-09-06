@@ -10,10 +10,18 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { defineTool, type InferArgs, type InferValue } from '@deepseek-ai/dsh-tools'
+import {
+  defineTool,
+  type InferArgs,
+  type InferValue,
+  type ToolResult,
+  type ToolResultView,
+} from '@deepseek-ai/dsh-tools'
 import { withConnectivityAsk } from '../ask.js'
+import { asRecord } from '../json.js'
 import { boundedPresentationMeta } from '../presentation-meta.js'
-import { assertIntInRange, parseLibrary } from './validate.js'
+import { metaRecordOf } from './present.js'
+import { assertIntInRange, assertNonEmptyList, parseLibrary } from './validate.js'
 import type { ZoteroChangesInclude, ZoteroChangesRequest, SupportedLocalLibrary } from '../types.js'
 import type { ZoteroService } from '../service.js'
 
@@ -105,6 +113,12 @@ function buildRequest(args: ChangesArgs): ZoteroChangesRequest {
   const library = parseLibrary((args as Record<string, unknown>).library)
   const since = args.since
   if (since !== undefined) assertIntInRange('since', since, 0, Number.MAX_SAFE_INTEGER)
+  if (args.include !== undefined) {
+    assertNonEmptyList(
+      args.include as readonly unknown[],
+      'include must list at least one resource kind when provided',
+    )
+  }
   const include = new Set<ZoteroChangesInclude>(
     (args.include as ZoteroChangesInclude[] | undefined) ?? ALL_INCLUDES,
   )
@@ -154,6 +168,44 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
   return [{ type: 'text', text: lines.join('\n') }]
 }
 
+/**
+ * The completed changes card: changed/deleted counts, or the baseline
+ * version when the call took a baseline reading. `meta` is absent on nested
+ * code dispatch or malformed replay records, and a failed call keeps the raw
+ * error content — both fall back to the generic card.
+ */
+function presentChangesResult(_args: ChangesArgs, result: ToolResult): ToolResultView | undefined {
+  const record = metaRecordOf(result)
+  if (record === undefined) return undefined
+  const changed = asRecord(record.changed)
+  const deleted = asRecord(record.deleted)
+  if (changed === undefined && deleted === undefined) {
+    // Baseline reading, or an over-budget diff whose detail rows the byte
+    // budget dropped (detailOmitted): never invent counts.
+    const toVersion = record.toVersion
+    if (typeof toVersion !== 'number') return undefined
+    const fromVersion = record.fromVersion
+    if (typeof fromVersion !== 'number') {
+      return { card: 'generic', title: `Zotero changes: baseline at version ${toVersion}` }
+    }
+    return { card: 'generic', title: `Zotero changes: ${fromVersion} → ${toVersion}` }
+  }
+  return {
+    card: 'generic',
+    title: `Zotero changes: ${countArrayEntries(changed) + countArrayEntries(deleted)} changed or deleted`,
+  }
+}
+
+/** The total entries across one changed/deleted section's arrays (absent section counts zero). */
+function countArrayEntries(section: Record<string, unknown> | undefined): number {
+  if (section === undefined) return 0
+  let count = 0
+  for (const entries of Object.values(section)) {
+    if (Array.isArray(entries)) count += entries.length
+  }
+  return count
+}
+
 export function registerChangesTool(ctx: Context, service: ZoteroService): void {
   ctx.tools.register(
     defineTool({
@@ -166,7 +218,7 @@ export function registerChangesTool(ctx: Context, service: ZoteroService): void 
       output: {
         schema: CHANGES_OUTPUT_SCHEMA,
         render: renderChanges,
-        presentationMeta: (_args, value) => boundedPresentationMeta(value, []),
+        presentationMeta: (_args, value) => boundedPresentationMeta(value, ['changed', 'deleted']),
       },
       presentCall: (args) => ({
         card: 'generic',
@@ -174,6 +226,7 @@ export function registerChangesTool(ctx: Context, service: ZoteroService): void 
         title: 'Read Zotero changes',
         rawInput: args.since === undefined ? 'baseline' : String(args.since),
       }),
+      presentResult: presentChangesResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         return await withConnectivityAsk(ctx, exec, () =>

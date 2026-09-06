@@ -51,6 +51,7 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
         defaultStyle: 'apa',
         defaultLocale: 'en-US',
         maxBrowseResults: 50,
+        maxChangesResults: 50,
       },
     )
   })

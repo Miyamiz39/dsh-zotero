@@ -15,8 +15,12 @@
  * @module dsh-zotero/local/provider
  */
 
-import { LOCAL_PROVIDER_ID, ZOTERO_SCOPE_LISTING_TTL_MS } from '../constants.js'
-import { errorMessageOf } from '../errors.js'
+import {
+  LOCAL_PROVIDER_ID,
+  ZOTERO_SCOPE_LISTING_TTL_MS,
+  ZOTERO_SERVER_ID_HEADER,
+} from '../constants.js'
+import { errorMessageOf, ZoteroError } from '../errors.js'
 import type { ZoteroHttpClient } from '../http-client.js'
 import type { LocalApiLimits, LocalApiProviderOptions } from './limits.js'
 import { ScopeDirectory } from './scope-directory.js'
@@ -96,16 +100,21 @@ export class LocalApiProvider implements ZoteroProvider {
         providerId: this.id,
         connected: true,
         apiVersion: headers.get('zotero-api-version') ?? undefined,
-        serverId: headers.get('zotero-server-id') ?? undefined,
+        serverId: headers.get(ZOTERO_SERVER_ID_HEADER) ?? undefined,
         schemaVersion: headers.get('zotero-schema-version') ?? undefined,
         diagnosis: 'ok',
       }
     } catch (error) {
       if (signal?.aborted) throw error
+      // The code rides along in the diagnosis string so the model (and the
+      // settings card) can route on it; routing still matches on the code,
+      // never by parsing the message.
+      const diagnosis =
+        error instanceof ZoteroError ? `${error.code}: ${error.message}` : errorMessageOf(error)
       return {
         providerId: this.id,
         connected: false,
-        diagnosis: errorMessageOf(error),
+        diagnosis,
       }
     }
   }

@@ -189,4 +189,13 @@ describe('Server-ID cache identity', () => {
     const fresh = createProvider(mock)
     expect(fresh.id).toBe(provider.id)
   })
+
+  it('carries the error code in the status diagnosis so callers can route on it', async () => {
+    mock.route('GET', '/api/', (req, res, helpers) =>
+      helpers.raw(403, { 'Content-Type': 'text/plain' }, 'forbidden'),
+    )
+    const status = await provider.status()
+    expect(status.connected).toBe(false)
+    expect(status.diagnosis).toContain('ZOTERO_API_DISABLED')
+  })
 })

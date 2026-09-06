@@ -37,6 +37,7 @@ const zoteroStatusSchema = z
     schemaVersion: z.string().optional(),
     diagnosis: z.string(),
   })
+  .strict()
   .readonly()
 
 /** The zotero Remote namespace's strict invocation descriptors. */

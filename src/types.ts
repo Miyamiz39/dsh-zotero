@@ -590,11 +590,12 @@ export interface ZoteroChangesResult {
 /**
  * The storage side of the `ctx.zotero` seam. Providers declare which
  * capabilities they safely support; the service gates every domain call on
- * that declaration — the capability set is the single gate, so a provider
- * that does not serve a domain simply omits the capability and its method is
- * never reached. The Agent never sees which provider satisfied a request.
- * `available()` is deliberately absent: request-driven providers fail with
- * typed domain errors, and only `status()` performs a health check.
+ * that declaration first and on the corresponding method's presence second —
+ * a provider that does not serve a domain simply omits the capability and
+ * leaves the method undefined, so no stub is required. The Agent never sees
+ * which provider satisfied a request. `available()` is deliberately absent:
+ * request-driven providers fail with typed domain errors, and only `status()`
+ * performs a health check.
  */
 export interface ZoteroProvider {
   id: string
@@ -613,35 +614,35 @@ export interface ZoteroProvider {
    * @param signal - caller cancellation; forwarded to the transport.
    * @returns the resolved scope plus the compact hit records.
    */
-  search(request: ZoteroSearchRequest, signal?: AbortSignal): Promise<ZoteroSearchResult>
+  search?(request: ZoteroSearchRequest, signal?: AbortSignal): Promise<ZoteroSearchResult>
   /**
    * Read one item's detail, including requested child kinds.
    * @param request - the item ref and the child kinds to include.
    * @param signal - caller cancellation; forwarded to the transport.
    * @returns the normalized item detail.
    */
-  getItem(request: ZoteroGetRequest, signal?: AbortSignal): Promise<ZoteroItemDetail>
+  getItem?(request: ZoteroGetRequest, signal?: AbortSignal): Promise<ZoteroItemDetail>
   /**
    * Explore one item's or attachment's child-object graph.
    * @param request - the item/attachment ref and the child kinds to return.
    * @param signal - caller cancellation; forwarded to the transport.
    * @returns the bounded child collections with their totals.
    */
-  children(request: ZoteroChildrenRequest, signal?: AbortSignal): Promise<ZoteroChildrenResult>
+  children?(request: ZoteroChildrenRequest, signal?: AbortSignal): Promise<ZoteroChildrenResult>
   /**
    * Diff the library against a local transaction version.
    * @param request - the baseline version and the resource kinds to diff.
    * @param signal - caller cancellation; forwarded to the transport.
    * @returns changed/deleted keys plus the library's current version.
    */
-  changes(request: ZoteroChangesRequest, signal?: AbortSignal): Promise<ZoteroChangesResult>
+  changes?(request: ZoteroChangesRequest, signal?: AbortSignal): Promise<ZoteroChangesResult>
   /**
    * Resolve an item or attachment ref to a usable location.
    * @param ref - the item or attachment ref to resolve.
    * @param signal - caller cancellation; forwarded to the transport.
    * @returns the verified file path or linked URL.
    */
-  getAttachmentLocation(
+  getAttachmentLocation?(
     ref: ZoteroObjectRef,
     signal?: AbortSignal,
   ): Promise<ZoteroAttachmentLocation>
@@ -651,13 +652,22 @@ export interface ZoteroProvider {
    * @param signal - caller cancellation; forwarded to the transport.
    * @returns the bounded ranked evidence with a truncation flag.
    */
-  retrieve(request: ZoteroRetrieveRequest, signal?: AbortSignal): Promise<ZoteroRetrieveResult>
+  retrieve?(request: ZoteroRetrieveRequest, signal?: AbortSignal): Promise<ZoteroRetrieveResult>
   /**
    * Export citations or formatted output for the requested items.
    * @param request - the item refs, format, and optional style/locale.
    * @param signal - caller cancellation; forwarded to the transport.
    * @returns per-ref citations or the joined export text.
    */
-  export(request: ZoteroExportRequest, signal?: AbortSignal): Promise<ZoteroExportResult>
-  browse(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult>
+  export?(request: ZoteroExportRequest, signal?: AbortSignal): Promise<ZoteroExportResult>
+  browse?(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult>
 }
+
+/**
+ * A directly callable provider method name. Capability `metadata` gates both
+ * `getItem` and `children`; `fulltext` is consumed internally by `retrieve`
+ * (and by the `changes` fulltext resource), so neither maps 1:1 — call sites
+ * name their method explicitly. Derived from the interface so a new domain
+ * method cannot drift from this union.
+ */
+export type ZoteroProviderMethod = Exclude<keyof ZoteroProvider, 'id' | 'capabilities' | 'status'>

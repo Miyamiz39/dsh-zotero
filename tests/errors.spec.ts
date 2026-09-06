@@ -42,12 +42,26 @@ describe('errnoCodeOf', () => {
     expect(errnoCodeOf(withCause({ code: 'ECONNREFUSED' }))).toBe('ECONNREFUSED')
   })
 
+  it('walks nested cause chains to a deep code', () => {
+    const deep = Object.assign(new Error('system'), { code: 'ECONNREFUSED' })
+    const wrapped = new Error('wrap', { cause: deep })
+    expect(errnoCodeOf(new TypeError('fetch failed', { cause: wrapped }))).toBe('ECONNREFUSED')
+  })
+
+  it('reads codes out of AggregateError members', () => {
+    const coded = Object.assign(new Error('socket'), { code: 'ETIMEDOUT' })
+    expect(errnoCodeOf(new AggregateError([new Error('plain'), coded], 'happy eyeballs'))).toBe(
+      'ETIMEDOUT',
+    )
+  })
+
   it('returns undefined for causes without a usable code', () => {
     expect(errnoCodeOf(withCause({ code: 7 }))).toBeUndefined()
     expect(errnoCodeOf(withCause({}))).toBeUndefined()
     expect(errnoCodeOf(withCause(null))).toBeUndefined()
     expect(errnoCodeOf(withCause('refused'))).toBeUndefined()
     expect(errnoCodeOf(new Error('no cause'))).toBeUndefined()
+    expect(errnoCodeOf(new AggregateError([new Error('plain')], 'empty'))).toBeUndefined()
   })
 })
 

@@ -64,12 +64,17 @@ export function formatRef(ref: ZoteroObjectRef): string {
 /** True when a library is one the local contract may address: personal canonical 0 or any group. */
 export function isSupportedLocalLibrary(library: { type: string; id: number }): boolean {
   if (library.type === 'user') return library.id === 0
-  if (library.type === 'group') return Number.isInteger(library.id) && library.id > 0
+  // isSafeInteger (not just isInteger): over-long digit runs lose precision
+  // in Number() at parse time, so an unsafe integer never names its digits.
+  if (library.type === 'group') return Number.isSafeInteger(library.id) && library.id > 0
   return false
 }
 
 /** Build a URL prefix for a supported local library: users/0 or groups/{id}. */
 export function libraryPrefix(library: { type: 'user' | 'group'; id: number }): string {
+  // Callers gate on requireSupportedLocalRef/isSupportedLocalLibrary first,
+  // so user/0-vs-group here is total; the user arm pins users/0 even for a
+  // hypothetical non-zero user id rather than interpolating it.
   if (library.type === 'user') return 'users/0'
   return `groups/${library.id}`
 }

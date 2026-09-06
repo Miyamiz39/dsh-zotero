@@ -41,6 +41,7 @@ const DEFAULT_PROVIDER_LIMITS: LocalApiLimits = {
   defaultStyle: 'apa',
   defaultLocale: 'en-US',
   maxBrowseResults: 50,
+  maxChangesResults: 50,
 }
 
 /** A provider over the given mock server's base URL, with optional limit overrides. */

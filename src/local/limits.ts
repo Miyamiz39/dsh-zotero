@@ -41,4 +41,6 @@ export interface LocalApiLimits {
   readonly defaultLocale: string
   /** Max items a browse call may return; capped by provider */
   readonly maxBrowseResults: number
+  /** Per-resource listing cap for `zotero_changes` diffs; not the browse page cap. */
+  readonly maxChangesResults: number
 }

@@ -29,13 +29,44 @@ export interface ExportItemFacts {
  */
 export const BIBTEX_KEY_SOURCE = '@[A-Za-z]+\\{([^,\\s{}]+),'
 const BIBTEX_KEY = new RegExp(BIBTEX_KEY_SOURCE)
-const BIBTEX_TITLE = /\btitle\s*=\s*\{([^}]*)\}/i
-const RIS_TITLE = /^TI  - (.+)$/m
+const BIBTEX_TITLE_FIELD = /\btitle\s*=\s*/i
+
+/**
+ * The display title of one BibTeX entry: the field value after `title =`,
+ * brace-aware (nested `{{…}}` included) or double-quoted. Display-only —
+ * export pairing never reads it — so an unparseable value yields undefined
+ * instead of failing the call.
+ */
+function bibtexTitleOf(text: string): string | undefined {
+  const field = BIBTEX_TITLE_FIELD.exec(text)
+  if (field === null) return undefined
+  let cursor = field.index + field[0].length
+  while (cursor < text.length && /\s/.test(text[cursor]!)) cursor += 1
+  const opener = text[cursor]
+  if (opener === '{') {
+    let depth = 0
+    const start = cursor + 1
+    for (; cursor < text.length; cursor += 1) {
+      if (text[cursor] === '{') depth += 1
+      else if (text[cursor] === '}') {
+        depth -= 1
+        if (depth === 0) return text.slice(start, cursor)
+      }
+    }
+    return undefined
+  }
+  if (opener === '"') {
+    const end = text.indexOf('"', cursor + 1)
+    return end === -1 ? undefined : text.slice(cursor + 1, end)
+  }
+  return undefined
+}
+const RIS_TITLE = /^TI  - (.+?)\r?$/m
 
 /** The BibTeX/BibLaTeX facts: the citation key plus the first title field. */
 function bibtexFactsOf(text: string): ExportItemFacts {
   const key = BIBTEX_KEY.exec(text)?.[1]
-  const title = BIBTEX_TITLE.exec(text)?.[1]
+  const title = bibtexTitleOf(text)
   return {
     ...(key === undefined ? {} : { key }),
     ...(title === undefined ? {} : { title }),
@@ -57,7 +88,9 @@ function csljsonFactsOf(text: string): ExportItemFacts {
     return {}
   }
   if (!Array.isArray(records) || records.length === 0) return {}
-  const record = records[0] as Record<string, unknown>
+  const first: unknown = records[0]
+  if (typeof first !== 'object' || first === null || Array.isArray(first)) return {}
+  const record = first as Record<string, unknown>
   const key = typeof record['id'] === 'string' ? record['id'] : undefined
   const title = typeof record['title'] === 'string' ? record['title'] : undefined
   return {

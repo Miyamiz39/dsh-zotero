@@ -41,6 +41,9 @@ export type ZoteroLocaleKey =
   | 'lastCheckedLabel'
   | 'lensSources'
   | 'lensExports'
+  | 'lensBarLabel'
+  | 'filterBarLabel'
+  | 'inspectorTabsLabel'
   | 'panelOverview'
   | 'panelEvidence'
   | 'panelExports'
@@ -209,6 +212,8 @@ export const en: Record<ZoteroLocaleKey, string> = {
   maxExportRefsHint: 'Refs one zotero_export call accepts at most.',
   maxBrowseResults: 'Browse result cap',
   maxBrowseResultsHint: 'Items one zotero_browse call returns at most.',
+  maxChangesResults: 'Changes result cap',
+  maxChangesResultsHint: 'Entries one zotero_changes call lists per resource at most.',
   defaultStyle: 'Default citation style',
   defaultStyleHint: 'CSL style id for citation and bibliography formats (e.g. apa).',
   defaultLocale: 'Default locale',
@@ -232,6 +237,9 @@ export const en: Record<ZoteroLocaleKey, string> = {
   lastCheckedLabel: 'Last checked',
   lensSources: 'Literature',
   lensExports: 'Exports',
+  lensBarLabel: 'Literature views',
+  filterBarLabel: 'Source filters',
+  inspectorTabsLabel: 'Source detail panels',
   panelOverview: 'Overview',
   panelEvidence: 'Passages',
   panelExports: 'Exports',
@@ -397,6 +405,8 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   maxExportRefsHint: 'zotero_export 单次调用最多接受的 refs 数。',
   maxBrowseResults: '浏览结果上限',
   maxBrowseResultsHint: 'zotero_browse 单次调用最多返回的条目数。',
+  maxChangesResults: '变更结果上限',
+  maxChangesResultsHint: 'zotero_changes 单次调用每种资源最多列出的条目数。',
   defaultStyle: '默认引文样式',
   defaultStyleHint: 'citation/bibliography 格式的 CSL 样式 id（如 apa）。',
   defaultLocale: '默认区域设置',
@@ -420,6 +430,9 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   lastCheckedLabel: '上次检查',
   lensSources: '文献',
   lensExports: '导出',
+  lensBarLabel: '文献视图',
+  filterBarLabel: '文献筛选',
+  inspectorTabsLabel: '文献详情面板',
   panelOverview: '概览',
   panelEvidence: '相关片段',
   panelExports: '导出',
