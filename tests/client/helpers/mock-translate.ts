@@ -2,9 +2,10 @@
  * Shared locale stub for client specs: exact local mirror of the harness
  * `makeTranslate` (`packages/test-support/client-runtime/src/translate.ts`).
  * Kept local (rather than depending on `@deepseek-ai/dsh-client-test-runtime`)
- * because that package's `0.1.3-alpha.1` line is not yet published and would
- * break `npm install`, and pulling the full jsdom slot runtime for one pure
- * function is disproportionate. Resolution order and `{name}` interpolation
+ * because that package's harness line is not always published on the registry
+ * and would break `npm install`, and pulling the full jsdom slot runtime for
+ * one pure function is disproportionate. Resolution order and `{name}`
+ * interpolation
  * match `LocaleRuntime` exactly: first dictionary owning the key wins, then
  * the key itself stays visible; unknown placeholders stay verbatim.
  * @module tests/client/helpers/mock-translate

@@ -84,8 +84,8 @@ export function apply(ctx: ClientContext): void {
   // runtime-less internal forks between a plugin entry and the root fiber —
   // the namespace service mounted under the gateway entry is unreachable that
   // way (the store path resolves it by isolation label instead).
-  // Re-verified against dsh 0.1.3-alpha.1: the vendored cordis and the
-  // gateway's `remote.<namespace>` mount mechanism are unchanged, so the
+  // Re-verified against dsh 0.1.5-alpha.1: the vendored cordis fiber walk
+  // and the gateway's `remote.<namespace>` mount are unchanged, so the
   // workaround stays. Re-check first on any harness upgrade.
   let zotero: ZoteroRemoteFace | undefined
   ctx.effect(async () => {

@@ -7,7 +7,7 @@
  *
  * Steps: npm pack → temp profile → `dsh plugin add <tarball>` → `dsh web
  * --port 0` → read the boot token the CLI prints → exchange it for the page
- * cookie (alpha.5 gates the composition behind instance auth) → GET /
+ * cookie (instance auth gates the composition) → GET /
  * → parse the `globalThis["__DSH_BOOT__"]` manifest → assert the dsh-zotero
  * → assert 200 and the __ModuleLoader__.load handoff → shutdown.
  *
