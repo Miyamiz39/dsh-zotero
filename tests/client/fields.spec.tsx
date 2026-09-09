@@ -11,15 +11,21 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BooleanField, ValueField } from '../../src/client/fields.tsx'
 
+// The real primitives bundle pulls heavy dependencies (katex, shiki); the
+// fields only need the shared Tag capsule, so stub it with its DOM face.
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
+  const { TagStub } = await import('./helpers/tag-stub.tsx')
+  return { Tag: TagStub }
+})
+
 afterEach(cleanup)
 
 const base = {
   id: 'field-test',
   label: 'Test toggle',
-  hintLabel: 'A hint.',
+  hint: 'A hint.',
   text: 'true',
   overridden: true,
-  invalid: false,
   overriddenLabel: '已覆盖',
   resetLabel: '恢复默认',
   disabled: false,

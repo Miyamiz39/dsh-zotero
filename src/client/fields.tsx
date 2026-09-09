@@ -8,7 +8,7 @@
  * Structure, tokens, and geometry mirror the harness's official plugin fields
  * (`packages/client/ui-settings-plugins/src/client/fields.tsx` +
  * `fields.module.css`): native inputs (34px, radius 8, layer-3 surface),
- * pill override badges, and `.field + .field` separators. Spelled here rather
+ * `Tag` override badges, and `.field + .field` separators. Spelled here rather
  * than imported because a client bundle must not value-import another
  * plugin's code. The boolean toggle has no official atom (the official module
  * ships only `ValueField`/`SecretField`), so it keeps a native checkbox while
@@ -16,6 +16,7 @@
  * @module dsh-zotero/client/fields
  */
 
+import { Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './fields.module.css'
 
 /** What every field control needs regardless of its value type. */
@@ -46,6 +47,23 @@ export interface FieldProps {
   onReset: () => void
 }
 
+/** Shared override badge + reset pair used by every field control. */
+function OverrideControls(props: {
+  readonly overriddenLabel: string
+  readonly resetLabel: string
+  readonly disabled: boolean
+  readonly onReset: () => void
+}) {
+  return (
+    <span className={css.badges}>
+      <Tag tone="neutral">{props.overriddenLabel}</Tag>
+      <button type="button" className={css.reset} disabled={props.disabled} onClick={props.onReset}>
+        {props.resetLabel}
+      </button>
+    </span>
+  )
+}
+
 /**
  * A staged value field. `numeric` only hints the keypad: which drafts a field
  * accepts is decided by its spec, so the control never silently rewrites what
@@ -68,17 +86,12 @@ export function ValueField(
           {props.label}
         </label>
         {props.overridden ? (
-          <span className={css.badges}>
-            <span className={css.badge}>{props.overriddenLabel}</span>
-            <button
-              type="button"
-              className={css.reset}
-              disabled={props.disabled}
-              onClick={props.onReset}
-            >
-              {props.resetLabel}
-            </button>
-          </span>
+          <OverrideControls
+            overriddenLabel={props.overriddenLabel}
+            resetLabel={props.resetLabel}
+            disabled={props.disabled}
+            onReset={props.onReset}
+          />
         ) : null}
       </div>
       <input
@@ -108,12 +121,7 @@ export function ValueField(
  * @param props - the field's copy, its staged text, and the edit actions.
  * @returns the labelled toggle control.
  */
-export function BooleanField(
-  props: Omit<FieldProps, 'hint' | 'invalidLabel'> & {
-    /** Placeholder hint shown under the control. */
-    hintLabel: string
-  },
-) {
+export function BooleanField(props: Omit<FieldProps, 'invalid' | 'invalidLabel'>) {
   return (
     <div className={css.field}>
       <div className={css.toggleRow}>
@@ -131,20 +139,15 @@ export function BooleanField(
           {props.label}
         </label>
         {props.overridden ? (
-          <span className={css.badges}>
-            <span className={css.badge}>{props.overriddenLabel}</span>
-            <button
-              type="button"
-              className={css.reset}
-              disabled={props.disabled}
-              onClick={props.onReset}
-            >
-              {props.resetLabel}
-            </button>
-          </span>
+          <OverrideControls
+            overriddenLabel={props.overriddenLabel}
+            resetLabel={props.resetLabel}
+            disabled={props.disabled}
+            onReset={props.onReset}
+          />
         ) : null}
       </div>
-      <p className={css.hint}>{props.hintLabel}</p>
+      <p className={css.hint}>{props.hint}</p>
     </div>
   )
 }

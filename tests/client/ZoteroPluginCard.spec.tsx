@@ -22,10 +22,14 @@ import {
 import { fakeScope, type FakeScope } from './helpers/fake-scope.ts'
 
 // The real primitives bundle pulls heavy dependencies (katex, shiki); the card
-// only needs the chevron icon, so stub it with its DOM face.
-vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  IconChevronDownOutline14: () => null,
-}))
+// only needs the chevron icon and the Tag capsule, so stub them with DOM faces.
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
+  const { TagStub } = await import('./helpers/tag-stub.tsx')
+  return {
+    IconChevronDownOutline14: () => null,
+    Tag: TagStub,
+  }
+})
 
 const t = (key: ZoteroLocaleKey): string => zh[key]
 

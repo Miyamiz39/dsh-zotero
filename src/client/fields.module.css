@@ -1,9 +1,10 @@
 /* Zotero plugin configuration fields: mirrors the harness official fields
  * (`packages/client/ui-settings-plugins/src/client/fields.module.css`) —
- * label, native control, override badge, and hint — spelled here because a
- * client bundle must not value-import another plugin's CSS. The boolean
- * toggle has no official atom, so its row keeps a native checkbox while
- * reusing the official badge/reset/hint language. */
+ * label, native control, override badge placement, and hint — spelled here
+ * because a client bundle must not value-import another plugin's CSS.
+ * Override badge geometry and palette come from ui-primitives `Tag`. The
+ * boolean toggle has no official atom, so its row keeps a native checkbox
+ * while reusing the official badge/reset/hint language. */
 
 .field {
   display: flex;
@@ -35,18 +36,6 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-.badge {
-  border-radius: 999px;
-  corner-shape: round;
-  padding: 1px 8px;
-  font-size: 11px;
-  line-height: 17px;
-  white-space: nowrap;
-  font-weight: 500;
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-secondary);
 }
 
 .reset {

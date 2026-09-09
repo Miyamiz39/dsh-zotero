@@ -21,7 +21,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutline14, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the keyed `settings.plugin.item` slot this card registers into is
 // declared by the Plugins section's client contract.
@@ -75,7 +75,11 @@ export function ZoteroPluginCard(props: ZoteroPluginCardProps) {
           <span className={css.name}>{title}</span>
           <span className={css.description}>{t('description')}</span>
         </span>
-        {state.dirty ? <span className={css.pending}>{t('unsaved')}</span> : null}
+        {state.dirty ? (
+          <Tag tone="neutral" className={css.pending}>
+            {t('unsaved')}
+          </Tag>
+        ) : null}
         <IconChevronDownOutline14 className={clsx(css.chevron, open && css.chevronOpen)} />
       </button>
       {open ? (

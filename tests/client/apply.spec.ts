@@ -19,6 +19,7 @@ import { fakeScope } from './helpers/fake-scope.ts'
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconChevronDownOutline14: () => null,
   LinkIcon: () => null,
+  Tag: () => null,
 }))
 
 interface FakeSlotsEntry {
