@@ -89,7 +89,7 @@ function field(
         key={key}
         id={`zotero-settings-${key}`}
         label={t(key)}
-        hintLabel={t(`${key}Hint`)}
+        hint={t(`${key}Hint`)}
         {...shared}
       />
     )
