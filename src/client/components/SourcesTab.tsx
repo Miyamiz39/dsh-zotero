@@ -128,9 +128,9 @@ export function stateOf(result: RemoteResult<ZoteroStatusView>, checkedAt: strin
  * Collect the session's Zotero tool calls: settled results and in-flight
  * calls, including nested dispatch (PTC mode), deduplicated by callId and
  * in transcript order. Only visible tool rows contribute — the same set the
- * harness's own compatibility projection carries. Iterates `snapshot.order`
- * (already presentation order) instead of re-sorting. Pure over the
- * snapshot — the same log slice renders the same list.
+ * harness's own chat projection carries (hidden rows never appear). Iterates
+ * `snapshot.order` (already presentation order) instead of re-sorting. Pure
+ * over the snapshot — the same log slice renders the same list.
  * @param snapshot - the chat snapshot, undefined while none is open.
  * @returns the ordered zotero call blocks.
  */
@@ -153,17 +153,18 @@ export function collectZoteroCalls(snapshot: ChatSnapshot | undefined): ToolCall
   return out
 }
 
-/** The Sources panel controller: probe, workspace build, and the view. */
+/**
+ * Signature-gated Zotero call collection for the Sources panel.
+ * @param chat - the chat snapshot, undefined while none is open.
+ * @returns the ordered zotero call blocks.
+ */
 export function useZoteroBlocks(chat: ChatSnapshot | undefined): ToolCallBlock[] {
   const signature = useMemo(() => sessionSignatureOf(chat), [chat])
   // Keyed on the signature, not on `chat`: streaming publications keep the
   // zotero order and in-flight set stable, so the deep collection below skips
   // them. A nested dispatch under an already running call likewise waits for
-  // the next signature change (see `sessionSignatureOf`). The `chat` read
-  // stays visible so the hooks lint sees the true dependency — the memo only
-  // reuses the previous blocks while the signature is unchanged. Localized
-  // here so the suppression lives in exactly one place.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // the next signature change (see `sessionSignatureOf`).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- signature is the intentional gate
   return useMemo(() => collectZoteroCalls(chat), [signature])
 }
 
@@ -181,9 +182,7 @@ export function SourcesTab({ status, t, useSession, useChat, inputActions }: Sou
   // only when a connected probe settles — a refresh's loading flip must not
   // drop it, or the workspace would rebuild twice per probe.
   const [serverId, setServerId] = useState<string | undefined>(undefined)
-  // The signature gate lives inside `useZoteroBlocks`: streaming publications
-  // keep the zotero order and in-flight set stable, so the deep collection
-  // (and with it the workspace rebuild) skips them.
+  // Streaming-stable zotero rows reuse the previous block array (signature gate).
   const blocks = useZoteroBlocks(chat)
   const workspace = useMemo(
     () => buildSourceWorkspace(blocks, { currentServerId: serverId }),

@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { openVerdictOf, pdfUrlOf, selectUrlOf } from '../../../src/client/actions/open-zotero.ts'
+import { externalHrefProps } from '../../../src/client/components/open/external-href.ts'
 import { hasPdf, pdfCapabilityOf } from '../../../src/client/sources/source-capabilities.ts'
 import type { SourceAttachment } from '../../../src/client/sources/model.ts'
 import { sourceOf } from '../helpers/source-fixtures.ts'
@@ -240,5 +241,23 @@ describe('hasPdf', () => {
     ).toBe(true)
     expect(hasPdf(sourceOf({ attachment: attachmentOf('text/html') }))).toBe(false)
     expect(hasPdf(sourceOf({}))).toBe(false)
+  })
+})
+
+describe('externalHrefProps', () => {
+  it('opens http(s) destinations in a new tab with the safe rel', () => {
+    expect(externalHrefProps('https://example.org/paper')).toEqual({
+      target: '_blank',
+      rel: 'noopener noreferrer',
+    })
+    expect(externalHrefProps('http://127.0.0.1:23119')).toEqual({
+      target: '_blank',
+      rel: 'noopener noreferrer',
+    })
+  })
+
+  it('keeps protocol and malformed destinations in place', () => {
+    expect(externalHrefProps('zotero://select/library/items/ABC')).toEqual({})
+    expect(externalHrefProps('not a url')).toEqual({})
   })
 })

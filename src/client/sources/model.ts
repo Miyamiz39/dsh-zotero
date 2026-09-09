@@ -129,12 +129,12 @@ export interface ExportArtifact {
   readonly refs: readonly string[]
   /** Exported refs beyond the bounded list; zero when the refs are the complete argument list. */
   readonly refsOmitted: number
-  /** The settled result's event time (Unix epoch ms); absent for legacy projections. */
+  /** The settled result's event time (Unix epoch ms); always set on current reducers. */
   readonly settledAt?: number
   /**
    * The per-document itemization of a translator-format export (ref, key,
    * title — never the entry text, which stays in the merged body); absent
-   * for citation/bibliography artifacts and legacy projections.
+   * for citation/bibliography artifacts, which have no per-document rows.
    */
   readonly items?: readonly ExportDocumentItem[]
   readonly text: string

@@ -10,6 +10,7 @@
 import { LinkIcon } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { OpenVerdict } from '../../actions/open-zotero.ts'
+import { externalHrefProps } from './external-href.ts'
 import css from './open.module.css'
 
 export interface ZoteroOpenLinkProps {
@@ -29,20 +30,9 @@ export interface ZoteroOpenLinkProps {
  * new tab with the safe rel; protocol links hand to the OS handler in place
  * with no blank tab. */
 export function ZoteroOpenLink({ url, verdict, label, t, className }: ZoteroOpenLinkProps) {
-  let external = false
-  try {
-    const protocol = new URL(url).protocol
-    external = protocol === 'http:' || protocol === 'https:'
-  } catch {
-    external = false
-  }
   return (
     <span className={css.linkWrap}>
-      <a
-        className={className ?? css.link}
-        href={url}
-        {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-      >
+      <a className={className ?? css.link} href={url} {...externalHrefProps(url)}>
         <LinkIcon kind="url" className={css.linkIcon} />
         {label}
       </a>

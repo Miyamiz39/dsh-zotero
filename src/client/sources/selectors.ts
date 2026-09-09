@@ -103,7 +103,7 @@ export interface ExportedDocument {
   readonly text: string
   /** The export call ids that produced this document. */
   readonly callIds: readonly string[]
-  /** The latest successful export's event time (Unix epoch ms); absent for legacy projections. */
+  /** The latest successful export's event time (Unix epoch ms). */
   readonly latestExportedAt?: number
 }
 
@@ -120,8 +120,8 @@ export interface ExportSection {
   readonly format: string
   readonly documents: readonly ExportedDocument[]
   /**
-   * Artifacts without per-document data: citation/bibliography exports and
-   * legacy projections. They render as whole-text call rows.
+   * Artifacts without per-document data: citation/bibliography exports.
+   * They render as whole-text call rows.
    */
   readonly unresolved: readonly ExportArtifact[]
   /**
@@ -167,7 +167,7 @@ function entryTextOf(artifact: ExportArtifact, item: ExportDocumentItem): string
 /**
  * Resolve one artifact into per-document rows plus the items that could not
  * be located; undefined when the artifact carries no per-document data at
- * all (citation, bibliography, legacy projections), which keeps the whole
+ * all (citation, bibliography), which keeps the whole
  * artifact on the call-row fallback. Partial resolution is the rule: one
  * unlocatable item never hides the other documents of the same export.
  */
@@ -210,7 +210,7 @@ function documentsOf(artifact: ExportArtifact):
  * first-seen format order. Repeated exports of the same (format, ref)
  * collapse into one document — the latest success is the current result,
  * the call history stays on the document — and exports without per-document
- * data (citation, bibliography, legacy projections) fall back to whole-text
+ * data (citation, bibliography) fall back to whole-text
  * artifact rows, while entries the provider could not locate are reported
  * individually.
  * @param exports - the successful export artifacts in transcript order.
