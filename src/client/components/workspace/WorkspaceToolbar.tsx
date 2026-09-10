@@ -107,6 +107,7 @@ export function WorkspaceToolbar({ connection, onRefresh, t }: WorkspaceToolbarP
           setMenuOpen(false)
         }}
         portal
+        autoFocus
         align="end"
       />
       <button

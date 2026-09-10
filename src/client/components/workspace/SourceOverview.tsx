@@ -132,6 +132,7 @@ export function SourceOverview({ item, t, setDraft }: SourceOverviewProps) {
             setMenuOpen(false)
           }}
           portal
+          autoFocus
           align="end"
         />
       </div>
