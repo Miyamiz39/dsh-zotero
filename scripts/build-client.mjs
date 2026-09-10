@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 import * as esbuild from 'esbuild'
@@ -69,13 +69,66 @@ function buildCommitOf() {
  *  snapshot-store library (`@deepseek-ai/dsh-client-store`) shares the shell
  *  singleton via the module table (harness `packages/client/web/src/platform.ts`
  *  `PLATFORM_MODULES` + `seed.ts:getStaticModules`), so it stays external
- *  alongside react and the UI primitives instead of bundling zustand/immer. */
+ *  alongside react and the UI primitives instead of bundling zustand/immer.
+ *  That harness list is this one's counterpart: anything in it that this bundle
+ *  value-imports belongs here too, and `bundlePurityPlugin` below fails the
+ *  build when a harness module slips into the artifact. */
 const EXTERNALS = [
   'react',
   'react/jsx-runtime',
   '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-primitives',
 ]
+
+/**
+ * Harness specifiers a client bundle may **inline**, mirroring the harness's own
+ * bundle-purity rule (`packages/client/tsdown.client.ts` `INLINE_SAFE` +
+ * `GENERATED_REMOTE` + `VENDORED_LIBRARY`): contract layers and pure folds with
+ * no runtime identity to share — no singleton, no Symbol/instanceof identity —
+ * plus generated `.../remote` contributions and the two vendored libraries.
+ * Everything else under `@deepseek-ai/` is either a module-table entry
+ * (external) or a leak. Keep this in step with that rule.
+ */
+const INLINABLE_HARNESS_SPECIFIER =
+  /^(?:@deepseek-ai\/dsh-(?:file-reference|session|llm|tools|brand|deque|output-retention|typert-protocol|util-crypto|util-values|util-workspace-path)(?:\/|$)|@deepseek-ai\/dsh-token-meter\/client$|@deepseek-ai\/dsh-host-open-in-app\/shared$|@deepseek-ai\/dsh-agent-presets\/display$|@deepseek-ai\/dsh-spill-policy\/notice$|@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$|@deepseek-ai\/(?:cosmokit|schemastery)(?:\/|$))/
+
+/** Fails the build when a harness module reaches the artifact that may not be
+ *  inlined: a second copy of a shell singleton (`ctx`, the store, the UI
+ *  primitives) carries no loader identity, so it would silently split state
+ *  across two instances. Reads the specifiers the graph actually resolves — the
+ *  same unit the harness's own rule is written in — so a symlinked sibling
+ *  checkout and a registry install are policed identically. */
+const bundlePurityPlugin = {
+  name: 'harness-bundle-purity',
+  setup(build) {
+    const harnessSpecifiers = new Set()
+    // Watch mode reuses one esbuild context; reset per build so a violation
+    // fixed in a later rebuild stops failing the gate instead of lingering.
+    build.onStart(() => {
+      harnessSpecifiers.clear()
+    })
+    build.onResolve({ filter: /^@deepseek-ai\// }, (args) => {
+      harnessSpecifiers.add(args.path)
+      // Undefined defers to esbuild's own resolution, which applies `external`.
+      return undefined
+    })
+    build.onEnd((result) => {
+      if (result.errors.length > 0) return
+      const offenders = [...harnessSpecifiers].filter(
+        (specifier) =>
+          !EXTERNALS.includes(specifier) && !INLINABLE_HARNESS_SPECIFIER.test(specifier),
+      )
+      if (offenders.length > 0) {
+        throw new Error(
+          `client bundle reached harness modules it may neither externalize nor inline: ${offenders.join(', ')}` +
+            ' — add the package to EXTERNALS when the loader table serves it' +
+            ' (harness packages/client/web/src/platform.ts PLATFORM_MODULES),' +
+            ' or leave it type-only',
+        )
+      }
+    })
+  },
+}
 
 /** Inline `.module.css` files as scoped style injections (mirrors the harness
  *  tsdown preset's CSS handling; the loader executes the bundle as a classic
@@ -116,7 +169,7 @@ const cssModulesPlugin = {
 
 const options = {
   entryPoints: [join(root, 'src/client/index.ts')],
-  plugins: [cssModulesPlugin],
+  plugins: [bundlePurityPlugin, cssModulesPlugin],
   outfile: join(root, 'lib/client.js'),
   bundle: true,
   format: 'cjs',
@@ -183,11 +236,26 @@ function verifyBundle() {
   )
 }
 
-if (process.argv.includes('--watch')) {
-  const context = await esbuild.context(options)
-  await context.watch()
-  console.log('watching src/client for changes…')
-} else {
+/**
+ * Build the browser client bundle, once or in watch mode.
+ *
+ * Exported so `scripts/build-prepare.mjs` (the source-install build) can emit
+ * the same artifact without duplicating this configuration; running this file
+ * directly keeps the one-shot/watch CLI behaviour.
+ * @param options - `watch` keeps the esbuild context alive and rebuilds on change.
+ * @returns resolves after the one-shot build and its self-check, or once the watch session starts.
+ */
+export async function buildClientBundle({ watch = false } = {}) {
+  if (watch) {
+    const context = await esbuild.context(options)
+    await context.watch()
+    console.log('watching src/client for changes…')
+    return
+  }
   await esbuild.build(options)
   verifyBundle()
+}
+
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await buildClientBundle({ watch: process.argv.includes('--watch') })
 }
