@@ -48,6 +48,10 @@ interface FakeApplyWorld {
   scope: ReturnType<typeof fakeScope>
   /** Scripted namespace `status` result; defaults to ok. */
   status: () => Promise<unknown>
+  /** The face the documented dotted read (`ctx.remote.zotero`) answers, if any. */
+  dotted: unknown
+  /** How many times the entry fell back to the service-store read. */
+  reflectCalls: number
 }
 
 /** A minimal context standing in for the browser kernel's plugin ctx. */
@@ -73,6 +77,8 @@ function fakeWorld(mountFail = false): FakeApplyWorld {
     bindSpecs,
     scope,
     status: async () => ({ ok: true, value: { connected: true, diagnosis: 'ok' } }),
+    dotted: undefined,
+    reflectCalls: 0,
   }
   const ctx = {
     effect: (register: () => unknown): (() => void) => {
@@ -92,14 +98,20 @@ function fakeWorld(mountFail = false): FakeApplyWorld {
           world.mountDisposes += 1
         }
       },
+      /** The traced child service the gateway installs alongside the mount. */
+      get zotero() {
+        return world.dotted
+      },
     },
     reflect: {
-      get: () =>
-        mountFail
+      get: () => {
+        world.reflectCalls += 1
+        return mountFail
           ? undefined
           : {
               status: world.status,
-            },
+            }
+      },
     },
     settingsScope: {
       bind: (spec: { namespace: string; decode?: (section: unknown) => unknown }) => {
@@ -182,6 +194,45 @@ describe('the browser-half entry', () => {
     const mount = world.effects[1]
     expect(mount).toBeTypeOf('object')
     await expect(Promise.resolve(mount)).rejects.toThrow(/did not mount/)
+  })
+
+  it('prefers the documented dotted namespace read when the gateway serves it', async () => {
+    const world = fakeWorld()
+    const dotted = {
+      status: vi.fn(async () => ({ ok: true, value: { connected: true, diagnosis: 'dotted' } })),
+    }
+    world.dotted = dotted
+    apply(world.ctx as Context)
+    // The mount effect resolves on a later tick; assert after it ran so the
+    // count reflects `mountedNamespace`, not the pre-mount state.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(world.reflectCalls).toBe(0)
+    const tab = world.injected.find((entry) => entry.name === 'conversation.view')
+    tab?.register()
+    const registration = world.registered.find((entry) => entry.name === 'conversation.view')
+    const face = (registration?.options.inject as () => { status: () => Promise<unknown> })()
+    await expect(face.status()).resolves.toEqual({
+      ok: true,
+      value: { connected: true, diagnosis: 'dotted' },
+    })
+  })
+
+  it('falls back to the service-store read when the dotted read is unreachable', async () => {
+    const world = fakeWorld()
+    apply(world.ctx as Context)
+    // `$mount` installs the traced child service on the gateway's context, so a
+    // plugin entry on another fiber branch reads `undefined` there and needs the
+    // store path; the tab still gets a working status face.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(world.reflectCalls).toBeGreaterThan(0)
+    const tab = world.injected.find((entry) => entry.name === 'conversation.view')
+    tab?.register()
+    const registration = world.registered.find((entry) => entry.name === 'conversation.view')
+    const face = (registration?.options.inject as () => { status: () => Promise<unknown> })()
+    await expect(face.status()).resolves.toEqual({
+      ok: true,
+      value: { connected: true, diagnosis: 'ok' },
+    })
   })
 
   it('disposes the mount and clears the face with the fiber', async () => {

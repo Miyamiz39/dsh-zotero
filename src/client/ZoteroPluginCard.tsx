@@ -15,7 +15,10 @@
  *
  * The card chrome is spelled here rather than imported because a client bundle
  * must not value-import another plugin's code (the loader module table would
- * refuse it); the tokens and structure mirror the section's own `PluginCard`.
+ * refuse it); the tokens and structure mirror the section's own `PluginCard`
+ * (`packages/client/ui-settings-plugins/src/client/PluginCard.tsx` +
+ * `PluginCard.module.css`), which is the file to diff against when upstream
+ * restyles the configuration cards.
  * @module dsh-zotero/client/ZoteroPluginCard
  */
 

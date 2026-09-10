@@ -3,10 +3,16 @@
  * namespace — every Config field, mirroring the host schema in `src/config.ts`
  * (spelled here rather than value-imported: the browser bundle must not pull
  * host modules in; the key set is bound to the host `ResolvedConfig` at
- * compile time below, so the two surfaces cannot drift). The scope arrives
- * through the shared `SettingsScope` contract, so the form is indifferent to
- * whether the harness's settings RPC or the plugin's own Typert Remote
- * endpoints back it.
+ * compile time below, and `tests/client/zotero-card-parity.spec.ts` binds the
+ * per-field control kind against the same schema at runtime, so the two
+ * surfaces cannot drift in either direction). The scope arrives through the
+ * shared `SettingsScope` contract, so the form is indifferent to whether the
+ * harness's settings RPC or the plugin's own Typert Remote endpoints back it.
+ *
+ * The shape follows the harness's own card controllers
+ * (`packages/client/ui-settings-plugins/src/client/bash-card-controller.ts`),
+ * extended to a full field table because this namespace is a whole
+ * configuration surface rather than one capability's settings.
  *
  * One field table drives the whole card: the field specs the form edits, the
  * state the page renders, the display groups, and the numeric hint set, so a

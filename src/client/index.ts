@@ -30,6 +30,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 // Type-only: the `conversation.view` SlotMap row (declared by the slot's
 // owning package) must be in the program for the tab registration to type.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
 import { ZoteroPluginCard } from './ZoteroPluginCard.tsx'
 import { SourcesTab, type SourcesTabFace } from './components/SourcesTab.tsx'
 import { ZOTERO_REMOTE } from './remote.ts'
@@ -43,6 +44,28 @@ const NS = 'zotero'
 
 /** Required services (cordis fiber inject): settingsScope's binder resolves the caller's connection and remote. */
 export const inject = ['locale', 'slots', 'connection', 'settingsScope', 'remote']
+
+/**
+ * The mounted `zotero` namespace face, or `undefined` when this fiber cannot
+ * reach it.
+ *
+ * The documented read is the traced child service (`ctx.remote.<namespace>`),
+ * and it is tried first. Re-checked at dsh 0.1.5-rc.1: `$mount` still installs
+ * that child service on the **gateway's own** context
+ * (`api/gateway/src/client/index.ts` → `$mount` → `createNamespace` →
+ * `this.ownerCtx.plugin(...)`), while the docs describe it as "for the calling
+ * Cordis fiber" (`docs/api-gateway.md`). A plugin entry whose context sits on a
+ * different branch of the loader's fiber tree therefore reads `undefined`
+ * there. The store path (`ctx.reflect.get`) resolves the same service by key
+ * across that branch, so it is the fallback — not the primary, so an upstream
+ * fix of the mount context takes effect with no further edit here.
+ * @param ctx - the browser plugin context.
+ * @returns the namespace face, or undefined while it is unmounted.
+ */
+function mountedNamespace(ctx: ClientContext): ZoteroRemoteFace | undefined {
+  const remote = ctx.remote as Partial<TypertRemoteNamespaceMap>
+  return remote.zotero ?? (ctx.reflect.get('remote.zotero') as ZoteroRemoteFace | undefined)
+}
 
 /**
  * Mount the Zotero configuration card into the Plugins tab.
@@ -78,19 +101,10 @@ export function apply(ctx: ClientContext): void {
     ),
   )
 
-  // The mounted namespace handle resolves through the service store
-  // (`ctx.reflect.get`), not through `ctx.remote.zotero`: the generated-style
-  // dotted read walks the cordis fiber chain, which stops at the Loader's
-  // runtime-less internal forks between a plugin entry and the root fiber —
-  // the namespace service mounted under the gateway entry is unreachable that
-  // way (the store path resolves it by isolation label instead).
-  // Re-verified against dsh 0.1.5-alpha.1: the vendored cordis fiber walk
-  // and the gateway's `remote.<namespace>` mount are unchanged, so the
-  // workaround stays. Re-check first on any harness upgrade.
   let zotero: ZoteroRemoteFace | undefined
   ctx.effect(async () => {
     const dispose = await ctx.remote.$mount(ZOTERO_REMOTE)
-    zotero = ctx.reflect.get('remote.zotero') as ZoteroRemoteFace | undefined
+    zotero = mountedNamespace(ctx)
     if (zotero === undefined) {
       throw new Error('dsh-zotero: the zotero Remote namespace did not mount')
     }

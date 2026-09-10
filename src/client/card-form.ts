@@ -12,9 +12,13 @@
  * presence, not a value comparison, is what marks a field overridden: an
  * override equal to the composition default is still an override.
  *
- * This is the same model the harness's own plugin cards use; it is spelled
- * here rather than imported because a client bundle must not value-import
- * another plugin's code (the loader module table would refuse it).
+ * This is the same model the harness's own plugin cards use
+ * (`packages/client/ui-settings-plugins/src/client/card-form.ts`, the file this
+ * one mirrors); it is spelled here rather than imported because that package's
+ * `./client` entry exports types only, and a client bundle must not
+ * value-import another plugin's code (the loader module table would refuse it).
+ * Diff against that file first when the harness reshapes its card internals;
+ * this copy is deliberately narrower — no secret field, no generic form type.
  * @module dsh-zotero/client/card-form
  */
 
