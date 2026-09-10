@@ -13,20 +13,28 @@ src/
   http-client.ts        # HTTP transport (loopback fetch)
   config.ts             # Config schema and validation
   types.ts              # Domain types (DTOs)
+  contract.ts           # Remote wire contract (descriptors + strict codecs)
   errors.ts             # Error class and error codes
+  json.ts               # Lossless JSON read helper
+  concurrency.ts        # Bounded concurrency
   evidence.ts           # BM25 ranking
   attachments.ts        # Attachment selection
+  item-graph.ts         # Child object graph (notes/attachments/annotations)
+  normalize.ts          # Zotero item → domain DTO normalization
+  presentation-meta.ts  # Display projection of tool results
   refs.ts               # Zotero object reference syntax
+  ref-grammar.ts        # Reference text patterns
   export-items.ts       # Per-document export parsing
   export-mapping.ts     # Ref → batch item mapping
+  ask.ts                # User-question fallback when the connection fails
   prompt.ts             # Model-facing policy section
   command.ts            # /zotero status command
   remote.ts             # Remote service for web tab
   typert.ts             # Typert manifest
   settings-namespace.ts # Settings namespace constants
-  tools/                # 5 tool implementations
-  client/               # Browser side (settings card, Sources tab)
-tests/                  # Unit tests (mock Zotero server)
+  tools/                # 8 model tools (search/get/children/attachment/retrieve/export/browse/changes) + present/validate shared pieces
+  client/               # Browser side (settings card, Sources tab, sources reducers, workspace views)
+tests/                  # Unit tests (mock Zotero server + browser card tests)
 ```
 
 ## Install and build
@@ -34,15 +42,20 @@ tests/                  # Unit tests (mock Zotero server)
 ```sh
 npm install                  # sibling of deepseek-harness; add --no-workspaces only for a nested copy
 npm test                     # unit tests (mock Zotero server + browser card tests)
-npm run typecheck            # tsc --noEmit (node/test/client projects)
+npm run typecheck            # upstream dependency state check + tsc --noEmit (node/test/client projects)
 npm run build                # tsc + esbuild (node lib/ + browser lib/client.js)
 npm run build:client         # rebuild browser side only
 npm run test:coverage        # coverage gate (97 statements / 95 branches / 98 functions / 97 lines)
+npm run harness:check        # upstream pin and declaration freshness (typecheck already runs it)
+npm run harness:pin -- <ver> # move the whole pin to <ver> (devDeps/overrides/peers/engines/README/AGENTS)
+npm run verify:pack          # assert the packed tarball carries the declared entries
 npm run format               # prettier --write
 npm run format:check         # format check
 ```
 
 > This repo sits beside deepseek-harness as a sibling (see AGENTS.md): plain `npm install`. Add `--no-workspaces` only when nested inside the harness workspace.
+>
+> Upstream **types** come from the built `lib/types` artifacts of the sibling checkout that `node_modules/@deepseek-ai/*` symlinks at (the same read a published consumer makes). A sibling `git pull` does not regenerate them, so `npm run typecheck` first runs `node scripts/harness-state.mjs`: when an imported package's `src` is newer than its declaration file, it prints the build command to run. `npm run harness:check -- --strict` (used by the release check) turns that report into a failure.
 
 ## Integration tests
 
@@ -103,6 +116,8 @@ npm run dev:client                # esbuild watch
 
 ## Release checklist
 
+- `npm run harness:check -- --strict` passes (pin consistent, upstream declarations not behind the sibling source)
+- `npm run verify:pack` passes (tarball carries `lib/index.js`, `lib/index.d.ts`, `lib/client.js`, `cordis.patch.yml`)
 - `npm test` passes
 - `npm run typecheck` passes
 - `npm run test:coverage` passes (gate above)

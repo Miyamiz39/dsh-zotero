@@ -9,7 +9,7 @@ dsh-zotero 是一个 DSH 插件，让 Agent 能够搜索、阅读和引用本地
 - Zotero >= 7 桌面版已安装
 - 本地 API 已启用：设置 -> 高级 -> 勾选「允许此计算机上的其他应用程序与 Zotero 通信」
 - Node.js >= 22.19 或 >= 24
-- DSH 0.1.5-alpha.1（peer 依赖见 package.json；上游稳定前仅支持最新 alpha 版本，不向后兼容）
+- DSH 0.1.5-rc.1（peer 依赖见 package.json；上游发布稳定版之前只跟最新预发布线，不向后兼容）
 
 版本对照：
 
@@ -20,7 +20,7 @@ dsh-zotero 是一个 DSH 插件，让 Agent 能够搜索、阅读和引用本地
 | 0.6.0    | 0.1.2-alpha.5 |
 | 0.7.0    | 0.1.3-alpha.1 |
 | 0.7.1    | 0.1.3-alpha.1 |
-| 0.8.0    | 0.1.5-alpha.1 |
+| 0.8.0    | 0.1.5-rc.1    |
 
 ## 安装插件
 
@@ -77,12 +77,18 @@ Agent 会调用 `zotero_search` 搜索你的文献库，返回匹配的条目列
 
 ## 从 GitHub 或 tarball 安装的特殊事项
 
-从 GitHub 安装时会拉取源码并执行 `prepare`（即 `npm run build`）。pnpm >= 10 需要在 pnpm-workspace.yaml 中配置 `allowBuilds`：
+**npm 包名与 tarball 两条通道不需要任何授权**：它们分发的是已构建产物（`lib/` 随包发布），装完即可用。若之前从 GitHub 装过并失败，改用这两条通道即可直接绕过下面的构建授权。
+
+**GitHub 通道会拉取源码**，因此要在你的机器上跑一次 `prepare`（即 `npm run build`）：先类型检查 Node 端再打包浏览器端。pnpm ≥ 10 默认拦截依赖的构建脚本，所以首次 `add` 会失败并打印需要授权的包键；把该键写进**这个 profile 的** `pnpm-workspace.yaml` 后重跑：
 
 ```yaml
-onlyBuiltDependencies:
-  - dsh-zotero
+allowBuilds:
+  dsh-zotero: true
 ```
+
+（键名请用 pnpm 输出的那个；pnpm 10 中该设置的旧名为 `onlyBuiltDependencies`，取值是数组。文件位置即 `~/.dsh/profiles/<profile-name>/pnpm-workspace.yaml`。）
+
+> 看到 `nothing installable … need a build step (blocked by default, see allowBuilds) or ship no prebuilt artifacts` 就是这条：请二选一——按上面的片段授权构建，或改用 npm/tarball 通道。
 
 建议锁定到特定 commit 以确保可复现性：
 
@@ -90,4 +96,4 @@ onlyBuiltDependencies:
 dsh plugin --profile <profile-name> add github:Vncntvx/dsh-zotero#<commit-hash>
 ```
 
-从 tarball 安装不需要额外配置，直接指向本地 `.tgz` 文件即可。
+从 tarball 安装不需要额外配置，直接指向本地 `.tgz` 文件即可：

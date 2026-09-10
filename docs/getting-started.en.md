@@ -9,7 +9,7 @@ dsh-zotero is a DSH plugin that lets agents search, read, and cite your local Zo
 - Zotero ≥ 7 desktop installed
 - Local API enabled: Settings → Advanced → check "Allow other applications on this computer to communicate with Zotero"
 - Node.js ≥ 22.19 or ≥ 24
-- DSH 0.1.5-alpha.1 (peer dependencies listed in package.json; only the latest alpha is supported until upstream stabilizes, no backward compatibility)
+- DSH 0.1.5-rc.1 (peer dependencies listed in package.json; only the latest pre-release line is supported until upstream stabilizes, with no backward compatibility)
 
 Version mapping:
 
@@ -20,7 +20,7 @@ Version mapping:
 | 0.6.0          | 0.1.2-alpha.5       |
 | 0.7.0          | 0.1.3-alpha.1       |
 | 0.7.1          | 0.1.3-alpha.1       |
-| 0.8.0          | 0.1.5-alpha.1       |
+| 0.8.0          | 0.1.5-rc.1          |
 
 ## Install the plugin
 
@@ -77,12 +77,18 @@ The agent calls `zotero_search` to search your library and returns matching entr
 
 ## Notes for GitHub or tarball installs
 
-Installing from GitHub pulls the source and runs `prepare` (`npm run build`). pnpm ≥ 10 requires `allowBuilds` in pnpm-workspace.yaml:
+**The npm and tarball channels need no allowance at all**: they ship prebuilt artifacts (`lib/` is published with the package), so they work immediately. If a GitHub install already failed, switching to one of those two channels bypasses the build allowance below.
+
+**The GitHub channel pulls source**, so it runs `prepare` (`npm run build`) on your machine: typecheck the Node half, then bundle the browser half. pnpm ≥ 10 blocks dependency build scripts by default, so the first `add` fails and prints the package key to allow; copy that key into **this profile's** `pnpm-workspace.yaml` and re-run:
 
 ```yaml
-onlyBuiltDependencies:
-  - dsh-zotero
+allowBuilds:
+  dsh-zotero: true
 ```
+
+(Use the exact key pnpm printed. In pnpm 10 this setting is named `onlyBuiltDependencies` and takes an array. The file is `~/.dsh/profiles/<profile-name>/pnpm-workspace.yaml`.)
+
+> `nothing installable … need a build step (blocked by default, see allowBuilds) or ship no prebuilt artifacts` means exactly this: pick one of the two — allow the build as above, or use the npm/tarball channel.
 
 Pin to a specific commit for reproducibility:
 

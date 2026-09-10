@@ -52,11 +52,17 @@
 
 ---
 
-**7. pnpm allowBuilds error on GitHub install**
+**7. Install reports `nothing installable` (build blocked, or no prebuilt artifacts)**
 
-- **Symptom**: first add fails, pnpm refuses to run prepare
-- **Cause**: pnpm ≥ 10 blocks prepare for git dependencies by default
-- **Fix**: add allowBuilds config to the profile's `pnpm-workspace.yaml`
+- **Symptom**: `dsh plugin add` fails with `nothing installable: the plugin(s) need a build step (blocked by default, see allowBuilds) or ship no prebuilt artifacts`
+- **Cause**: the GitHub channel pulls source, so the package carries no `lib/` artifacts and `prepare` has to build them on your machine; pnpm ≥ 10 blocks dependency build scripts by default, leaving neither artifacts nor an authorized build
+- **Fix**: either
+  - allow the build: copy the package key pnpm printed into **that profile's** `pnpm-workspace.yaml`, then re-run:
+    ```yaml
+    allowBuilds:
+      dsh-zotero: true
+    ```
+  - switch to a prebuilt channel (recommended): install from the npm package name or a local tarball — both carry the built `lib/` and need no allowance
 
 ---
 

@@ -13,20 +13,28 @@ src/
   http-client.ts        # HTTP 传输层（loopback fetch）
   config.ts             # Config schema 与校验
   types.ts              # 领域类型（DTOs）
+  contract.ts           # Remote wire 契约（descriptor + 严格 codec）
   errors.ts             # 错误类与错误码
+  json.ts               # 无损 JSON 读取helper
+  concurrency.ts        # 有界并发
   evidence.ts           # BM25 排名
   attachments.ts        # 附件选择
+  item-graph.ts         # 子对象图（笔记/附件/批注）
+  normalize.ts          # Zotero 条目 → 领域 DTO 归一化
+  presentation-meta.ts  # 工具结果的展示投影
   refs.ts               # Zotero 对象引用语法
+  ref-grammar.ts        # 引用文本模式
   export-items.ts       # 逐文档导出解析
   export-mapping.ts     # 引用 → 批量条目映射
+  ask.ts                # 连接失败时的 user-question 交互
   prompt.ts             # 面向模型的 policy section
   command.ts            # /zotero status 命令
   remote.ts             # Web tab 的 Remote 服务
   typert.ts             # Typert manifest
   settings-namespace.ts # 设置命名空间常量
-  tools/                # 5 个工具实现
-  client/               # 浏览器端（设置卡片、Sources tab）
-tests/                  # 单元测试（mock Zotero server）
+  tools/                # 8 个模型工具（search/get/children/attachment/retrieve/export/browse/changes）+ present/validate 共享件
+  client/               # 浏览器端（设置卡片、Sources tab、sources 归约、workspace 视图）
+tests/                  # 单元测试（mock Zotero server + browser card tests）
 ```
 
 ## 安装与构建
@@ -34,15 +42,20 @@ tests/                  # 单元测试（mock Zotero server）
 ```sh
 npm install                  # 本仓库与 deepseek-harness 并列，仅嵌套副本才加 --no-workspaces
 npm test                     # 单元测试（mock Zotero server + browser card tests）
-npm run typecheck            # tsc --noEmit（node/test/client projects）
+npm run typecheck            # 上游依赖状态检查 + tsc --noEmit（node/test/client projects）
 npm run build                # tsc + esbuild（node lib/ + browser lib/client.js）
 npm run build:client         # 仅重新构建浏览器端
 npm run test:coverage        # 覆盖率门禁（97 语句 / 95 分支 / 98 函数 / 97 行）
+npm run harness:check        # 上游版本钉与声明新鲜度（typecheck 已内置这一步）
+npm run harness:pin -- <ver> # 把版本钉整体移到 <ver>（devDeps/overrides/peers/engines/README/AGENTS）
+npm run verify:pack          # 打包产物门禁（tarball 必含入口与 cordis.patch.yml）
 npm run format               # prettier --write
 npm run format:check         # 格式化检查
 ```
 
 > 本仓库与 deepseek-harness 并列为 sibling 目录（见 AGENTS.md），直接 `npm install`；只有把它嵌套进 harness workspace 副本时才加 `--no-workspaces`。
+>
+> 上游**类型**来自 `node_modules/@deepseek-ai/*` 符号链接所指向的 sibling checkout 的 `lib/types` 构建产物（与发布版消费者的读取方式一致）。sibling 的 `git pull` 不会重建它们，因此 `npm run typecheck` 先跑 `node scripts/harness-state.mjs`：某个被导入的包其 `src` 比声明文件更新时，它会给出需要执行的构建命令。`npm run harness:check -- --strict`（发布检查用）把这一项从提示升级为失败。
 
 ## 集成测试
 
@@ -103,6 +116,8 @@ npm run dev:client                # esbuild watch
 
 ## 发布检查清单
 
+- `npm run harness:check -- --strict` 通过（版本钉一致，且上游声明不落后于 sibling 源码）
+- `npm run verify:pack` 通过（tarball 含 `lib/index.js`、`lib/index.d.ts`、`lib/client.js`、`cordis.patch.yml`）
 - `npm test` 通过
 - `npm run typecheck` 通过
 - `npm run test:coverage` 通过（门禁见上）

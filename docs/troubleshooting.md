@@ -52,11 +52,17 @@
 
 ---
 
-**7. GitHub 安装遇到 pnpm allowBuilds 错误**
+**7. 安装报 `nothing installable`（构建被拦截，或没有预构建产物）**
 
-- **症状**：首次 add 失败，提示 pnpm 拒绝运行 prepare
-- **原因**：pnpm ≥ 10 默认拒绝 git 依赖的 prepare
-- **处理**：在 profile 的 `pnpm-workspace.yaml` 中添加 allowBuilds 配置
+- **症状**：`dsh plugin add` 失败并提示 `nothing installable: the plugin(s) need a build step (blocked by default, see allowBuilds) or ship no prebuilt artifacts`
+- **原因**：从 GitHub 通道安装会拉取源码，包内没有 `lib/` 构建产物，必须由 `prepare` 现场构建；pnpm ≥ 10 默认拦截依赖的构建脚本，于是既没有可用的构建产物、构建也没获授权
+- **处理**：二选一
+  - 授权构建：把 `add` 输出里 pnpm 打印的包键写进 **该 profile** 的 `pnpm-workspace.yaml`，然后重跑：
+    ```yaml
+    allowBuilds:
+      dsh-zotero: true
+    ```
+  - 换成预构建通道（推荐）：从 npm 包名或本地 tarball 安装，两者都携带已构建的 `lib/`，不需要任何授权
 
 ---
 
