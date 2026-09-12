@@ -755,8 +755,17 @@
 
 /* Narrow surfaces (the pane, not the viewport): the workspace collapses to
  * one pane at a time — the sidebar list or the inspector detail — with the
- * back action revealed. */
-@container (max-width: 760px) {
+ * back action revealed.
+ *
+ * The threshold is the width at which the master-detail pair stops fitting,
+ * not a comfortable one above it: the sidebar's floor is 280px (`.workspace`'s
+ * clamp) and the inspector needs ~360px for its title, meta, panel tabs, and
+ * action row, so 640px is the last width that holds both. Sitting higher than
+ * that collapsed the pair on any ordinary column — the shell's right panel or
+ * a half-screen window is enough to drop the pane under 760px while the window
+ * itself is still wide, which reads as the layout giving up with room to
+ * spare. */
+@container (max-width: 640px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -796,7 +805,9 @@
   }
 }
 
-@container (max-width: 620px) {
+/* Tighter gutters, one step inside the single-pane threshold so the ladder
+ * stays ordered: collapse at 640, gutters at 560, toolbar at 460. */
+@container (max-width: 560px) {
   .lensBar {
     padding: 4px 8px 0;
   }

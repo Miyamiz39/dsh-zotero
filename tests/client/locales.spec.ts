@@ -20,6 +20,9 @@ describe('locale bundles', () => {
       // affordance has no surface left to name.
       'expand',
       'collapse',
+      // Copying the ref is a visible action-row button now, so the overflow
+      // menu that owned the label is gone.
+      'moreActions',
       'lensActivity',
       'lensCitations',
       'lensItems',

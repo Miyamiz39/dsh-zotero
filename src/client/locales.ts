@@ -61,7 +61,6 @@ export type ZoteroLocaleKey =
   | 'searchDetailOpen'
   | 'searchDetailClose'
   | 'refLine'
-  | 'moreActions'
   | 'overviewNoSearch'
   | 'retrievalRunCount'
   | 'retrievalKeptCount'
@@ -258,7 +257,6 @@ export const en: Record<ZoteroLocaleKey, string> = {
   searchDetailOpen: 'Search details',
   searchDetailClose: 'Hide search details',
   refLine: 'Ref',
-  moreActions: 'More actions',
   overviewNoSearch: 'This source was referenced directly, not through a search.',
   retrievalRunCount: '{count} retrieves',
   retrievalKeptCount: '{count} passages kept',
@@ -449,7 +447,6 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   searchDetailOpen: '查看检索条件',
   searchDetailClose: '收起检索条件',
   refLine: 'ref',
-  moreActions: '更多操作',
   overviewNoSearch: '这篇文献是直接引用的，不是通过检索获得。',
   retrievalRunCount: '检索 {count} 次',
   retrievalKeptCount: '保留 {count} 条',

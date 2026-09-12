@@ -1,8 +1,10 @@
 /**
  * The inspector's overview panel: what the user can do with the item first,
  * where it came from second. The action row leads (open in Zotero, open
- * PDF, ask, export citation), with the technical copy-ref tucked into a
- * `···` overflow menu. Below it the search provenance shows just the query
+ * PDF, ask, export citation, copy ref) as one flat row of visible actions —
+ * the copy belongs beside its siblings, not folded into an overflow menu
+ * whose single item sat ~190px from its own trigger.
+ * Below it the search provenance shows just the query
  * per episode; scope, mode, and filter fields wait behind the "search
  * details" disclosure, together with the raw ref — developer facts that
  * must not compete with the primary actions. The open actions are
@@ -11,12 +13,12 @@
  */
 
 import { useState } from 'react'
-import { Menu, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { askDraftOf, exportDraftOf } from '../../actions/source-actions.ts'
 import { openVerdictOf, selectUrlOf } from '../../actions/open-zotero.ts'
 import type { SearchProvenance, SourceItem } from '../../sources/model.ts'
 import { pdfCapabilityOf } from '../../sources/source-capabilities.ts'
+import { CopyButton } from '../CopyButton.tsx'
 import { BlockedOpenAction } from '../open/BlockedOpenAction.tsx'
 import { ZoteroOpenButton } from '../open/ZoteroOpenButton.tsx'
 import css from './workspace.module.css'
@@ -58,7 +60,6 @@ export interface SourceOverviewProps {
 
 /** The overview panel: guarded actions, provenance, and the detail disclosure. */
 export function SourceOverview({ item, t, setDraft }: SourceOverviewProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const verdict = openVerdictOf(item)
   const selectUrl = selectUrlOf(item.ref)
@@ -106,34 +107,11 @@ export function SourceOverview({ item, t, setDraft }: SourceOverviewProps) {
             {t('exportCitation')}
           </button>
         )}
-        <Menu
-          open={menuOpen}
-          anchor={
-            <button
-              type="button"
-              className={css.menuButton}
-              aria-label={t('moreActions')}
-              onClick={() => {
-                setMenuOpen(!menuOpen)
-              }}
-            >
-              ···
-            </button>
-          }
-          items={[{ id: 'copyRef', label: t('copyRef') }]}
-          onSelect={() => {
-            // Fire-and-forget by necessity: the menu unmounts on select, so
-            // there is no surface for copied feedback here. Wherever a label
-            // persists, CopyButton (which gates on the write result) is used.
-            void writeClipboard(item.ref)
-            setMenuOpen(false)
-          }}
-          onClose={() => {
-            setMenuOpen(false)
-          }}
-          portal
-          autoFocus
-          align="end"
+        <CopyButton
+          className={css.action}
+          value={item.ref}
+          label={t('copyRef')}
+          copiedLabel={t('copied')}
         />
       </div>
       {item.provenance === 'mismatch' && <p className={css.warning}>{t('provenanceMismatch')}</p>}

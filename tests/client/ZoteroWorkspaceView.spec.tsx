@@ -552,17 +552,16 @@ describe('overview panel', () => {
     view.unmount()
   })
 
-  it('copies the ref from the ··· overflow menu and closes it on Escape', () => {
+  it('copies the ref from a visible action-row button and confirms it', async () => {
     const workspace = singleFixture()
     const { view } = mountView(workspace)
-    fireEvent.click(screen.getByLabelText(zh.moreActions))
-    expect(view.container.querySelector('[data-menu="open"]')).not.toBeNull()
-    fireEvent.keyDown(view.container.querySelector('[data-menu]')!, { key: 'Escape' })
-    expect(view.container.querySelector('[data-menu="open"]')).toBeNull()
-    fireEvent.click(screen.getByLabelText(zh.moreActions))
-    fireEvent.click(view.container.querySelector('[data-menu-item="copyRef"]')!)
+    // The copy sits beside its siblings, not behind an overflow trigger.
+    expect(view.container.querySelector('[data-menu]')).toBeNull()
+    fireEvent.click(screen.getByLabelText(zh.copyRef))
     expect(writeClipboard).toHaveBeenCalledWith('zotero://user/0/item/P')
-    expect(view.container.querySelector('[data-menu="open"]')).toBeNull()
+    // A successful write earns the feedback, and the label persists now, so
+    // the button can say so.
+    await vi.waitFor(() => expect(screen.getByText(zh.copied)).toBeDefined())
     view.unmount()
   })
 

@@ -17,9 +17,15 @@ export interface CopyButtonProps {
   readonly label: string
   /** The visible text while the copied-feedback window is open. */
   readonly copiedLabel: string
+  /**
+   * Placement class from the caller's own surface. Defaults to the row/card
+   * text button; the inspector's action row passes its bordered pill so a copy
+   * beside the other actions keeps the row's rhythm.
+   */
+  readonly className?: string
 }
 
-export function CopyButton({ value, label, copiedLabel }: CopyButtonProps) {
+export function CopyButton({ value, label, copiedLabel, className }: CopyButtonProps) {
   const [copied, setCopied] = useState(false)
   // A click epoch: a slow clipboard promise resolving after a newer click
   // (or after unmount) must not flip the flag for a value it did not write.
@@ -36,7 +42,7 @@ export function CopyButton({ value, label, copiedLabel }: CopyButtonProps) {
   return (
     <button
       type="button"
-      className={css.lineAction}
+      className={className ?? css.lineAction}
       aria-label={label}
       onClick={() => {
         const mine = (epoch.current += 1)
