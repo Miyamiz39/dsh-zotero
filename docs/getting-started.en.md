@@ -22,6 +22,7 @@ Version mapping:
 | 0.7.1          | 0.1.3-alpha.1       |
 | 0.8.0          | 0.1.5-rc.2          |
 | 0.8.1          | 0.1.5-rc.2          |
+| 0.8.2          | 0.1.5-rc.2          |
 
 ## Install the plugin
 
