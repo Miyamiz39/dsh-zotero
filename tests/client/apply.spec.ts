@@ -49,9 +49,7 @@ interface FakeApplyWorld {
   scope: ReturnType<typeof fakeScope>
   /** Scripted namespace `status` result; defaults to ok. */
   status: () => Promise<unknown>
-  /** The face the documented dotted read (`ctx.remote.zotero`) answers, if any. */
-  dotted: unknown
-  /** How many times the entry fell back to the service-store read. */
+  /** How many times the entry read the namespace face through the service store. */
   reflectCalls: number
 }
 
@@ -78,7 +76,6 @@ function fakeWorld(mountFail = false): FakeApplyWorld {
     bindSpecs,
     scope,
     status: async () => ({ ok: true, value: { connected: true, diagnosis: 'ok' } }),
-    dotted: undefined,
     reflectCalls: 0,
   }
   const ctx = {
@@ -99,9 +96,15 @@ function fakeWorld(mountFail = false): FakeApplyWorld {
           world.mountDisposes += 1
         }
       },
-      /** The traced child service the gateway installs alongside the mount. */
-      get zotero() {
-        return world.dotted
+      /**
+       * The dotted child read the store path replaced. Cordis answers it with
+       * this guard on any fiber carrying a runtime
+       * (`vendor/cordis/src/reflect.ts`), so the fixture throws exactly as the
+       * runtime does: any code that reintroduces `ctx.remote.zotero` fails here
+       * instead of silently killing the mount again.
+       */
+      get zotero(): never {
+        throw new Error('cannot get property "remote.zotero" without inject')
       },
     },
     reflect: {
@@ -171,7 +174,12 @@ describe('the browser-half entry', () => {
   it('injects the configuration page into the settings.section slot', () => {
     const world = fakeWorld()
     apply(world.ctx as Context)
-    expect(world.injected.map((entry) => entry.name)).toEqual(['settings.section'])
+    // Both surfaces register synchronously: the page and the conversation tab
+    // (whose registration must not wait on the Remote mount).
+    expect(world.injected.map((entry) => entry.name)).toEqual([
+      'settings.section',
+      'conversation.view',
+    ])
 
     const pageEntry = world.injected.find((entry) => entry.name === 'settings.section')
     expect(pageEntry?.register()).toBeDefined()
@@ -191,41 +199,30 @@ describe('the browser-half entry', () => {
     expect(pageInject().hooks.zoteroCard).toBeDefined()
   })
 
-  it('fails the mount when the Remote namespace is not served', async () => {
+  it('keeps the tab and reports the fault when the Remote namespace is not served', async () => {
     const world = fakeWorld(true)
     apply(world.ctx as Context)
-    const mount = world.effects[1]
-    expect(mount).toBeTypeOf('object')
-    await expect(Promise.resolve(mount)).rejects.toThrow(/did not mount/)
-  })
-
-  it('prefers the documented dotted namespace read when the gateway serves it', async () => {
-    const world = fakeWorld()
-    const dotted = {
-      status: vi.fn(async () => ({ ok: true, value: { connected: true, diagnosis: 'dotted' } })),
-    }
-    world.dotted = dotted
-    apply(world.ctx as Context)
-    // The mount effect resolves on a later tick; assert after it ran so the
-    // count reflects `mountedNamespace`, not the pre-mount state.
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(world.reflectCalls).toBe(0)
-    const tab = world.injected.find((entry) => entry.name === 'conversation.view')
-    tab?.register()
+    // The tab's Sources workspace reads the session's own tool calls, so a
+    // probe that cannot mount must not take the tab down with it.
+    const tabEntry = world.injected.find((entry) => entry.name === 'conversation.view')
+    expect(tabEntry).toBeDefined()
+    tabEntry?.register()
     const registration = world.registered.find((entry) => entry.name === 'conversation.view')
     const face = (registration?.options.inject as () => { status: () => Promise<unknown> })()
-    await expect(face.status()).resolves.toEqual({
-      ok: true,
-      value: { connected: true, diagnosis: 'dotted' },
-    })
+    // The strip names the fault instead of the tab vanishing silently, and it
+    // says where the mount got to: a settled mount with no namespace is a
+    // different failure from a queue that never advanced.
+    await expect(face.status()).rejects.toThrow(/is not mounted \(mount settled\)/)
   })
 
-  it('falls back to the service-store read when the dotted read is unreachable', async () => {
+  it('reads the namespace face through the service store, never the dotted child read', async () => {
     const world = fakeWorld()
     apply(world.ctx as Context)
-    // `$mount` installs the traced child service on the gateway's context, so a
-    // plugin entry on another fiber branch reads `undefined` there and needs the
-    // store path; the tab still gets a working status face.
+    // The fixture's `ctx.remote.zotero` throws the cordis inject guard the way
+    // the runtime does, so reaching the status face at all proves the entry
+    // went through the store: `$mount` installs the namespace on the gateway's
+    // own context, and only the store path resolves it across fiber branches.
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(world.reflectCalls).toBeGreaterThan(0)
     const tab = world.injected.find((entry) => entry.name === 'conversation.view')
@@ -241,7 +238,8 @@ describe('the browser-half entry', () => {
   it('disposes the mount and clears the face with the fiber', async () => {
     const world = fakeWorld()
     apply(world.ctx as Context)
-    const dispose = (await world.effects[1]) as () => void
+    // effects[0] is the dictionary registration, [1] the tab, [2] the mount.
+    const dispose = (await world.effects[2]) as () => void
     expect(world.mountDisposes).toBe(0)
     dispose()
     expect(world.mountDisposes).toBe(1)
@@ -319,13 +317,22 @@ describe('the browser-half entry', () => {
   it('withdraws the tab with the fiber and unmounts the Remote', async () => {
     const world = fakeWorld()
     apply(world.ctx as Context)
-    const dispose = (await world.effects[1]) as () => void
+    // Two independent effects: the tab's (synchronous, disposer collected on
+    // the spot) and the mount's (an async effect, resolved on a later tick).
+    // effects[0] is the dictionary registration.
+    const disposeTab = world.effects[1] as () => void
+    const disposeRemote = (await world.effects[2]) as () => void
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(world.injected.some((entry) => entry.name === 'conversation.view')).toBe(true)
-    dispose()
-    expect(world.mountDisposes).toBe(1)
+
+    // The tab goes with its own effect, without waiting on the mount.
+    disposeTab()
     expect(world.injectDisposes).toBe(1)
     expect(world.injected.find((entry) => entry.name === 'conversation.view')?.active).toBe(false)
+    expect(world.mountDisposes).toBe(0)
+
+    disposeRemote()
+    expect(world.mountDisposes).toBe(1)
   })
 
   it('injects a page face whose scope reads the namespace snapshot', async () => {
