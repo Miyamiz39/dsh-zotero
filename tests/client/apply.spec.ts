@@ -1,9 +1,10 @@
 /**
  * Browser-half entry: the apply wiring registers the page dictionaries, binds
  * the zotero settings namespace through the injected settings scope, injects
- * the configuration card into the keyed `settings.plugin.item` slot, and
- * mounts the zotero Typert Remote namespace for the conversation tab's live
- * status, gating that tab on the namespace's `webEnabled` flag.
+ * the configuration page into the `settings.section` slot (one left-nav entry
+ * in the Settings panel), and mounts the zotero Typert Remote namespace for
+ * the conversation tab's live status, gating that tab on the namespace's
+ * `webEnabled` flag.
  * @module tests/client/apply
  */
 
@@ -167,25 +168,27 @@ describe('the browser-half entry', () => {
     expect(contribution.package).toBe('dsh-zotero')
   })
 
-  it('injects the configuration card into the keyed settings.plugin.item slot', () => {
+  it('injects the configuration page into the settings.section slot', () => {
     const world = fakeWorld()
     apply(world.ctx as Context)
-    expect(world.injected.map((entry) => entry.name)).toEqual(['settings.plugin.item'])
+    expect(world.injected.map((entry) => entry.name)).toEqual(['settings.section'])
 
-    const cardEntry = world.injected.find((entry) => entry.name === 'settings.plugin.item')
-    expect(cardEntry?.register()).toBeDefined()
+    const pageEntry = world.injected.find((entry) => entry.name === 'settings.section')
+    expect(pageEntry?.register()).toBeDefined()
 
-    const card = world.registered.find((entry) => entry.name === 'settings.plugin.item')
-    expect(card?.options.key).toBe(ZOTERO_SETTINGS_NAMESPACE)
-    expect(card?.options.locale).toBe('zotero')
-    expect(card?.options.id).toBeUndefined()
-    expect(card?.options.order).toBeUndefined()
-    expect(typeof card?.component).toBe('function')
-    // The card's inject face carries the staged form's store.
-    const cardInject = card?.options.inject as () => {
+    const page = world.registered.find((entry) => entry.name === 'settings.section')
+    // The left-nav identity: a stable key, a position inside the shipped
+    // block, and registrant-localized nav text.
+    expect(page?.options.id).toBe('zotero')
+    expect(page?.options.order).toBe(25)
+    expect(page?.options.locale).toBe('zotero')
+    expect((page?.options.label as () => string)()).toBe('nav')
+    expect(typeof page?.component).toBe('function')
+    // The page's inject face carries the staged form's store.
+    const pageInject = page?.options.inject as () => {
       hooks: { zoteroCard: unknown }
     }
-    expect(cardInject().hooks.zoteroCard).toBeDefined()
+    expect(pageInject().hooks.zoteroCard).toBeDefined()
   })
 
   it('fails the mount when the Remote namespace is not served', async () => {
@@ -288,7 +291,7 @@ describe('the browser-half entry', () => {
     })
     apply(world.ctx as Context)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(world.injected.map((entry) => entry.name)).toEqual(['settings.plugin.item'])
+    expect(world.injected.map((entry) => entry.name)).toEqual(['settings.section'])
   })
 
   it('withdraws the tab live when webEnabled turns off and restores it on', async () => {
@@ -325,16 +328,16 @@ describe('the browser-half entry', () => {
     expect(world.injected.find((entry) => entry.name === 'conversation.view')?.active).toBe(false)
   })
 
-  it('injects a card face whose scope reads the namespace snapshot', async () => {
+  it('injects a page face whose scope reads the namespace snapshot', async () => {
     const world = fakeWorld()
     world.scope = fakeScope({
       value: { baseUrl: 'http://127.0.0.1:23119/api', timeoutMs: 5000 },
     })
     apply(world.ctx as Context)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    const entry = world.injected.find((entry) => entry.name === 'settings.plugin.item')
+    const entry = world.injected.find((entry) => entry.name === 'settings.section')
     expect(entry?.register()).toBeDefined()
-    const registration = world.registered.find((entry) => entry.name === 'settings.plugin.item')
+    const registration = world.registered.find((entry) => entry.name === 'settings.section')
     const injectFn = registration?.options.inject as () => {
       hooks: { zoteroCard: { getSnapshot: () => unknown } }
     }

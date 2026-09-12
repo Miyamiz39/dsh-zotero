@@ -33,8 +33,8 @@ src/
   typert.ts             # Typert manifest
   settings-namespace.ts # 设置命名空间常量
   tools/                # 8 个模型工具（search/get/children/attachment/retrieve/export/browse/changes）+ present/validate 共享件
-  client/               # 浏览器端（设置卡片、Sources tab、sources 归约、workspace 视图）
-tests/                  # 单元测试（mock Zotero server + browser card tests）
+  client/               # 浏览器端（设置页、Sources tab、sources 归约、workspace 视图）
+tests/                  # 单元测试（mock Zotero server + 浏览器设置页测试）
 ```
 
 ## 安装与构建
@@ -69,7 +69,7 @@ npm run test:integration
 ## 两部分构建
 
 - **Node 端**（lib/）：tsc 从 TypeScript 生成，包含 service、tools、provider、transport。
-- **浏览器端**（lib/client.js）：esbuild 生成，包含设置卡片和 Sources tab 视图。
+- **浏览器端**（lib/client.js）：esbuild 生成，包含设置页和 Sources tab 视图。
 
 ## 本地开发
 
@@ -110,7 +110,7 @@ npm run dev:client                # esbuild watch
 ## 测试
 
 - 单元测试使用 MockZotero（mock HTTP server）
-- 浏览器卡片测试使用 jsdom + @testing-library/react
+- 浏览器设置页测试使用 jsdom + @testing-library/react
 - 覆盖率门禁见 `vitest.config.ts`（97 语句 / 95 分支 / 98 函数 / 97 行；`src/index.ts`、`src/types.ts`、`css-modules.d.ts`、`sources/model.ts` 为纯类型/重导出除外项）
 - 集成测试运行在真实 Zotero 上，默认跳过
 

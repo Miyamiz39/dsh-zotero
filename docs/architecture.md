@@ -57,7 +57,7 @@ graph LR
 
 ### 浏览器客户端 (`src/client/`)
 
-- 配置卡片：Settings → Plugins tab，通过 `settingsScope` 绑定 `zotero` 命名空间
+- 配置页：`settings.section` 插槽（设置面板左侧导航的独立一项），通过 `settingsScope` 绑定 `zotero` 命名空间
 - Sources tab：`conversation.view` 插槽，文献/证据/导出的会话快照
   - Sources 子视图：搜索命中和引用条目的稳定联合
   - Evidence 子视图：按文献分组的段落，带 Zotero 的页标签

@@ -61,7 +61,7 @@ dsh plugin --profile <name> add ./dsh-zotero-*.tgz
 
 安装后重启新建会话，Agent 即可使用 Zotero 工具。
 
-插件在 **Settings → Plugins** 中提供配置卡片，可调整 API 地址、并发限制、全文检索开关等参数，保存即生效。详见 [配置](docs/configuration.md)。
+插件在 **设置 → Zotero** 中提供一个配置页（与 General、Models、Plugins 并列的左侧导航项），可调整 API 地址、并发限制、全文检索开关等参数，保存即生效。详见 [配置](docs/configuration.md)。
 
 [安装详情 →](docs/getting-started.md)
 
@@ -109,7 +109,7 @@ Agent → zotero_export(refs: [1,2,3], format: "bibtex")
 
 - **网络**：只向 `http://127.0.0.1:23119/api` 发起 HTTP 请求（不跟随重定向），`resolveConfig` 强制 loopback 地址
 - **文件**：只读，`zotero_attachment` 用 `existsSync` 校验 Zotero 返回的附件路径，不写文件系统
-- **持久化**：唯一写入来自 Settings → Plugins 中的配置卡片，保存到 `$DSH_HOME/settings.yaml` 的 `zotero:` 用户层
+- **持久化**：唯一写入来自设置页左侧导航的 Zotero 配置页，保存到 `$DSH_HOME/settings.yaml` 的 `zotero:` 用户层
 - **无 Shell / native / 后台任务**：插件不执行 shell 命令、不加载 native 模块、不启动常驻进程
 - **重启**：安装或卸载插件后需要重启 dsh 并新建会话；配置修改保存即热更新，无需重启
 
@@ -136,7 +136,7 @@ npm run dev                   # tsc --watch，host half 热更新
 npm run dev:client            # esbuild --watch，浏览器部分热更新
 ```
 
-`lib/` 放 Node 侧代码，`lib/client.js` 放浏览器侧代码（settings 卡片和 Zotero tab）。你用 `dev-lib.cordis.yml` overlay 跑完整插件流程，见[开发指南](docs/development.md)。本仓库与 `../deepseek-harness` 并列，属本地暂存布局。
+`lib/` 放 Node 侧代码，`lib/client.js` 放浏览器侧代码（设置页和 Zotero tab）。你用 `dev-lib.cordis.yml` overlay 跑完整插件流程，见[开发指南](docs/development.md)。本仓库与 `../deepseek-harness` 并列，属本地暂存布局。
 
 ## 许可证
 

@@ -70,7 +70,7 @@
 
 - **Symptom**: no Zotero Sources tab at the top of `dsh web` sessions
 - **Cause**: `webEnabled` set to false, or plugin not loaded
-- **Fix**: check the webEnabled toggle in the settings card; confirm plugin is installed and loaded
+- **Fix**: check the webEnabled toggle on the Zotero page in the Settings panel's left navigation; confirm plugin is installed and loaded
 
 ---
 

@@ -109,9 +109,9 @@ Lists all citation and bibliography text produced by export operations in the se
 ![BibTeX export view: expandable, copyable, downloadable](images/zotero-export-bibtex.png)
 BibTeX export view: each citation can be expanded to show the full entry, with one-click copy and .bib download.
 
-## Settings card
+## Settings page
 
-Under the Plugins configuration tab, dsh-zotero provides a settings card. Changes take effect on save — tools read the latest config on each request.
+The Settings panel's left navigation carries a dedicated **Zotero** page (beside General, Models, and Plugins). Changes take effect on save — tools read the latest config on each request.
 
 Configurable items include: API address, search result limits, evidence passage limits, export item limits, citation style, and locale. See [Configuration](configuration.md).
 

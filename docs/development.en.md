@@ -33,8 +33,8 @@ src/
   typert.ts             # Typert manifest
   settings-namespace.ts # Settings namespace constants
   tools/                # 8 model tools (search/get/children/attachment/retrieve/export/browse/changes) + present/validate shared pieces
-  client/               # Browser side (settings card, Sources tab, sources reducers, workspace views)
-tests/                  # Unit tests (mock Zotero server + browser card tests)
+  client/               # Browser side (settings page, Sources tab, sources reducers, workspace views)
+tests/                  # Unit tests (mock Zotero server + browser page tests)
 ```
 
 ## Install and build
@@ -69,7 +69,7 @@ Requires a local Zotero running on `127.0.0.1:23119`.
 ## Two-part build
 
 - **Node side** (`lib/`): tsc generates from TypeScript, contains service, tools, provider, transport.
-- **Browser side** (`lib/client.js`): esbuild generates, contains settings card and Sources tab views.
+- **Browser side** (`lib/client.js`): esbuild generates, contains settings page and Sources tab views.
 
 ## Local development
 

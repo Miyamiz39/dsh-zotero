@@ -50,13 +50,13 @@ Schema 默认值 → composition 入口配置 → settings.yaml 用户层
 
 用户层（settings document）始终覆盖底层。patch 入口配置是 base 层，用户层可任意覆盖。
 
-## Settings 配置卡片
+## Settings 配置页
 
-插件在 Settings → Plugins → Plugin configuration 下注册一个配置卡片，绑定 `zotero` settings namespace。
+插件在 Settings 面板的左侧导航中注册一个 **Zotero** 配置页（与 General、Models、Plugins 并列），绑定 `zotero` settings namespace。
 
 - 写入生效于 `$DSH_HOME/settings.yaml` 的 `zotero:` 段
 - 保存即时生效：transport 和 provider 按新值重建
-- 无效值在写入前被拒绝，卡片保留上次有效值的草稿
+- 无效值在写入前被拒绝，配置页保留上次有效值的草稿
 - 被 settings document 覆盖的字段显示「Overridden」标记，一键可重置
 - `settings.yaml` 的外部编辑同样热生效
 
@@ -68,4 +68,4 @@ Schema 默认值 → composition 入口配置 → settings.yaml 用户层
 
 ## 无 settings 服务的组合
 
-headless 组合（未包含 settings 服务）不会注册配置卡片，插件以 patch 入口配置中的值运行。
+headless 组合（未包含 settings 服务）不会提供配置页的内容，插件以 patch 入口配置中的值运行；设置面板中该页仍会出现，并说明本部署没有提供 Zotero 设置项。

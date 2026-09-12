@@ -50,13 +50,13 @@ Schema defaults → composition entry config → settings.yaml user layer
 
 The user layer (settings document) always overrides the base layer. Patch entry config is the base layer; the user layer can override freely.
 
-## Settings card
+## Settings page
 
-The plugin registers a settings card under Settings → Plugins → Plugin configuration, bound to the `zotero` settings namespace.
+The plugin registers a **Zotero** page in the Settings panel's left navigation (beside General, Models, and Plugins), bound to the `zotero` settings namespace.
 
 - Writes land in the `zotero:` section of `$DSH_HOME/settings.yaml`
 - Save takes effect immediately: transport and provider rebuild with the new values
-- Invalid values are rejected before write; the card retains the last valid draft
+- Invalid values are rejected before write; the page retains the last valid draft
 - Fields overridden by the settings document show an "Overridden" badge, resettable with one click
 - External edits to `settings.yaml` also hot-reload
 
@@ -68,4 +68,4 @@ The plugin registers a settings card under Settings → Plugins → Plugin confi
 
 ## Compositions without settings service
 
-Headless compositions (without the settings service) do not register the settings card; the plugin runs with the values from the patch entry config.
+Headless compositions (without the settings service) serve no content for the settings page; the plugin runs with the values from the patch entry config. The page still appears in the Settings panel and states that this deployment serves no Zotero settings.

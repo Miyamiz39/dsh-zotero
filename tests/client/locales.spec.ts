@@ -15,6 +15,11 @@ describe('locale bundles', () => {
 
   it('drops the retired lens/funnel/toolcard keys', () => {
     const retired: readonly string[] = [
+      // The config moved out of the Plugins-tab card into the Settings panel's
+      // left navigation: a page renders its whole form, so the disclosure
+      // affordance has no surface left to name.
+      'expand',
+      'collapse',
       'lensActivity',
       'lensCitations',
       'lensItems',

@@ -57,7 +57,7 @@ User → Agent → dsh Zotero Tools → ZoteroService → Provider → 127.0.0.1
 
 ### Browser client (`src/client/`)
 
-- Settings card: Settings → Plugins tab, bound to `zotero` namespace via `settingsScope`
+- Settings page: `settings.section` slot (its own left-nav entry in the Settings panel), bound to `zotero` namespace via `settingsScope`
 - Sources tab: `conversation.view` slot, session snapshot of literature/evidence/exports
   - Sources sub-view: stable union of search hits and referenced items
   - Evidence sub-view: passages grouped by item, with Zotero page labels

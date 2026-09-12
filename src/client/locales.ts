@@ -1,5 +1,5 @@
 /**
- * Locale bundles for the Zotero plugin: the Settings card (fixed chrome,
+ * Locale bundles for the Zotero plugin: the Settings page (fixed chrome,
  * groups, and the field table) and the Sources panel. Both dictionaries are
  * typed `Record<ZoteroLocaleKey, string>`, so the key sets cannot drift; the
  * wording stays provable — no stage claims (精读/已引用) anywhere.
@@ -17,11 +17,10 @@ export type ZoteroLocaleKey =
   | 'readOnly'
   | 'discard'
   | 'unsaved'
-  | 'expand'
-  | 'collapse'
   | 'save'
   | 'saving'
   | 'saveFailed'
+  | 'unavailable'
   | 'invalidNumber'
   | GroupKey
   | FieldKey
@@ -166,11 +165,11 @@ export const en: Record<ZoteroLocaleKey, string> = {
   readOnly: 'This deployment stores settings read-only.',
   discard: 'Discard changes',
   unsaved: 'Unsaved',
-  expand: 'Show settings',
-  collapse: 'Hide settings',
   save: 'Save',
   saving: 'Saving…',
   saveFailed: 'The deployment did not accept these values; they were left for you to correct.',
+  unavailable:
+    'This deployment does not serve the Zotero settings namespace, so there is nothing to configure here.',
   invalidNumber: 'Enter a number, or leave blank to use the default.',
   groupConnection: 'Connection',
   groupSearch: 'Search limits',
@@ -359,11 +358,10 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   readOnly: '本部署的设置为只读。',
   discard: '放弃修改',
   unsaved: '未保存',
-  expand: '展开设置',
-  collapse: '收起设置',
   save: '保存',
   saving: '保存中…',
   saveFailed: '本部署没有接受这些值，已保留供你修改。',
+  unavailable: '本部署没有提供 Zotero 设置项，这里暂无可配置内容。',
   invalidNumber: '请填数字；留空表示使用默认值。',
   groupConnection: '连接',
   groupSearch: '检索限制',

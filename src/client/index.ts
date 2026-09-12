@@ -1,37 +1,37 @@
 /**
  * Zotero settings, browser half — one surface over the `zotero` namespace:
- * a card in the harness's Plugins configuration tab (`settings.plugin.item`,
- * keyed by the namespace it edits) carrying the full configuration form in
- * the section's native disclosure chrome.
+ * a page in the harness's Settings panel's left navigation
+ * (`settings.section`, a sibling of General, Models, and Plugins), carrying
+ * the full configuration form so a namespace this wide is never read through
+ * a collapsed card.
  *
- * The card reads and writes the `zotero` namespace through the harness's own
+ * The page reads and writes the `zotero` namespace through the harness's own
  * settings scope (`ctx.settingsScope`) — the seam that serves every
- * registered namespace — with the same staged form the harness's own plugin
- * cards use (stage locally, write only on save, mark user-layer presence as
- * overridden). The Typert Remote namespace carries only the live connectivity
- * probe the dedicated conversation tab renders. The namespace spelling comes
- * from the shared settings-namespace module, so the two halves cannot drift
- * apart.
+ * registered namespace — with the staged form the harness's own settings
+ * surfaces use (stage locally, write only on save, mark user-layer presence
+ * as overridden). The Typert Remote namespace carries only the live
+ * connectivity probe the dedicated conversation tab renders. The namespace
+ * spelling comes from the shared settings-namespace module, so the two halves
+ * cannot drift apart.
  * @module dsh-zotero/client
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only Context merges: locale (ctx.locale) arrives through its package's
 // client declaration; the Remote face (ctx.remote) through the api-remotes
-// assembly; ui-settings supplies the `settingsScope` service; ui-renderer the
-// `slots` registry; ui-settings-plugins the keyed `settings.plugin.item` slot
-// this card registers into. Cross-plugin collaboration rides services and
-// slot declarations, never value imports (client bundle purity).
+// assembly; ui-settings supplies the `settingsScope` service and the
+// `settings.section` SlotMap row this page registers into; ui-renderer the
+// `slots` registry. Cross-plugin collaboration rides services and slot
+// declarations, never value imports (client bundle purity).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 // Type-only: the `conversation.view` SlotMap row (declared by the slot's
 // owning package) must be in the program for the tab registration to type.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
-import { ZoteroPluginCard } from './ZoteroPluginCard.tsx'
+import { ZoteroSettingsSection } from './ZoteroSettingsSection.tsx'
 import { SourcesTab, type SourcesTabFace } from './components/SourcesTab.tsx'
 import { ZOTERO_REMOTE } from './remote.ts'
 import type { ZoteroRemoteFace } from './remote.ts'
@@ -68,7 +68,7 @@ function mountedNamespace(ctx: ClientContext): ZoteroRemoteFace | undefined {
 }
 
 /**
- * Mount the Zotero configuration card into the Plugins tab.
+ * Mount the Zotero settings page into the Settings panel's left navigation.
  * @param ctx - the browser plugin context.
  */
 export function apply(ctx: ClientContext): void {
@@ -84,20 +84,29 @@ export function apply(ctx: ClientContext): void {
     namespace: ZOTERO_SETTINGS_NAMESPACE,
   })
   const card = new ZoteroCardController(scope)
+  // The nav label is shell chrome, so it is read through a bound reader at
+  // registration time (the shell re-renders from the ledger bump when the
+  // locale changes, not from its own subscription).
+  const t = ctx.locale.bind(NS)
 
-  // The configuration card: the Plugins tab dispatches one card per served
-  // namespace key, so registering under the namespace key pairs this card with
-  // the host's section with no web-app change. Keyed entries declare no
-  // `order`; the tab stacks cards in registration order.
-  ctx.slots.inject('settings.plugin.item', () =>
+  // The configuration page: one left-nav entry in the Settings panel, beside
+  // General, Models, and Plugins. The shell renders the nav label from these
+  // options and mounts the page in its content column; `slots.inject` waits
+  // for the settings shell's declaration of `settings.section`, so the page
+  // survives shell reloads and vanishes atomically with this fiber. Order 25
+  // keeps this page inside the shipped block (0–20) and clear of the
+  // third-party sections that start at 30.
+  ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
-        name: 'settings.plugin.item',
-        key: ZOTERO_SETTINGS_NAMESPACE,
+        name: 'settings.section',
+        id: 'zotero',
+        order: 25,
+        label: () => t('nav'),
         locale: NS,
         inject: () => card.inject(),
       },
-      ZoteroPluginCard,
+      ZoteroSettingsSection,
     ),
   )
 

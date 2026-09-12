@@ -61,7 +61,7 @@ dsh plugin --profile <name> add ./dsh-zotero-*.tgz
 
 After installing, start a new session so the agent picks up the Zotero tools.
 
-The plugin provides a settings card under **Settings → Plugins** where you can adjust the API address, concurrency limits, full-text retrieval toggle, and more. Changes take effect on save. See [Configuration](docs/configuration.md).
+The plugin provides a settings page under **Settings → Zotero** — a left-nav entry beside General, Models, and Plugins — where you can adjust the API address, concurrency limits, full-text retrieval toggle, and more. Changes take effect on save. See [Configuration](docs/configuration.md).
 
 [Installation details →](docs/getting-started.md)
 
@@ -109,7 +109,7 @@ More examples in [Features](docs/features.md).
 
 - **Network**: HTTP requests go only to `http://127.0.0.1:23119/api` (redirects are not followed); `resolveConfig` enforces a loopback address
 - **Filesystem**: read-only — `zotero_attachment` verifies attachment paths with `existsSync`; no file writes
-- **Persistence**: the only write comes from the settings card under Settings → Plugins, saved to the `zotero:` user layer of `$DSH_HOME/settings.yaml`
+- **Persistence**: the only write comes from the Zotero settings page in the left navigation, saved to the `zotero:` user layer of `$DSH_HOME/settings.yaml`
 - **No shell / native / background tasks**: the plugin runs no shell commands, loads no native modules, and starts no daemon
 - **Restart**: after installing or removing the plugin, restart dsh and start a new session; configuration changes hot-reload on save without a restart
 
@@ -136,7 +136,7 @@ npm run dev                   # tsc --watch for host half hot reload
 npm run dev:client            # esbuild --watch for browser half hot reload
 ```
 
-Build output splits into `lib/` (Node side) and `lib/client.js` (browser side — settings card + Zotero tab). For full plugin development with both halves, use the `dev-lib.cordis.yml` overlay. See [Development](docs/development.md) for details.
+Build output splits into `lib/` (Node side) and `lib/client.js` (browser side — settings page + Zotero tab). For full plugin development with both halves, use the `dev-lib.cordis.yml` overlay. See [Development](docs/development.md) for details.
 
 ## License
 

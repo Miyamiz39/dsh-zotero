@@ -70,7 +70,7 @@
 
 - **症状**：`dsh web` 会话顶部没有 Zotero Sources 标签
 - **原因**：`webEnabled` 被设为 false，或插件未加载
-- **处理**：检查配置卡片中 webEnabled 开关；确认插件已安装并加载
+- **处理**：在设置面板左侧导航的 Zotero 配置页中检查 webEnabled 开关；确认插件已安装并加载
 
 ---
 
