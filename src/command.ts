@@ -6,7 +6,11 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+// Type-only: pulls the `ctx.commands` Context merge into this program.
 import type {} from '@deepseek-ai/dsh-commands'
+// Brand constructor lives on the /brand outlet (the package main re-exports
+// the type but not the runtime helper at this pin).
+import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import type { ZoteroService } from './service.js'
 import type { ZoteroStatus } from './types.js'
 
@@ -33,6 +37,7 @@ function formatStatus(status: ZoteroStatus): string {
 export function registerStatusCommand(ctx: Context, service: ZoteroService): void {
   ctx.inject(['commands'], (commandCtx) => {
     commandCtx.commands.register({
+      definitionId: CommandDefinitionId('dsh-zotero/status'),
       name: 'zotero',
       description: 'Check the local Zotero connection status',
       input: { hint: 'status' },
