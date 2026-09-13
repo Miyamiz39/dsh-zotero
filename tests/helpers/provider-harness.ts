@@ -11,8 +11,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect } from 'vitest'
-import { ZoteroError } from '../../src/errors.js'
 import { ZoteroHttpClient } from '../../src/http-client.js'
 import { LocalApiProvider } from '../../src/local/provider.js'
 import type { LocalApiLimits, LocalApiProviderOptions } from '../../src/local/limits.js'
@@ -124,21 +122,9 @@ export function request(overrides: Partial<ZoteroSearchRequest> = {}): ZoteroSea
   }
 }
 
-/** Assert a rejected promise carries a typed ZoteroError with the exact code. */
-export async function zoteroError(
-  promise: Promise<unknown>,
-  code: string,
-  messagePart?: string,
-): Promise<ZoteroError> {
-  let thrown: unknown
-  try {
-    await promise
-  } catch (error) {
-    thrown = error
-  }
-  expect(thrown).toBeInstanceOf(ZoteroError)
-  const zotero = thrown as ZoteroError
-  expect(zotero.code).toBe(code)
-  if (messagePart !== undefined) expect(zotero.message).toContain(messagePart)
-  return zotero
-}
+/**
+ * The typed-error assertion is shared with the tool and host lanes, so its one
+ * definition lives with the other wire assertions. Re-exported here because
+ * this module is the provider lane's single import surface.
+ */
+export { zoteroError } from './server/assert.js'
