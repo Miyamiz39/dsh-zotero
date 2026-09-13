@@ -211,7 +211,7 @@ export function registerChildrenTool(ctx: Context, service: ZoteroService): void
       presentResult: presentChildrenResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
-        return await withConnectivityAsk(ctx, exec, () =>
+        return await withConnectivityAsk(ctx, service.recovery, exec, () =>
           service.children(buildRequest(args), exec.signal),
         )
       },

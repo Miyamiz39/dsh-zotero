@@ -119,10 +119,48 @@ function questionOf(spec: FailureSpec): AskUserQuestionItem {
 }
 
 /**
+ * One recovery conversation per failure kind, owned by one plugin instance.
+ *
+ * Tool calls run concurrently, and a Zotero that is down fails all of them:
+ * five parallel reads used to put five identical cards in front of the user,
+ * each one demanding the same answer. The gate keeps one ask per failure
+ * kind in flight and lets every other caller wait on that same answer, so a
+ * single card decides for all of them — and each caller then retries, or
+ * does not, on its own request. The entry is dropped as soon as the question
+ * settles, so a later failure asks again instead of inheriting a stale
+ * answer.
+ */
+export class ConnectivityRecovery {
+  private readonly asking = new Map<string, Promise<boolean>>()
+
+  /**
+   * Answer one failure kind, asking only when no question for it is in
+   * flight.
+   * @param code - the failure kind the question belongs to.
+   * @param question - the ask to run when this caller is the first; resolves
+   *   true when the user chose to retry.
+   * @returns the answer this caller acts on.
+   */
+  async ask(code: string, question: () => Promise<boolean>): Promise<boolean> {
+    const inFlight = this.asking.get(code)
+    if (inFlight !== undefined) return await inFlight
+    const answer = question()
+    this.asking.set(code, answer)
+    try {
+      return await answer
+    } finally {
+      this.asking.delete(code)
+    }
+  }
+}
+
+/**
  * Run one Zotero request; on a connectivity failure, ask the user how to
  * proceed and retry at most once when they choose the recommended action.
  * @param ctx - the plugin context; the question service is looked up
  *   optionally, so headless compositions skip the ask.
+ * @param recovery - the instance's recovery gate: callers that failed the
+ *   same way share one question instead of stacking identical cards.
  * @param exec - the tool execution (signal and agent) the failure belongs to.
  * @param run - the request to attempt; must be re-runnable with identical
  *   arguments, because the retry path calls it a second time.
@@ -133,6 +171,7 @@ function questionOf(spec: FailureSpec): AskUserQuestionItem {
  */
 export async function withConnectivityAsk<T>(
   ctx: Context,
+  recovery: ConnectivityRecovery,
   exec: ConnectivityAskExec,
   run: () => Promise<T>,
 ): Promise<T> {
@@ -143,27 +182,30 @@ export async function withConnectivityAsk<T>(
     const questions = ctx.get('userQuestions') as UserQuestionService | undefined
     if (questions === undefined) throw error
     const spec = FAILURE_SPECS[error.code]
-    let answer: AskUserQuestionAnswer
+    let retry: boolean
     try {
-      const request: AskUserQuestionRequest = {
-        questions: [questionOf(spec)],
-        ...(exec.agent !== undefined ? { agent: exec.agent } : {}),
-        signal: exec.signal,
-      }
-      answer = await questions.ask(request)
+      retry = await recovery.ask(error.code, async () => {
+        const request: AskUserQuestionRequest = {
+          questions: [questionOf(spec)],
+          ...(exec.agent !== undefined ? { agent: exec.agent } : {}),
+          signal: exec.signal,
+        }
+        const answer: AskUserQuestionAnswer = await questions.ask(request)
+        const answerItem = answer.answers.find((item) => item.id === 'zotero-failure')
+        // Matched by label string because the answer protocol carries only
+        // selected labels (no stable option ids); the labels are code
+        // constants (FAILURE_SPECS), never i18n copy, so a rename breaks the
+        // build's contract visibly in one place. Revisit if the protocol
+        // gains option ids.
+        return (answerItem?.selected ?? []).includes(spec.retryLabel)
+      })
     } catch {
       // A failed question (no provider, aborted ask, delegated caller) must
       // never mask the underlying connectivity failure.
       if (exec.signal?.aborted) throw new HarnessError('tool call aborted', TOOL_ABORTED)
       throw error
     }
-    const answerItem = answer.answers.find((item) => item.id === 'zotero-failure')
-    const selected = answerItem?.selected ?? []
-    // Matched by label string because the answer protocol carries only
-    // selected labels (no stable option ids); the labels are code constants
-    // (FAILURE_SPECS), never i18n copy, so a rename breaks the build's
-    // contract visibly in one place. Revisit if the protocol gains option ids.
-    if (!selected.includes(spec.retryLabel)) throw error
+    if (!retry) throw error
     // Outside the catch: a second failure propagates as-is, never re-asking.
     return await run()
   }

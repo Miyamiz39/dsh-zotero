@@ -12,7 +12,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { TOOL_ABORTED, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { AskUserQuestionAnswer, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { describe, expect, it } from 'vitest'
-import { withConnectivityAsk } from '../src/ask.js'
+import { ConnectivityRecovery, withConnectivityAsk } from '../src/ask.js'
 import {
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
@@ -60,36 +60,39 @@ function retryAnswer(label: string): AskUserQuestionAnswer {
 const noQuestions: Context = headlessContext()
 const exec = { signal: new AbortController().signal }
 
+/**
+ * A fresh recovery gate per call: the gate is what makes concurrent failures
+ * share one question, so each unit case here starts with none in flight. The
+ * coalescing cases below drive one gate from several callers on purpose.
+ */
+function ask<T>(ctx: Context, run: () => Promise<T>): Promise<T> {
+  return withConnectivityAsk(ctx, new ConnectivityRecovery(), exec, run)
+}
+
 describe('withConnectivityAsk passthrough', () => {
   it('returns the request result without asking when the request succeeds', async () => {
     const { ctx, calls } = fakeContext(() => undefined)
-    await expect(withConnectivityAsk(ctx, exec, async () => 'ok')).resolves.toBe('ok')
+    await expect(ask(ctx, async () => 'ok')).resolves.toBe('ok')
     expect(calls).toEqual([])
   })
 
   it('rethrows non-Zotero failures without asking', async () => {
     const { ctx, calls } = fakeContext(() => undefined)
     const boom = new Error('boom')
-    await expect(withConnectivityAsk(ctx, exec, async () => Promise.reject(boom))).rejects.toBe(
-      boom,
-    )
+    await expect(ask(ctx, async () => Promise.reject(boom))).rejects.toBe(boom)
     expect(calls).toEqual([])
   })
 
   it('rethrows non-connectivity Zotero failures without asking', async () => {
     const { ctx, calls } = fakeContext(() => undefined)
     const notFound = zoteroError(ZOTERO_NOT_FOUND)
-    await expect(withConnectivityAsk(ctx, exec, async () => Promise.reject(notFound))).rejects.toBe(
-      notFound,
-    )
+    await expect(ask(ctx, async () => Promise.reject(notFound))).rejects.toBe(notFound)
     expect(calls).toEqual([])
   })
 
   it('rethrows the original error when no question service is composed', async () => {
     const notRunning = zoteroError(ZOTERO_NOT_RUNNING)
-    await expect(
-      withConnectivityAsk(noQuestions, exec, async () => Promise.reject(notRunning)),
-    ).rejects.toBe(notRunning)
+    await expect(ask(noQuestions, async () => Promise.reject(notRunning))).rejects.toBe(notRunning)
   })
 })
 
@@ -127,9 +130,7 @@ describe('withConnectivityAsk question content', () => {
       const { ctx, calls } = fakeContext(() => retryAnswer(retryLabel))
       const error = zoteroError(code)
       // The retry fails again, so the original error surfaces after one ask.
-      await expect(withConnectivityAsk(ctx, exec, async () => Promise.reject(error))).rejects.toBe(
-        error,
-      )
+      await expect(ask(ctx, async () => Promise.reject(error))).rejects.toBe(error)
       expect(calls).toHaveLength(1)
       const request = calls[0]!
       expect(request.questions).toHaveLength(1)
@@ -150,7 +151,9 @@ describe('withConnectivityAsk question content', () => {
     const { ctx, calls } = fakeContext(() => retryAnswer('Retry (Recommended)'))
     const error = zoteroError(ZOTERO_TIMEOUT)
     await expect(
-      withConnectivityAsk(ctx, { signal, agent }, async () => Promise.reject(error)),
+      withConnectivityAsk(ctx, new ConnectivityRecovery(), { signal, agent }, async () =>
+        Promise.reject(error),
+      ),
     ).rejects.toBe(error)
     expect(calls[0]!.agent).toBe(agent)
     expect(calls[0]!.signal).toBe(signal)
@@ -166,7 +169,7 @@ describe('withConnectivityAsk retry semantics', () => {
       if (argumentsSeen.length === 1) throw zoteroError(ZOTERO_TIMEOUT)
       return 'second attempt'
     }
-    await expect(withConnectivityAsk(ctx, exec, run)).resolves.toBe('second attempt')
+    await expect(ask(ctx, run)).resolves.toBe('second attempt')
     expect(argumentsSeen).toEqual(['same', 'same'])
     expect(calls).toHaveLength(1)
   })
@@ -179,7 +182,7 @@ describe('withConnectivityAsk retry semantics', () => {
       attempts += 1
       throw error
     }
-    await expect(withConnectivityAsk(ctx, exec, run)).rejects.toBe(error)
+    await expect(ask(ctx, run)).rejects.toBe(error)
     expect(attempts).toBe(2)
     expect(calls).toHaveLength(1)
   })
@@ -187,9 +190,7 @@ describe('withConnectivityAsk retry semantics', () => {
   it('surfaces the original error when the user aborts', async () => {
     const { ctx, calls } = fakeContext(() => retryAnswer('Abort this query'))
     const error = zoteroError(ZOTERO_NOT_RUNNING)
-    await expect(withConnectivityAsk(ctx, exec, async () => Promise.reject(error))).rejects.toBe(
-      error,
-    )
+    await expect(ask(ctx, async () => Promise.reject(error))).rejects.toBe(error)
     expect(calls).toHaveLength(1)
   })
 
@@ -198,18 +199,14 @@ describe('withConnectivityAsk retry semantics', () => {
       answers: [{ id: 'zotero-failure', selected: [], custom: 'let me look' }],
     }))
     const error = zoteroError(ZOTERO_NOT_RUNNING)
-    await expect(withConnectivityAsk(ctx, exec, async () => Promise.reject(error))).rejects.toBe(
-      error,
-    )
+    await expect(ask(ctx, async () => Promise.reject(error))).rejects.toBe(error)
     expect(calls).toHaveLength(1)
   })
 
   it('surfaces the original error when the answer carries no matching question id', async () => {
     const { ctx, calls } = fakeContext(() => ({ answers: [] }))
     const error = zoteroError(ZOTERO_NOT_RUNNING)
-    await expect(withConnectivityAsk(ctx, exec, async () => Promise.reject(error))).rejects.toBe(
-      error,
-    )
+    await expect(ask(ctx, async () => Promise.reject(error))).rejects.toBe(error)
     expect(calls).toHaveLength(1)
   })
 })
@@ -218,9 +215,7 @@ describe('withConnectivityAsk fail-closed degradation', () => {
   it('surfaces the original error when the question mechanism fails', async () => {
     const { ctx, calls } = fakeContext(() => undefined)
     const error = zoteroError(ZOTERO_TIMEOUT)
-    await expect(withConnectivityAsk(ctx, exec, async () => Promise.reject(error))).rejects.toBe(
-      error,
-    )
+    await expect(ask(ctx, async () => Promise.reject(error))).rejects.toBe(error)
     expect(calls).toHaveLength(1)
   })
 
@@ -231,8 +226,11 @@ describe('withConnectivityAsk fail-closed degradation', () => {
     const error = zoteroError(ZOTERO_TIMEOUT)
     let thrown: unknown
     try {
-      await withConnectivityAsk(ctx, { signal: controller.signal }, async () =>
-        Promise.reject(error),
+      await withConnectivityAsk(
+        ctx,
+        new ConnectivityRecovery(),
+        { signal: controller.signal },
+        async () => Promise.reject(error),
       )
     } catch (caught) {
       thrown = caught
@@ -240,5 +238,94 @@ describe('withConnectivityAsk fail-closed degradation', () => {
     expect(thrown).toBeInstanceOf(HarnessError)
     expect((thrown as HarnessError).code).toBe(TOOL_ABORTED)
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe('concurrent failures share one recovery question', () => {
+  /** A question service that only settles when the test releases it. */
+  function gatedContext(): {
+    ctx: Context
+    calls: AskUserQuestionRequest[]
+    release: (selected: string[]) => void
+  } {
+    const calls: AskUserQuestionRequest[] = []
+    let release: ((selected: string[]) => void) | undefined
+    const answer = new Promise<AskUserQuestionAnswer>((resolve) => {
+      release = (selected) => resolve({ answers: [{ id: 'zotero-failure', selected }] })
+    })
+    const service = {
+      ask: async (request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> => {
+        calls.push(request)
+        return await answer
+      },
+    }
+    return {
+      calls,
+      ctx: {
+        get: (key: string) => (key === 'userQuestions' ? service : undefined),
+      } as unknown as Context,
+      release: (selected) => release!(selected),
+    }
+  }
+
+  it('asks once for parallel calls that failed the same way, and retries each', async () => {
+    const recovery = new ConnectivityRecovery()
+    const { ctx, calls, release } = gatedContext()
+    const error = zoteroError(ZOTERO_NOT_RUNNING)
+    let attempts = 0
+    const run = async (): Promise<string> => {
+      attempts += 1
+      // Every attempt fails: the retry afterwards is what the assertions see.
+      throw error
+    }
+    const first = withConnectivityAsk(ctx, recovery, exec, run)
+    const second = withConnectivityAsk(ctx, recovery, exec, run)
+    const third = withConnectivityAsk(ctx, recovery, exec, run)
+    await Promise.resolve()
+    // Three failures, one card: the other two wait on the same answer.
+    expect(calls).toHaveLength(1)
+    release(['I started Zotero, retry (Recommended)'])
+    for (const pending of [first, second, third]) {
+      await expect(pending).rejects.toBe(error)
+    }
+    // Each caller retried its own request exactly once.
+    expect(attempts).toBe(6)
+  })
+
+  it('gives a different failure kind its own question', async () => {
+    const recovery = new ConnectivityRecovery()
+    const { ctx, calls, release } = gatedContext()
+    const notRunning = withConnectivityAsk(ctx, recovery, exec, async () => {
+      throw zoteroError(ZOTERO_NOT_RUNNING)
+    })
+    const timedOut = withConnectivityAsk(ctx, recovery, exec, async () => {
+      throw zoteroError(ZOTERO_TIMEOUT)
+    })
+    await Promise.resolve()
+    expect(calls.map((call) => call.questions[0]!.header)).toEqual([
+      'Zotero is not running',
+      'Zotero timed out',
+    ])
+    release(['Abort this query'])
+    await expect(notRunning).rejects.toBeInstanceOf(ZoteroError)
+    await expect(timedOut).rejects.toBeInstanceOf(ZoteroError)
+  })
+
+  it('asks again for a failure that arrives after the question settled', async () => {
+    const recovery = new ConnectivityRecovery()
+    const answered = fakeContext((request) => retryAnswer('I started Zotero, retry (Recommended)'))
+    const error = zoteroError(ZOTERO_NOT_RUNNING)
+    await expect(
+      withConnectivityAsk(answered.ctx, recovery, exec, async () => {
+        throw error
+      }),
+    ).rejects.toBe(error)
+    await expect(
+      withConnectivityAsk(answered.ctx, recovery, exec, async () => {
+        throw error
+      }),
+    ).rejects.toBe(error)
+    // A stale answer is never reused: the second failure asked on its own.
+    expect(answered.calls).toHaveLength(2)
   })
 })

@@ -280,7 +280,7 @@ export function registerGetTool(ctx: Context, service: ZoteroService): void {
       presentResult: presentGetResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
-        return await withConnectivityAsk(ctx, exec, () =>
+        return await withConnectivityAsk(ctx, service.recovery, exec, () =>
           service.get(buildRequest(args), exec.signal),
         )
       },

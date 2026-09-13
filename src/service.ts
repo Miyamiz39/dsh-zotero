@@ -23,6 +23,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-settings'
 // Type-only: brings the `ctx.typert` Context merge into this program.
 import type {} from '@deepseek-ai/dsh-typert-registry'
+import { ConnectivityRecovery } from './ask.js'
 import { ZoteroHttpClient } from './http-client.js'
 import { registerStatusCommand } from './command.js'
 import { ZoteroRuntime } from './remote.js'
@@ -85,6 +86,14 @@ export class ZoteroService extends Service {
   static Config = ConfigSchema
 
   private readonly providers = new Map<string, ZoteroProvider>()
+  /**
+   * The instance's recovery gate. Concurrent calls that hit the same
+   * connectivity failure (Zotero down, API disabled, no shared API version,
+   * timeout) share one question instead of stacking a card per call. Owned
+   * per instance, so a settings edit — which builds a new instance — starts
+   * from a clean state.
+   */
+  readonly recovery = new ConnectivityRecovery()
   /** Current config authority: the settings section while one is attached, the composition entry otherwise. */
   private source: () => ResolvedConfig
   /** Disposer of the currently registered `local` provider, released before a rebuild re-registers it. */

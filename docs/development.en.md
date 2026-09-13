@@ -26,7 +26,7 @@ src/
   ref-grammar.ts        # Reference text patterns
   export-items.ts       # Per-document export parsing
   export-mapping.ts     # Ref → batch item mapping
-  ask.ts                # User-question fallback when the connection fails
+  ask.ts                # User-question fallback when the connection fails (one card per failure kind, shared by parallel calls)
   prompt.ts             # Model-facing policy section
   command.ts            # /zotero status command
   remote.ts             # Remote service for web tab

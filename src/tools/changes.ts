@@ -433,7 +433,7 @@ export function registerChangesTool(ctx: Context, service: ZoteroService): void 
       presentResult: presentChangesResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
-        return await withConnectivityAsk(ctx, exec, () =>
+        return await withConnectivityAsk(ctx, service.recovery, exec, () =>
           service.changes(buildRequest(args), exec.signal),
         )
       },

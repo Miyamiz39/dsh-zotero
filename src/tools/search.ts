@@ -423,7 +423,7 @@ export function registerSearchTool(ctx: Context, service: ZoteroService): void {
       presentResult: presentSearchResult,
       isConcurrencySafe: () => true,
       async execute(args, exec) {
-        return await withConnectivityAsk(ctx, exec, () =>
+        return await withConnectivityAsk(ctx, service.recovery, exec, () =>
           service.search(buildRequest(args, service.config), exec.signal),
         )
       },

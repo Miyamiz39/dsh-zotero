@@ -26,7 +26,7 @@ src/
   ref-grammar.ts        # 引用文本模式
   export-items.ts       # 逐文档导出解析
   export-mapping.ts     # 引用 → 批量条目映射
-  ask.ts                # 连接失败时的 user-question 交互
+  ask.ts                # 连接失败时的 user-question 交互（每类故障一次提问，并行调用共享同一张卡）
   prompt.ts             # 面向模型的 policy section
   command.ts            # /zotero status 命令
   remote.ts             # Web tab 的 Remote 服务

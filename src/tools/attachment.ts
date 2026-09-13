@@ -112,7 +112,9 @@ export function registerAttachmentTool(ctx: Context, service: ZoteroService): vo
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         const { ref } = buildRequest(args)
-        return await withConnectivityAsk(ctx, exec, () => service.attachment(ref, exec.signal))
+        return await withConnectivityAsk(ctx, service.recovery, exec, () =>
+          service.attachment(ref, exec.signal),
+        )
       },
     }),
   )
