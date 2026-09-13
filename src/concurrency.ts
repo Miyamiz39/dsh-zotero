@@ -114,7 +114,13 @@ export class ConcurrencyGate {
               },
       }
       this.waiting.push(waiter)
-      signal?.addEventListener('abort', waiter.onAbort!, { once: true })
+      if (waiter.onAbort !== undefined) {
+        waiter.signal?.addEventListener('abort', waiter.onAbort, { once: true })
+        // The signal may have aborted between the check above and this
+        // listener, and an aborted signal never replays its event — a waiter
+        // left queued that way would wait for a slot it no longer wants.
+        if (waiter.signal?.aborted === true) waiter.giveUp(new GateAbortedError())
+      }
     })
   }
 

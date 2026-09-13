@@ -26,6 +26,13 @@ import type { ZoteroItemDetail } from '../../src/types.js'
 
 const BASE_URL = process.env.ZOTERO_BASE_URL ?? 'http://127.0.0.1:23119/api'
 
+/** A keepable one-line summary of a retrieve attempt: code plus a short reason. */
+function describeOutcome(result: unknown): string {
+  if (!(result instanceof Error)) return 'read succeeded'
+  const code = (result as { code?: string }).code ?? result.name
+  return `${code}: ${result.message.slice(0, 120)}`
+}
+
 let provider: LocalApiProvider
 let firstItemRef: string | undefined
 
@@ -136,6 +143,105 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     })
     expect(result.ref).toMatch(/^zotero:\/\/user\/0\/item\/[A-Z0-9]{8}/)
     expect(Array.isArray(result.evidence)).toBe(true)
+  })
+
+  it('proves a specified attachment belongs to the item it is read for', async () => {
+    // Two real items that each have an attachment: naming one item's file
+    // while reading another is exactly the false attribution the identity
+    // proof exists to stop, and only a live library has same-key neighbours
+    // from other items to try.
+    const candidates: { ref: string; attachmentRef: string }[] = []
+    for (let offset = 0; offset < 60 && candidates.length < 2; offset += 20) {
+      const page = await provider.search({
+        scope: { kind: 'library' },
+        mode: 'metadata',
+        sort: 'dateModified',
+        direction: 'desc',
+        offset,
+        limit: 20,
+      })
+      for (const item of page.items) {
+        if (item.bestAttachmentRef === undefined) continue
+        candidates.push({ ref: item.ref, attachmentRef: item.bestAttachmentRef })
+        if (candidates.length === 2) break
+      }
+    }
+    if (candidates.length < 2) {
+      console.log('[integration] fewer than two items with attachments; skipping ownership check')
+      return
+    }
+    const [mine, theirs] = candidates as [
+      { ref: string; attachmentRef: string },
+      { ref: string; attachmentRef: string },
+    ]
+    const attempt = async (item: { ref: string }, attachment: { attachmentRef: string }) => {
+      try {
+        return await provider.retrieve({
+          ref: parseRef(item.ref),
+          query: 'the',
+          sources: ['fulltext'],
+          passages: 1,
+          attachmentPolicy: 'specified',
+          attachmentRefs: [parseRef(attachment.attachmentRef)],
+        })
+      } catch (error) {
+        return error
+      }
+    }
+    const verdicts = [
+      { label: 'own', result: await attempt(mine, mine) },
+      { label: 'foreign', result: await attempt(mine, theirs) },
+      { label: 'swapped', result: await attempt(theirs, mine) },
+    ]
+    for (const { label, result } of verdicts) {
+      console.log(`[integration] ownership ${label}: ${describeOutcome(result)}`)
+    }
+    // A file that is not this item's child is refused, in both directions.
+    for (const { label, result } of verdicts) {
+      if (label === 'own') continue
+      expect(result).toBeInstanceOf(Error)
+      expect((result as { code?: string }).code).toBe('ZOTERO_INVALID_ARGUMENT')
+      expect((result as Error).message).toMatch(/attached to item|top-level attachment/)
+    }
+  })
+
+  it('accounts for each full-text source it considered', async () => {
+    const page = await provider.search({
+      scope: { kind: 'library' },
+      mode: 'metadata',
+      sort: 'dateModified',
+      direction: 'desc',
+      offset: 0,
+      limit: 20,
+    })
+    const withAttachment = page.items.find((item) => item.bestAttachmentRef !== undefined)
+    if (withAttachment === undefined) {
+      console.log('[integration] no item with an attachment; skipping per-source accounting check')
+      return
+    }
+    const result = await provider.retrieve({
+      ref: parseRef(withAttachment.ref),
+      query: 'the',
+      sources: ['fulltext'],
+      passages: 1,
+      attachmentPolicy: 'allIndexed',
+    })
+    expect(result.attachments).toBeDefined()
+    expect(result.attachments!.length).toBeGreaterThan(0)
+    for (const source of result.attachments!) {
+      expect(['indexed', 'unindexed', 'unread']).toContain(source.status)
+      if (source.status !== 'indexed') continue
+      // An indexed source states what it gave: coverage, its own passage
+      // count, and whether the call's budget cut its text.
+      expect(source.coverage).toBeDefined()
+      expect(typeof source.passages).toBe('number')
+      expect(typeof source.inputTruncated).toBe('boolean')
+    }
+    console.log(
+      `[integration] full-text sources: ${result
+        .attachments!.map((source) => `${source.status}(${source.passages ?? 0})`)
+        .join(', ')}`,
+    )
   })
 
   it('browses itemTypes globally', async () => {

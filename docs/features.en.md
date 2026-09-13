@@ -43,16 +43,18 @@ Evidence passages: relevant text segments grouped by source, showing page labels
 
 `zotero_retrieve` is the core information extraction tool. It collects text segments from four sources, ranks them with BM25, and returns the most relevant passages:
 
-| Source       | Description                                                   |
-| ------------ | ------------------------------------------------------------- |
-| `annotation` | PDF annotations and highlight text, with Zotero's page labels |
-| `note`       | Child note body text, chunked                                 |
-| `abstract`   | Item abstract                                                 |
-| `fulltext`   | Zotero-indexed full text, ranked by BM25 chunks               |
+| Source       | Description                                                                                                                                     |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `annotation` | PDF annotations: the highlight and the reader’s comment rank together, with Zotero’s page labels; `matchedFields` says which of the two matched |
+| `note`       | Child note body text, chunked                                                                                                                   |
+| `abstract`   | Item abstract                                                                                                                                   |
+| `fulltext`   | Zotero-indexed full text, ranked by BM25 chunks                                                                                                 |
 
 **What evidence is:** Evidence is a ranked result of existing text segments within an item, based on BM25 term-frequency matching. BM25 only matches terms — if a query word does not appear in a chunk, it will not appear in the results even if the content is semantically related.
 
 Full-text index coverage is reported via the `coverage` field (indexed chars / total chars). When the index is incomplete, `complete: false` is flagged. Unavailable sources are logged in `sourcesSkipped`.
+
+Under a multi-attachment policy (`allIndexed` / `specified`), `attachments` reports every full-text source the call considered with its `status`: `indexed` (read; carries `coverage`, `passages`, and whether the character budget cut it), `unindexed` (no full text for that file in Zotero’s index), `unread` (the call was already at its attachment limit). An unindexed supplement is therefore a named coverage gap rather than a file with nothing to say.
 
 ![Multi-step tool call flow in conversation](images/zotero-chat-workflow.png)
 The agent calls search, retrieve, and export tools in sequence to fulfill a user request.

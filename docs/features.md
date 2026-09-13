@@ -43,16 +43,18 @@ dsh-zotero 让 DSH 的 LLM 对话直接查询你的 Zotero 文献库。八个工
 
 `zotero_retrieve` 是核心的信息提取工具。它从四个来源收集文本片段，用 BM25 排序后返回最相关的段落：
 
-| 来源         | 说明                                     |
-| ------------ | ---------------------------------------- |
-| `annotation` | PDF 批注和高亮文本，带 Zotero 自身的页码 |
-| `note`       | 子笔记正文，按 chunk 分段                |
-| `abstract`   | 条目摘要                                 |
-| `fulltext`   | Zotero 索引的全文，按 BM25 chunk 排序    |
+| 来源         | 说明                                                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| `annotation` | PDF 批注：高亮原文与读者评论一起参与排序，带 Zotero 自身的页码；`matchedFields` 标明命中来自哪一项 |
+| `note`       | 子笔记正文，按 chunk 分段                                                                          |
+| `abstract`   | 条目摘要                                                                                           |
+| `fulltext`   | Zotero 索引的全文，按 BM25 chunk 排序                                                              |
 
 **什么是证据：** 证据是条目内部已有文本片段的排序结果，基于 BM25 词频匹配。BM25 只匹配词项，如果查询词没有出现在某个 chunk 中，即使内容在语义上相关也不会出现。
 
 全文索引覆盖度通过 `coverage` 字段报告（已索引字符数/总字符数）。索引不完整时，`complete: false` 会明确标出。不可用的来源记入 `sourcesSkipped`。
+
+多附件检索（`attachmentPolicy` 为 `allIndexed` / `specified`）时，`attachments` 逐个附件给出 `status`：`indexed`（读到全文，含 `coverage`、`passages`、是否被字符预算截断）、`unindexed`（该文件在 Zotero 索引里没有全文）、`unread`（本次达到附件上限未读）。未索引的补充材料因此是明确的覆盖缺口，而不是"其中没有相关内容"。
 
 ![对话中的多步工具调用流程](images/zotero-chat-workflow.png)
 Agent 依次调用搜索、检索、导出三个工具完成用户请求。

@@ -255,22 +255,21 @@ export async function retrieve(
       // twice would read as two sources agreeing with each other. The set is
       // taken before the cap so a list that repeats one ref is not rejected
       // as if it named many.
-      const wanted = new Map<string, ZoteroObjectRef>()
+      const distinct = new Map<string, ZoteroObjectRef>()
       for (const attachmentRef of request.attachmentRefs!) {
         const identity = `${attachmentRef.library.type}/${attachmentRef.library.id}/${attachmentRef.key}?${attachmentRef.serverId ?? ''}`
-        if (!wanted.has(identity)) wanted.set(identity, attachmentRef)
+        if (!distinct.has(identity)) distinct.set(identity, attachmentRef)
       }
-      if (wanted.size > ZOTERO_RETRIEVE_ATTACHMENT_CAP) {
+      if (distinct.size > ZOTERO_RETRIEVE_ATTACHMENT_CAP) {
         throw new ZoteroError(
-          `attachmentRefs lists ${wanted.size} attachments; at most ${ZOTERO_RETRIEVE_ATTACHMENT_CAP} can enter one ranking — split the work across calls.`,
+          `attachmentRefs lists ${distinct.size} attachments; at most ${ZOTERO_RETRIEVE_ATTACHMENT_CAP} can enter one ranking — split the work across calls.`,
           ZOTERO_INVALID_ARGUMENT,
         )
       }
       candidates = await mapWithConcurrency(
-        [...wanted.values()],
+        [...distinct.values()],
         ZOTERO_GRAPH_CONCURRENCY,
-        async (attachmentRef): Promise<{ key: string; contentType?: string }> => {
-          const wanted = attachmentRef
+        async (wanted): Promise<{ key: string; contentType?: string }> => {
           // The ref is a claim about where this text comes from. Reading a
           // same-key object out of the wrong library or the wrong database
           // would attach a stranger's words to this item, so the claim is
@@ -503,9 +502,11 @@ export async function retrieve(
 /**
  * One full-text source of a retrieval and what reading it produced. The arms
  * carry exactly what their status can prove: an indexed source has Zotero's
- * coverage facts, the payload, its accepted chunks and whether this call's
- * budget cut it; an unindexed or unread one has nothing to report beyond the
- * fact that it contributed no text.
+ * coverage facts, its accepted chunks and whether this call's budget cut it;
+ * an unindexed or unread one has nothing to report beyond the fact that it
+ * contributed no text. The fetched payload is read in the worker and not
+ * kept — the chunks are what survives, so a large body is released instead of
+ * being held until the ranking pass.
  */
 type FulltextSource = {
   readonly key: string
@@ -514,7 +515,6 @@ type FulltextSource = {
   | {
       readonly status: 'indexed'
       readonly coverage: ZoteroCoverage
-      readonly payload: ZoteroFulltextPayload
       readonly inputTruncated: boolean
       readonly chunks: readonly EvidenceChunk[]
     }
@@ -601,7 +601,6 @@ async function readFulltextSources(
           deps.limits.fulltextChunkWords,
           deps.limits.maxEvidenceChars,
         ),
-        payload,
       }
     },
   )

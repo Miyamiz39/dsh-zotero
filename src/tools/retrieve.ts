@@ -74,8 +74,7 @@ const RETRIEVE_PARAMETERS = {
   attachmentRefs: {
     type: 'array',
     items: { type: 'string' },
-    description:
-      'Required with attachmentPolicy="specified": zotero://.../attachment/<KEY> refs of the same library whose full text enters ranking. Each must be an attachment of ref (a child of that item) on the same Zotero instance; anything else fails the call. Repeats are read once; at most 16 attachments enter one call.',
+    description: `Required with attachmentPolicy="specified": zotero://.../attachment/<KEY> refs of the same library whose full text enters ranking. Each must be an attachment of ref (a child of that item) on the same Zotero instance; anything else fails the call. Repeats are read once; at most ${ZOTERO_RETRIEVE_ATTACHMENT_CAP} attachments enter one call.`,
   },
 } as const
 
