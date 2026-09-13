@@ -5,9 +5,14 @@
  * full-text chunks — is ranked uniformly as a small single-document corpus:
  * document frequencies are passage-level, so a term scores higher when it
  * is rare across the item's own passages. Ties keep the caller's passage
- * order, which makes the result deterministic.
+ * order, which makes the result deterministic. Terms are folded with
+ * Zotero's own search normalization, so the plugin's ranking and the
+ * server's search agree on what matches; the passage text returned is the
+ * original, unfolded string.
  * @module dsh-zotero/evidence
  */
+
+import { normalizeForSearch } from './search-text.js'
 
 const TOKEN_PATTERN = /[\p{L}\p{N}]+/gu
 
@@ -32,15 +37,18 @@ function wordSegmenter(): Intl.Segmenter | undefined {
 }
 
 /**
- * Lowercase word tokens of a text, in order. Word-aware segmentation keeps
- * scripts without spaces (CJK, Thai) queryable — a `\S+` tokenizer would
- * treat a whole unspaced run as one token and never match a single word.
+ * Lowercase word tokens of a text, in order, folded the way Zotero folds its
+ * own search index ({@link normalizeForSearch}) so a query the server matched
+ * can also match passage text here. Word-aware segmentation keeps scripts
+ * without spaces (CJK, Thai) queryable — a `\S+` tokenizer would treat a
+ * whole unspaced run as one token and never match a single word.
  */
 export function tokenize(text: string): string[] {
   const segmenter = wordSegmenter()
-  if (segmenter === undefined) return text.toLowerCase().match(TOKEN_PATTERN) ?? []
+  const folded = normalizeForSearch(text)
+  if (segmenter === undefined) return folded.match(TOKEN_PATTERN) ?? []
   const tokens: string[] = []
-  for (const segment of segmenter.segment(text.toLowerCase())) {
+  for (const segment of segmenter.segment(folded)) {
     if (segment.isWordLike) tokens.push(segment.segment)
   }
   return tokens

@@ -15,7 +15,8 @@ import { nextOffsetOf, requireTotalResults } from './pagination.js'
 import { resolveScope, ScopeDirectory, type ResolvedScopeResult } from './scope-directory.js'
 import { asRecord, asString } from '../json.js'
 import { collectionKeysOf, normalizeSearchItem, plainNoteText } from '../normalize.js'
-import { libraryPrefix, parseRef, PERSONAL_LIBRARY } from '../refs.js'
+import { libraryPrefix, parseRef } from '../refs.js'
+import { normalizeForSearch } from '../search-text.js'
 import type { LocalApiLimits } from './limits.js'
 import type {
   SupportedLocalLibrary,
@@ -90,19 +91,7 @@ export async function runSearch(
   )
   const rows = Array.isArray(json) ? json : []
   const responseServerId = headers.get('zotero-server-id') ?? scope.serverId
-  const libraryForItems =
-    scope.resolved.kind === 'library'
-      ? scope.resolved.library
-      : (() => {
-          // collection/search resolved ref encodes library; parse to get it, fallback to request library or personal
-          try {
-            if ('ref' in scope.resolved && scope.resolved.ref)
-              return parseRef(scope.resolved.ref).library as SupportedLocalLibrary
-          } catch {
-            /* ignore */
-          }
-          return request.library ?? PERSONAL_LIBRARY
-        })()
+  const libraryForItems = libraryOfResolvedScope(scope.resolved)
   const ctxForSearch: { library: SupportedLocalLibrary; serverId?: string } = {
     library: libraryForItems,
     serverId: responseServerId ?? undefined,
@@ -119,7 +108,7 @@ export async function runSearch(
   let supplemental: ZoteroSearchSupplement | undefined
   const query = request.query?.trim()
   if (query !== undefined && query !== '' && shouldScanNotes(request, scope.resolved)) {
-    const terms = tokenize(query.toLowerCase())
+    const terms = tokenize(query)
     // A query whose tokens are all punctuation/emoji/whitespace matches
     // every note (the empty token list is vacuously present), so the scan
     // stays disabled for it.
@@ -225,16 +214,7 @@ async function fetchNoteRows(
   request: ZoteroSearchRequest,
   signal: AbortSignal | undefined,
 ): Promise<{ rows: readonly unknown[]; truncated: boolean }> {
-  const libraryForScan: SupportedLocalLibrary =
-    scope.resolved.kind === 'collection' || scope.resolved.kind === 'savedSearch'
-      ? (() => {
-          try {
-            if ('ref' in scope.resolved && scope.resolved.ref)
-              return parseRef(scope.resolved.ref).library as SupportedLocalLibrary
-          } catch {}
-          return request.library ?? PERSONAL_LIBRARY
-        })()
-      : scope.resolved.library
+  const libraryForScan = libraryOfResolvedScope(scope.resolved)
   let prefix = libraryPrefix(libraryForScan)
   // A publications-scoped scan must stay inside My Publications; the bare
   // library prefix would leak note matches from outside the segment.
@@ -313,6 +293,23 @@ async function fetchParentCollections(
 }
 
 /**
+ * The library a resolved scope reads from. `library` and `publications`
+ * scopes carry it directly; a `collection` or `savedSearch` scope carries the
+ * plugin's own canonical ref (`formatRef` of the resolved object), whose
+ * library segment is the answer. The parse is therefore total for anything
+ * `resolveScope` produced, and it is deliberately not wrapped in a fallback:
+ * a scope whose ref does not parse is a broken invariant, and answering it
+ * from the personal library would attribute another library's rows to this
+ * scope — the same silent substitution a wrong object key would cause.
+ */
+function libraryOfResolvedScope(resolved: ZoteroResolvedScope): SupportedLocalLibrary {
+  if (resolved.kind !== 'collection' && resolved.kind !== 'savedSearch') {
+    return resolved.library
+  }
+  return parseRef(resolved.ref).library as SupportedLocalLibrary
+}
+
+/**
  * Whether a note row satisfies the body scan: every query token appears
  * in the note text, plus the literal tag filters when present. Mirrors
  * server tag semantics: tagMatch, excludeTags, includeTrashed.
@@ -356,6 +353,9 @@ function noteRowMatches(
       if (excludeTags.some((tag) => tagNames.has(tag))) return false
     }
   }
-  const text = plainNoteText(data?.note).toLowerCase()
+  // The note side is folded exactly as the query tokens were (Zotero's own
+  // search normalization), so a note the server-side search matched by fold
+  // is not missed here.
+  const text = normalizeForSearch(plainNoteText(data?.note))
   return terms.every((term) => text.includes(term))
 }

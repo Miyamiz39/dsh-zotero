@@ -49,7 +49,7 @@ graph LR
 
 ### 证据管线 (`src/evidence.ts`)
 
-- 分词：`Intl.Segmenter` 词分割（CJK 感知）
+- 分词：`Intl.Segmenter` 词分割（CJK 感知），词元先按 Zotero 自身的 `normalizeForSearch` 折叠（音调符号、NFKD 特殊字母、排版引号/破折号、格式标签），与服务器侧搜索的判据一致；折叠只作用于匹配侧，原文不被改写
 - BM25 排名（k1=1.2, b=0.75）在 passage 语料库上
 - 文档频率是 passage 级别（在条目自身 passages 中越罕见得分越高）
 - 平局保留调用者 passage 顺序（确定性）

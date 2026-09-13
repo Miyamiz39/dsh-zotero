@@ -49,7 +49,7 @@ User → Agent → dsh Zotero Tools → ZoteroService → Provider → 127.0.0.1
 
 ### Evidence pipeline (`src/evidence.ts`)
 
-- Tokenization: `Intl.Segmenter` word segmentation (CJK-aware)
+- Tokenization: `Intl.Segmenter` word segmentation (CJK-aware), with tokens folded by Zotero's own `normalizeForSearch` (diacritics, NFKD-special letters, typographic quotes and dashes, formatting tags) so matching agrees with the server-side search; the fold never rewrites the returned text
 - BM25 ranking (k1=1.2, b=0.75) over passage corpus
 - Document frequency is passage-level (rarer in the item's own passages scores higher)
 - Ties preserve caller passage order (deterministic)

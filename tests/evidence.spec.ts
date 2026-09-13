@@ -16,6 +16,12 @@ describe('tokenize', () => {
     expect(tokenize('  FlashAttention-2  論文  ')).toEqual(['flashattention', '2', '論文'])
   })
 
+  it('folds tokens the way Zotero folds its own search index', () => {
+    expect(tokenize('Café Straße œuvre')).toEqual(['cafe', 'strasse', 'oeuvre'])
+    expect(tokenize('“Quoted” — dashed')).toEqual(['quoted', 'dashed'])
+    expect(tokenize('séance ¹⁄₂')).toEqual(['seance', '1', '2'])
+  })
+
   it('returns no tokens for empty input', () => {
     expect(tokenize('   ')).toEqual([])
   })
@@ -122,6 +128,17 @@ describe('rankChunks', () => {
       { text: 'no match here', index: 2 },
     ])
     expect(ranked.map((entry) => entry.index)).toEqual([0, 1, 2])
+  })
+
+  it('matches a folded query against the text it folded from', () => {
+    // The server-side search matches `cafe` against `café`; ranking must too,
+    // or a search hit returns no passages for the very terms that found it.
+    const ranked = rankChunks('cafe', [
+      { text: 'the café served seance notes', index: 0 },
+      { text: 'unrelated text', index: 1 },
+    ])
+    expect(ranked[0]!.score).toBeGreaterThan(0)
+    expect(ranked[1]!.score).toBe(0)
   })
 
   it('prefers a rare query term over raw term-frequency counts', () => {

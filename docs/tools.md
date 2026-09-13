@@ -95,6 +95,7 @@ zotero_get(ref="zotero://user/0/item/ABC123", include=["notes", "annotations"])
 - `attachmentPolicy="specified"` 的每个附件都必须能证明属于 `ref` 这条条目：`parentItem` 指向它、库与 Zotero 实例一致、回答中确有 `itemType: "attachment"`。任一条件无法证明即报错，不会退化成"同 key 的另一个对象"——跨条目或跨实例的附件不会进入当前条目的证据
 - 重复的 ref 只读一次；单次调用最多 16 个附件，超限报错而不是静默丢弃（拆成多次调用）
 - 需要另一条目的全文时按该条目单独调用 `zotero_retrieve`，而不是把它挂到当前条目的证据里
+- 排序用的词元与 Zotero 搜索使用同一套折叠（音调符号、排版引号/破折号、NFKD 分解），所以 `cafe` 能命中正文里的 `café`；返回的段落文本始终是原文，不被改写
 
 ### 示例
 

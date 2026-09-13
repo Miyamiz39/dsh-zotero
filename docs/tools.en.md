@@ -95,6 +95,7 @@ Collect and query-rank evidence passages for a single item. Sources include: Zot
 - Every `attachmentPolicy="specified"` attachment must be provably this item's own: its `parentItem` names `ref`, its library and Zotero instance match, and the answer really says `itemType: "attachment"`. If any of that cannot be proven the call fails — a same-key object from another item, another library, or another instance never substitutes for the named one
 - A repeated ref is read once; one call ranks at most 16 attachments and fails rather than silently dropping the rest (split the work across calls)
 - To gather evidence from another item, call `zotero_retrieve` for that item instead of attaching its files to this item's evidence
+- Ranking tokens are folded exactly as Zotero's own search folds text (diacritics, typographic quotes and dashes, NFKD decomposition), so `cafe` matches `café` in a passage; the passage text returned is always the original
 
 ### Example
 

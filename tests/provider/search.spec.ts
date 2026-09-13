@@ -6,7 +6,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ZOTERO_NOT_FOUND, ZOTERO_SCOPE_AMBIGUOUS } from '../../src/errors.js'
+import {
+  ZOTERO_INVALID_ARGUMENT,
+  ZOTERO_NOT_FOUND,
+  ZOTERO_SCOPE_AMBIGUOUS,
+} from '../../src/errors.js'
 import {
   buildSearchParams,
   encodeExcludeTag,
@@ -509,6 +513,100 @@ describe('search: note-content scan', () => {
     expect(mock.requests[1]!.search.get('direction')).toBe('desc')
   })
 
+  it('matches the note scan with the same folding the server searches with', async () => {
+    mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
+      if (search.get('itemType') === 'note') {
+        helpers.json([
+          {
+            key: 'NOTE3333',
+            data: { itemType: 'note', note: 'the café serves a séance study group' },
+          },
+        ])
+      } else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+    })
+    // Unaccented query, accented note: the server-side search matches that
+    // pair, so the client-side scan must not be the one that misses it.
+    const result = await provider.search(request({ query: 'cafe seance' }))
+    expect(result.supplemental?.items.map((entry) => entry.ref)).toEqual([
+      'zotero://user/0/item/NOTE3333?server=S1',
+    ])
+  })
+
+  it('applies the literal tag filters to the note scan', async () => {
+    const scanRows = [
+      {
+        key: 'NOTE5555',
+        data: {
+          itemType: 'note',
+          note: 'cascade infrastructure notes',
+          tags: [{ tag: 'reviewed' }, { tag: 'draft' }],
+        },
+      },
+      {
+        key: 'NOTE6666',
+        data: {
+          itemType: 'note',
+          note: 'cascade infrastructure notes',
+          tags: [{ tag: 'draft' }],
+        },
+      },
+      {
+        key: 'NOTE7777',
+        data: { itemType: 'note', note: 'cascade infrastructure notes', tags: [] },
+      },
+    ]
+    mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
+      if (search.get('itemType') === 'note') helpers.json(scanRows)
+      else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+    })
+    const refsOf = (result: { supplemental?: { items: { ref: string }[] } }): string[] =>
+      result.supplemental?.items.map((entry) => entry.ref) ?? []
+    const scanRefs = (key: string): string => `zotero://user/0/item/${key}?server=S1`
+
+    // `any`: one matching tag is enough, so both tagged notes pass.
+    const any = await provider.search(
+      request({ query: 'cascade infrastructure', tags: ['reviewed', 'draft'], tagMatch: 'any' }),
+    )
+    expect(refsOf(any)).toEqual([scanRefs('NOTE5555'), scanRefs('NOTE6666')])
+
+    // excludeTags drops the notes carrying the tag; the untagged one stays.
+    const excluded = await provider.search(
+      request({ query: 'cascade infrastructure', excludeTags: ['draft'] }),
+    )
+    expect(refsOf(excluded)).toEqual([scanRefs('NOTE7777')])
+  })
+
+  it('scans trashed notes when includeTrashed asks for them', async () => {
+    mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
+      if (search.get('itemType') === 'note') {
+        helpers.json([{ key: 'NOTE8888', data: { itemType: 'note', note: 'cascade trashed' } }])
+      } else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+    })
+    const result = await provider.search(request({ query: 'cascade', includeTrashed: true }))
+    expect(result.supplemental?.items.map((entry) => entry.ref)).toEqual([
+      'zotero://user/0/item/NOTE8888?server=S1',
+    ])
+    // The scan must read the trash too, or a trashed note the primary search
+    // was told to include could never surface.
+    const scan = mock.requests.find((entry) => entry.search.get('itemType') === 'note')
+    expect(scan?.search.get('includeTrashed')).toBe('1')
+  })
+
+  it('refuses includeTrashed outside a library scope', async () => {
+    await zoteroError(
+      provider.search(
+        request({
+          query: 'x',
+          includeTrashed: true,
+          scope: { kind: 'collection', refOrName: 'zotero://user/0/collection/COLL1234' },
+        }),
+      ),
+      ZOTERO_INVALID_ARGUMENT,
+      'includeTrashed is only allowed with library scope',
+    )
+    expect(mock.requests).toEqual([])
+  })
+
   it('keeps the publications scan inside My Publications', async () => {
     mock.route('GET', '/api/users/0/publications/items/top', (req, res, helpers) =>
       helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' }),
@@ -660,9 +758,11 @@ describe('search: note-content scan', () => {
         helpers.json([childIn, childOtherCollection, childParentMissing, standaloneIn])
       else if (search.get('itemKey') !== null) {
         // PARE3333 stays absent: an unfetchable parent (e.g. trashed) fails closed.
+        // A row with no key names no parent at all and is ignored.
         helpers.json([
           { key: 'PARE1111', data: { collections: ['COLL1234'] } },
           { key: 'PARE2222', data: { collections: ['OTHER123'] } },
+          { data: { collections: ['COLL1234'] } },
         ])
       } else helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' })
     })
