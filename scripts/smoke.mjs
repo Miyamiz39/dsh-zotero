@@ -112,7 +112,7 @@ const libraries = await zotero.browse({ kind: 'libraries', offset: 0, limit: 10 
 console.log(`browse: ${libraries.returned}/${libraries.total} libraries`)
 
 const baseline = await zotero.changes({})
-console.log(`changes: baseline at version ${baseline.toVersion ?? 'unknown'}`)
+console.log(`changes: baseline at version ${baseline.cursor?.version ?? 'unknown'}`)
 
 const assembly = await ctx.systemPrompt.assemble()
 if (assembly.sections.find((entry) => entry.name === 'zotero:policy') === undefined) {

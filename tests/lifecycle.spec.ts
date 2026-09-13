@@ -514,7 +514,13 @@ describe('capability gating', () => {
         }),
       ],
       ['browse', service.browse({ kind: 'libraries', offset: 0, limit: 5 })],
-      ['changes', service.changes({ library: { type: 'user', id: 0 }, since: 1 })],
+      [
+        'changes',
+        service.changes({
+          library: { type: 'user', id: 0 },
+          since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 1 },
+        }),
+      ],
     ]
     for (const [capability, attempt] of attempts) {
       let thrown: unknown

@@ -221,29 +221,31 @@ zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
 
 ## zotero_changes
 
-查看库的增量变化。Zotero 10+ 的版本号是本地事务版本——任何编辑、同步或本地写入都会推进它。不带 `since` 调用先取基线（仅当前版本），之后把该版本作为 `since` 传回即得差异。
+查看库的增量变化。Zotero 10+ 的版本号是本地事务版本——任何编辑、同步或本地写入都会推进它。不带 `since` 调用先取基线，它给出一个**游标**：版本号连同它所属的实例与库。下次把该游标原样作为 `since` 传回即得差异。
 
-**游标契约**：`toVersion` 出现即安全——它表示该调用已把报告范围内的变更整批读完，且读取期间库版本没有前进，因此可以直接作为下次 `since`。读不全（该构建给响应加了上限）或读取期间有写入时不返回 `toVersion`（后者另带 `libraryChanged: true`），此时不要从这次结果推进游标。游标只覆盖产生它的那次调用 `include` 的资源种类。
+**游标契约**：`cursor` 出现即安全——它表示该调用已把报告范围内的变更整批读完，且读取期间库版本没有前进，因此可以直接作为下次 `since`。读不全（该构建给响应加了上限）或读取期间有写入时不返回 `cursor`（后者另带 `libraryChanged: true`），此时不要从这次结果推进游标。游标只覆盖产生它的那次调用 `include` 的资源种类。
+
+**游标带身份**：版本号是某一个库的事务计数器，同一个数字在另一个 Zotero 实例或另一个库里毫无关系，所以游标里带着 `serverId` 与 `library`，而且不接受裸版本号。用它做 `since` 时：这份实例身份会作为 `Zotero-Server-ID` 请求头随每个请求发出，服务端不匹配就 412，插件报 `ZOTERO_SERVER_MISMATCH`（客户端重建、设置热更新、宿主重启后同样成立，因为校验不依赖插件内存）；游标里的库与本次调用的 `library` 不一致则在发起任何请求前以 `ZOTERO_INVALID_ARGUMENT` 拒绝。
 
 **fulltext 不在默认集合内**：`/fulltext?since=` 过滤的是 `fulltextItems.version`，那是全文索引自己的计数器（`fulltext_<libraryID>`，见 Zotero `fulltext.js`），不是库版本——真机核验（Zotero 10.0.2-beta.9）：`since=0` 与 `since=<库版本>` 返回同一批行，且该端点不返回任何版本头。因此这些行是一份清单而不是库版本上的增量，只有显式点名 `fulltext` 时才读取。
 
 ### 参数
 
-| 参数      | 类型     | 默认值           | 说明                                                                                       |
-| --------- | -------- | ---------------- | ------------------------------------------------------------------------------------------ |
-| `library` | object   | —                | `{type, id}`，省略默认个人库 `user/0`                                                      |
-| `since`   | integer  | —                | 起始版本；只在早先结果带有 `toVersion` 时才复用它；省略取基线                              |
-| `include` | string[] | 除 fulltext 现有 | `items` / `collections` / `savedSearches` / `fulltext` / `deleted`（显式空数组报参数错误） |
+| 参数      | 类型     | 默认值           | 说明                                                                                                |
+| --------- | -------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| `library` | object   | —                | `{type, id}`，省略默认个人库 `user/0`                                                               |
+| `since`   | object   | —                | 起始游标 `{serverId, library, version}`：把早先结果的 `cursor` 原样传回；不接受裸版本号；省略取基线 |
+| `include` | string[] | 除 fulltext 现有 | `items` / `collections` / `savedSearches` / `fulltext` / `deleted`（显式空数组报参数错误）          |
 
 ### 输出
 
-`{library, serverId?, fromVersion?, toVersion?, libraryChanged?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, totals?, unsupported?, truncated?}`。每种资源整批读取，但列出的条目按 `maxChangesResults`（默认 50）截断，`truncated` 表示列表是摘要；`totals` 给出每种资源（含 `deletedItems`/`deletedCollections`/`deletedSavedSearches`）被截断前的真实条数。当前构建不支持的资源（如本机 Zotero 10.0.2-beta.9 就没有 `/deleted` 路由）不会导致整个调用失败，而是列入 `unsupported`——该种类的变化（含删除）不可观测，游标也不覆盖它。
+`{library, serverId?, fromVersion?, cursor?, libraryChanged?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, totals?, unsupported?, truncated?}`。每种资源整批读取，但列出的条目按 `maxChangesResults`（默认 50）截断，`truncated` 表示列表是摘要；`totals` 给出每种资源（含 `deletedItems`/`deletedCollections`/`deletedSavedSearches`）被截断前的真实条数。当前构建不支持的资源（如本机 Zotero 10.0.2-beta.9 就没有 `/deleted` 路由）不会导致整个调用失败，而是列入 `unsupported`——该种类的变化（含删除）不可观测，游标也不覆盖它。
 
 ### 示例
 
 ```
 zotero_changes()
-zotero_changes(since=1234, include=["items", "deleted"])
+zotero_changes(since={serverId: "<from cursor>", library: {type: "user", id: 0}, version: 1234}, include=["items", "deleted"])
 ```
 
 ---

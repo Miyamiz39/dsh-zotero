@@ -547,14 +547,34 @@ export interface ZoteroBrowseResult {
 export type ZoteroChangesInclude =
   'items' | 'collections' | 'savedSearches' | 'fulltext' | 'deleted'
 
+/**
+ * An incremental checkpoint: the library version a diff read through, pinned
+ * to the instance and the library it came from.
+ *
+ * A library version is a counter of one database's transactions — the same
+ * integer means unrelated things in another Zotero instance, and nothing at
+ * all in another library. A cursor therefore carries its provenance, and
+ * passing one back is the only way to diff from a previous read: the instance
+ * travels with the request as `Zotero-Server-ID` (the server rejects a foreign
+ * one with 412), and the library is checked before any read.
+ */
+export interface ZoteroChangesCursor {
+  /** The instance the version describes (`Zotero-Server-ID` of its responses). */
+  serverId: string
+  /** The library whose version counter `version` belongs to. */
+  library: SupportedLocalLibrary
+  /** The library version the diff read through. */
+  version: number
+}
+
 export interface ZoteroChangesRequest {
   library?: SupportedLocalLibrary
   /**
-   * The library version to diff from. Omitted takes a baseline reading: the
-   * result carries only the library's current version, which the next call
-   * can pass as `since`.
+   * The cursor to diff from, passed back verbatim from an earlier result.
+   * Omitted takes a baseline reading: the result carries the current cursor,
+   * which the next call can pass as `since`.
    */
-  since?: number
+  since?: ZoteroChangesCursor
   include?: ReadonlySet<ZoteroChangesInclude>
 }
 
@@ -587,15 +607,16 @@ export interface ZoteroChangesResult {
   /** The version the diff started from; absent on a baseline reading. */
   fromVersion?: number
   /**
-   * The version the diff read through — present only when this call verified
-   * the whole reported range and the library version did not move while it
-   * read, which is what makes it safe to pass back as `since`. Absent means
-   * the caller must not advance its cursor from this result.
+   * The checkpoint to diff from next — present only when this call verified
+   * the whole reported range, the library version did not move while it read,
+   * and the instance answering is known, which is what makes it safe to pass
+   * back as `since`. Absent means the caller must not advance from this
+   * result. The version inside is the one the diff read through.
    */
-  toVersion?: number
+  cursor?: ZoteroChangesCursor
   /**
    * A write landed in the library while this call was reading, so the range
-   * could not be pinned to a version (`toVersion` is withheld). Re-running is
+   * could not be pinned to a version (`cursor` is withheld). Re-running is
    * the remedy: the next call either reads a quiet library or reports again.
    */
   libraryChanged?: boolean
@@ -607,7 +628,7 @@ export interface ZoteroChangesResult {
      * Attachments the full-text index mentions (`/fulltext?since=`). That
      * endpoint filters on the index's own version counter rather than the
      * library version, so these rows are a listing and not a delta on
-     * `toVersion` — they are read only when a caller names `fulltext`.
+     * `cursor` — they are read only when a caller names `fulltext`.
      */
     fulltextAttachments?: ZoteroChangedObject[]
   }
@@ -621,7 +642,7 @@ export interface ZoteroChangesResult {
   /**
    * Resource kinds this call included but the Zotero build does not serve
    * (its endpoint answered 404). They contribute nothing to the diff, and
-   * `toVersion` therefore does not account for them.
+   * `cursor` therefore does not account for them.
    */
   unsupported?: ZoteroChangesInclude[]
   /** True when a listing was capped at the configured display bound. */

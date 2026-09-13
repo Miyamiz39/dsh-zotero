@@ -16,7 +16,7 @@ import ZoteroService from '../src/index.js'
 import { ZOTERO_NOT_RUNNING } from '../src/errors.js'
 import { renderChanges } from '../src/tools/changes.js'
 import { renderBrowse } from '../src/tools/browse.js'
-import { parseLibrary } from '../src/tools/validate.js'
+import { parseLibrary, requireLibrary } from '../src/tools/validate.js'
 import { renderChildren } from '../src/tools/children.js'
 import { renderGet } from '../src/tools/get.js'
 import { renderRetrieve } from '../src/tools/retrieve.js'
@@ -1436,27 +1436,90 @@ describe('zotero_changes tool', () => {
     expect(ctx.tools.schemas().some((schema) => schema.name === 'zotero_changes')).toBe(true)
   })
 
-  it('takes a baseline reading end to end and renders the version hint', async () => {
+  it('takes a baseline reading end to end and mints the cursor', async () => {
     mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
       expect(search.get('limit')).toBe('1')
-      helpers.json([], { 'Last-Modified-Version': '42' })
+      helpers.json([], { 'Last-Modified-Version': '42', 'Zotero-Server-ID': 'S1' })
     })
     const result = await runTool('zotero_changes', {})
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('unreachable')
-    const value = result.value as { toVersion?: number; changed: Record<string, unknown> }
-    expect(value.toVersion).toBe(42)
+    const value = result.value as {
+      cursor?: { serverId: string; library: unknown; version: number }
+      changed: Record<string, unknown>
+    }
+    expect(value.cursor).toEqual({
+      serverId: 'S1',
+      library: { type: 'user', id: 0 },
+      version: 42,
+    })
     expect(value.changed).toEqual({})
     const text = (result.content[0] as { text: string }).text
-    expect(text).toContain('Baseline reading')
-    expect(text).toContain('version 42')
+    expect(text).toContain('Baseline reading: library is at version 42 on instance S1')
+    expect(text).toContain('Pass that cursor back as since')
   })
 
-  it('diffs from a since version and renders per-resource sections', async () => {
+  it('round-trips the minted cursor through a diff and carries the claim', async () => {
+    let probes = 0
+    mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
+      if (search.get('limit') === '1') {
+        probes += 1
+        // The baseline reads the library as it was (42); by the time the diff
+        // probes, it has advanced to 50.
+        helpers.json([], {
+          'Last-Modified-Version': probes === 1 ? '42' : '50',
+          'Zotero-Server-ID': 'S1',
+        })
+        return
+      }
+      expect(search.get('since')).toBe('42')
+      helpers.json({ ABCD1234: 44 }, { 'Total-Results': '1', 'Last-Modified-Version': '50' })
+    })
+    const baseline = await runTool('zotero_changes', {})
+    if (baseline.isError) throw new Error('unreachable')
+    const cursor = (baseline.value as { cursor: unknown }).cursor
+    mock.requests.length = 0
+    const diff = await runTool('zotero_changes', { since: cursor, include: ['items'] })
+    expect(diff.isError).toBe(false)
+    if (diff.isError) throw new Error('unreachable')
+    const value = diff.value as { fromVersion?: number; cursor?: { version: number } }
+    expect(value.fromVersion).toBe(42)
+    expect(value.cursor?.version).toBe(50)
+    // The cursor's instance travels on every request of the diff, so a server
+    // that is no longer that instance refuses it.
+    for (const request of mock.requests) {
+      expect(request.headers['zotero-server-id']).toBe('S1')
+    }
+  })
+
+  it('refuses a cursor this plugin would diff against the wrong counter', async () => {
+    const cursor = { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 }
+    // A version is a counter of one library, so a cursor from user/0 says
+    // nothing about group/42; the mix-up is refused before any read.
+    const crossLibrary = await runTool('zotero_changes', {
+      library: { type: 'group', id: 42 },
+      since: cursor,
+    })
+    expect(crossLibrary.isError).toBe(true)
+    if (!crossLibrary.isError) throw new Error('unreachable')
+    expect((crossLibrary.content[0] as { text: string }).text).toContain('belongs to user/0')
+    // The schema owns the shape; the constraints it cannot express fail here.
+    for (const since of [
+      { ...cursor, serverId: '  ' },
+      { ...cursor, version: -1 },
+      { ...cursor, library: { type: 'user', id: 5 } },
+    ]) {
+      const result = await runTool('zotero_changes', { since, include: ['items'] })
+      expect(result.isError).toBe(true)
+      expect(mock.requests).toHaveLength(0)
+    }
+  })
+
+  it('diffs from a cursor and renders per-resource sections', async () => {
     mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
       // The pre-read version probe and the items diff share this path.
       if (search.get('limit') === '1') {
-        helpers.json([], { 'Last-Modified-Version': '50' })
+        helpers.json([], { 'Last-Modified-Version': '50', 'Zotero-Server-ID': 'S1' })
         return
       }
       expect(search.get('since')).toBe('42')
@@ -1468,19 +1531,19 @@ describe('zotero_changes tool', () => {
       helpers.json({ items: ['EEEE0001'], collections: [], searches: [] })
     })
     const result = await runTool('zotero_changes', {
-      since: 42,
+      since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
       include: ['items', 'deleted'],
     })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('unreachable')
     const value = result.value as {
       fromVersion?: number
-      toVersion?: number
+      cursor?: { version: number }
       deleted?: { items?: string[] }
       totals?: { items?: number; deletedItems?: number; deletedSavedSearches?: number }
     }
     expect(value.fromVersion).toBe(42)
-    expect(value.toVersion).toBe(50)
+    expect(value.cursor?.version).toBe(50)
     expect(value.deleted?.items).toEqual(['EEEE0001'])
     expect(value.totals?.items).toBe(1)
     expect(value.totals?.deletedItems).toBe(1)
@@ -1492,27 +1555,31 @@ describe('zotero_changes tool', () => {
     expect(text).toContain('Deleted items: 1')
   })
 
-  it('diffs a group library through its own prefix', async () => {
+  it('diffs a group library through its own prefix and pins the cursor to it', async () => {
     mock.route('GET', '/api/groups/42/items/top', (req, res, helpers, search) => {
       if (search.get('limit') === '1') {
-        helpers.json([], { 'Last-Modified-Version': '9' })
+        helpers.json([], { 'Last-Modified-Version': '9', 'Zotero-Server-ID': 'S2' })
         return
       }
       helpers.json({ ABCD1234: 7 }, { 'Total-Results': '1', 'Last-Modified-Version': '9' })
     })
     const result = await runTool('zotero_changes', {
       library: { type: 'group', id: 42 },
-      since: 3,
+      since: { serverId: 'S2', library: { type: 'group', id: 42 }, version: 3 },
       include: ['items'],
     })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('unreachable')
     const value = result.value as {
       library?: { type: string; id: number }
-      toVersion?: number
+      cursor?: { serverId: string; library: { type: string; id: number }; version: number }
     }
     expect(value.library).toEqual({ type: 'group', id: 42 })
-    expect(value.toVersion).toBe(9)
+    expect(value.cursor).toEqual({
+      serverId: 'S2',
+      library: { type: 'group', id: 42 },
+      version: 9,
+    })
   })
 
   it('diffs the default resource set without the full-text listing', async () => {
@@ -1520,7 +1587,7 @@ describe('zotero_changes tool', () => {
     // plain diff must not read it: a 404 there would surface as `unsupported`.
     mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
       if (search.get('limit') === '1') {
-        helpers.json([], { 'Last-Modified-Version': '50' })
+        helpers.json([], { 'Last-Modified-Version': '50', 'Zotero-Server-ID': 'S1' })
         return
       }
       helpers.json({ ABCD1234: 44 }, { 'Total-Results': '1', 'Last-Modified-Version': '50' })
@@ -1533,18 +1600,20 @@ describe('zotero_changes tool', () => {
     mock.route('GET', '/api/users/0/deleted', (req, res, helpers) =>
       helpers.json({ items: [], collections: [], searches: [] }),
     )
-    const result = await runTool('zotero_changes', { since: 42 })
+    const result = await runTool('zotero_changes', {
+      since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
+    })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('unreachable')
     const value = result.value as {
       unsupported?: string[]
       changed: { fulltextAttachments?: unknown }
-      toVersion?: number
+      cursor?: { version: number }
     }
     expect(value.changed.fulltextAttachments).toBeUndefined()
     // Every kind the diff did read was served, so nothing is named unavailable.
     expect(value.unsupported).toBeUndefined()
-    expect(value.toVersion).toBe(50)
+    expect(value.cursor?.version).toBe(50)
     expect(mock.requests.some((request) => request.pathname.endsWith('/fulltext'))).toBe(false)
   })
 
@@ -1559,7 +1628,10 @@ describe('zotero_changes tool', () => {
   })
 
   it('rejects an explicit empty include before any request', async () => {
-    const result = await runTool('zotero_changes', { since: 42, include: [] })
+    const result = await runTool('zotero_changes', {
+      since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
+      include: [],
+    })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
     expect((result.content[0] as { text: string }).text).toContain(
@@ -1576,7 +1648,7 @@ describe('zotero_changes tool', () => {
     // the counts behind the rows that were dropped.
     const digest = renderChanges({}, {
       fromVersion: 1,
-      toVersion: 220,
+      cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 220 },
       changed: {
         items: Array.from({ length: 50 }, (_, i) => ({
           key: `KEY${String(i).padStart(4, '0')}`,
@@ -1625,7 +1697,7 @@ describe('zotero_changes tool', () => {
 
     const cappedDeleted = renderChanges({}, {
       fromVersion: 1,
-      toVersion: 220,
+      cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 220 },
       changed: { items: [] },
       deleted: {
         items: Array.from({ length: 50 }, (_, i) => `GONE${String(i).padStart(4, '0')}`),
@@ -1639,7 +1711,7 @@ describe('zotero_changes tool', () => {
 
     const fulltext = renderChanges({}, {
       fromVersion: 1,
-      toVersion: 220,
+      cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 220 },
       changed: { fulltextAttachments: [{ key: 'WXYZ6789', version: 90071 }] },
       totals: { fulltextAttachments: 1 },
     } as never)
@@ -1710,6 +1782,16 @@ describe('parseLibrary', () => {
   it('accepts user/0 and positive groups', () => {
     expect(parseLibrary({ type: 'user', id: 0 })).toEqual({ type: 'user', id: 0 })
     expect(parseLibrary({ type: 'group', id: 42 })).toEqual({ type: 'group', id: 42 })
+  })
+})
+
+describe('requireLibrary', () => {
+  it('carries the parsed library through and rejects an absent one', () => {
+    // The cursor's library has no meaningful absent case: without it the
+    // version cannot say which counter it belongs to.
+    expect(requireLibrary({ type: 'group', id: 42 })).toEqual({ type: 'group', id: 42 })
+    expect(() => requireLibrary(undefined)).toThrow('library is required here')
+    expect(() => requireLibrary({ type: 'user', id: 9 })).toThrow('Only user/0')
   })
 })
 
@@ -1875,10 +1957,11 @@ describe('tool presentation', () => {
       title: 'Read Zotero changes',
       rawInput: 'baseline',
     })
-    expect(definition('zotero_changes').presentCall!({ since: 42 })).toMatchObject({
+    const cursor = { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 }
+    expect(definition('zotero_changes').presentCall!({ since: cursor })).toMatchObject({
       rawInput: '42',
     })
-    expect(definition('zotero_changes').isConcurrencySafe?.({ since: 42 })).toBe(true)
+    expect(definition('zotero_changes').isConcurrencySafe?.({ since: cursor })).toBe(true)
   })
 
   it('projects replayable search page facts and renders the completed card', () => {
@@ -2001,8 +2084,21 @@ describe('tool presentation', () => {
       { changed: { items: [{ key: 'A', version: 2 }] }, deleted: { items: [] } },
       'Zotero changes: 1 changed or deleted',
     ],
-    ['zotero_changes', {}, { toVersion: 7 }, 'Zotero changes: baseline at version 7'],
-    ['zotero_changes', {}, { fromVersion: 3, toVersion: 7 }, 'Zotero changes: 3 → 7'],
+    [
+      'zotero_changes',
+      {},
+      { cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 7 } },
+      'Zotero changes: baseline at version 7',
+    ],
+    [
+      'zotero_changes',
+      {},
+      {
+        fromVersion: 3,
+        cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 7 },
+      },
+      'Zotero changes: 3 → 7',
+    ],
     [
       'zotero_changes',
       {},

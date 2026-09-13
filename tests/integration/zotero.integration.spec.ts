@@ -21,6 +21,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { ZoteroHttpClient } from '../../src/http-client.js'
 import { LocalApiProvider } from '../../src/local/provider.js'
 import { parseRef } from '../../src/refs.js'
+import { zoteroError } from '../helpers/provider-harness.js'
 import type { ZoteroItemDetail } from '../../src/types.js'
 
 const BASE_URL = process.env.ZOTERO_BASE_URL ?? 'http://127.0.0.1:23119/api'
@@ -253,16 +254,19 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     }
   })
 
-  it('takes a changes baseline reading and diffs from it', async () => {
+  it('takes a baseline reading, then diffs from the cursor it minted', async () => {
     const baseline = await provider.changes({})
-    expect(baseline.toVersion).toBeDefined()
+    expect(baseline.cursor).toBeDefined()
+    expect(baseline.cursor?.serverId).toBeTruthy()
+    expect(baseline.cursor?.library).toEqual({ type: 'user', id: 0 })
     expect(Object.keys(baseline.changed)).toHaveLength(0)
-    const diff = await provider.changes({ since: baseline.toVersion! })
-    expect(diff.fromVersion).toBe(baseline.toVersion!)
+    const diff = await provider.changes({ since: baseline.cursor! })
+    expect(diff.fromVersion).toBe(baseline.cursor!.version)
     // The unbounded per-resource read is what lets the live server hand back a
     // cursor: a diff that verified its whole range reports one, and its totals
     // match the rows it listed whenever nothing was capped.
-    expect(diff.toVersion).toBeDefined()
+    expect(diff.cursor).toBeDefined()
+    expect(diff.cursor?.serverId).toBe(baseline.cursor!.serverId)
     expect(diff.truncated).toBeUndefined()
     expect(diff.changed.items?.length ?? 0).toBe(diff.totals?.items ?? 0)
     // The default diff leaves out the full-text listing: that endpoint filters
@@ -272,15 +276,50 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     expect(Array.isArray(diff.changed.items)).toBe(true)
   })
 
+  it('refuses a cursor minted by another instance', async () => {
+    // The claim travels as Zotero-Server-ID, so the live server itself rejects
+    // a cursor from a different database with 412 instead of diffing this one's
+    // unrelated counter. This is the guard that survives a plugin rebuild, a
+    // settings hot-reload or a host restart, where client memory is gone.
+    await zoteroError(
+      provider.changes({
+        since: { serverId: 'not-this-instance', library: { type: 'user', id: 0 }, version: 1 },
+        include: new Set(['items']),
+      }),
+      'ZOTERO_SERVER_MISMATCH',
+    )
+  })
+
+  it('refuses a cursor that names another library before any read', async () => {
+    const status = await provider.status()
+    await zoteroError(
+      provider.changes({
+        library: { type: 'group', id: 1 },
+        since: {
+          serverId: status.serverId ?? 'unknown',
+          library: { type: 'user', id: 0 },
+          version: 1,
+        },
+        include: new Set(['items']),
+      }),
+      'ZOTERO_INVALID_ARGUMENT',
+      'belongs to user/0',
+    )
+  })
+
   it('reads a whole-library diff and caps only what it lists', async () => {
     // The scenario that used to lose data: a window far larger than the
     // listing cap. The listing is capped, but the read was whole, so the
     // cursor is still reported and totals carries the true count.
-    const result = await provider.changes({ since: 0, include: new Set(['items']) })
+    const baseline = await provider.changes({})
+    const result = await provider.changes({
+      since: { ...baseline.cursor!, version: 0 },
+      include: new Set(['items']),
+    })
     const listed = result.changed.items?.length ?? 0
     const total = result.totals?.items ?? 0
     console.log(`[integration] full-library diff: ${listed} listed of ${total}`)
-    expect(result.toVersion).toBeDefined()
+    expect(result.cursor).toBeDefined()
     expect(total).toBeGreaterThanOrEqual(listed)
     expect(listed).toBeLessThanOrEqual(50)
     if (total > listed) expect(result.truncated).toBe(true)

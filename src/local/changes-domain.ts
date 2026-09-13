@@ -7,25 +7,37 @@
  * Every versions resource is read unbounded (no `limit`): the local API
  * returns the whole changed set for such a request, which is what lets the
  * version the response reports be a cursor a caller may resume from, while
- * `maxChangesResults` only shortens the listing the model sees. `toVersion`
- * is reported only when the whole range was actually read and the library
- * version did not move during the fan-out; otherwise the caller must not
- * advance from this result.
+ * `maxChangesResults` only shortens the listing the model sees.
+ *
+ * A cursor is more than a number: it carries the instance and the library it
+ * describes. The claim travels with every request (`Zotero-Server-ID`), so a
+ * cursor from another database is rejected by the server rather than silently
+ * diffing this one's counter, and the library is checked before the first
+ * read. The cursor is handed back only when the whole range was read, the
+ * library version did not move during the fan-out, and the answering instance
+ * is known — otherwise the caller must not advance at all.
  * @module dsh-zotero/local/changes-domain
  */
 
 import type { ZoteroHttpClient } from '../http-client.js'
-import { ZOTERO_NOT_FOUND } from '../errors.js'
+import {
+  SERVER_MISMATCH_MESSAGE,
+  ZOTERO_INVALID_ARGUMENT,
+  ZOTERO_NOT_FOUND,
+  ZOTERO_SERVER_MISMATCH,
+} from '../errors.js'
 import { asRecord, isObjectKey } from '../json.js'
-import { libraryPrefix, PERSONAL_LIBRARY } from '../refs.js'
+import { libraryPrefix, PERSONAL_LIBRARY, sameLibrary } from '../refs.js'
 import type { LocalApiLimits } from './limits.js'
 import { ZoteroError } from '../errors.js'
 import type {
+  ZoteroChangesCursor,
   ZoteroChangesInclude,
   ZoteroChangesRequest,
   ZoteroChangedObject,
   ZoteroChangesResult,
   ZoteroChangesTotals,
+  SupportedLocalLibrary,
 } from '../types.js'
 
 /** Every resource kind this domain can read, in request order (also gates `unsupported`). */
@@ -59,6 +71,35 @@ function numericHeader(headers: Headers, name: string): number | undefined {
   return raw !== undefined && raw !== '' && /^\d+$/.test(raw) ? Number(raw) : undefined
 }
 
+/** `user/0` or `group/42`, the way the model names a library. */
+function libraryLabel(library: SupportedLocalLibrary): string {
+  return `${library.type}/${String(library.id)}`
+}
+
+/** The cursor for `version`, or undefined when there is no instance to pin it to. */
+function cursorFor(
+  serverId: string | undefined,
+  library: SupportedLocalLibrary,
+  version: number | undefined,
+): ZoteroChangesCursor | undefined {
+  return serverId === undefined || version === undefined
+    ? undefined
+    : { serverId, library, version }
+}
+
+/**
+ * Assert a response came from the instance this call is pinned to. The request
+ * carries the claim, so the server refuses a foreign database first (412);
+ * this is the second half of the same invariant — a result never mixes
+ * databases, even if a build were to ignore the request header. A response
+ * that names no instance leaves the claim as the call's identity.
+ */
+function assertSameInstance(observed: string | undefined, expected: string): void {
+  if (observed !== undefined && observed !== expected) {
+    throw new ZoteroError(SERVER_MISMATCH_MESSAGE, ZOTERO_SERVER_MISMATCH)
+  }
+}
+
 /**
  * Diff the library against a local transaction version. Zotero 10+ versions
  * are local transactions: any edit, sync, or local-API write advances them,
@@ -78,8 +119,24 @@ export async function changes(
   const prefix = libraryPrefix(library)
   const cap = deps.limits.maxChangesResults
   const include = request.include ?? new Set(DEFAULT_CHANGES_INCLUDES)
-  let serverId: string | undefined
+  const since = request.since
 
+  // A version is a counter of one library's transactions, so a cursor only
+  // means something in the library it came from. The instance claim is
+  // checked with the server (below); the library claim is checked here, before
+  // any request, because no response would reveal the mix-up.
+  if (since !== undefined && !sameLibrary(since.library, library)) {
+    throw new ZoteroError(
+      `This cursor belongs to ${libraryLabel(since.library)}, but the call diffs ` +
+        `${libraryLabel(library)}. A library version is only meaningful in the library it ` +
+        `came from — diff that library, or take a baseline reading here.`,
+      ZOTERO_INVALID_ARGUMENT,
+    )
+  }
+
+  // The instance this call is pinned to: the caller's claim when it passed a
+  // cursor, otherwise the first response that names one. Every request carries
+  // it, so the server itself refuses a foreign database with 412.
   /**
    * A diff resource this Zotero build does not serve (some local-API
    * versions 404 on `/deleted`, for example) contributes nothing instead
@@ -99,33 +156,51 @@ export async function changes(
   /**
    * The library's current transaction version, read before any resource so
    * the fan-out can be pinned to one snapshot. Only the headers matter, so
-   * the probe itself asks for a single row.
+   * the probe itself asks for a single row; `claim` travels as the request's
+   * instance header, which is how the server gets to refuse a foreign one.
    */
-  const probeVersion = async (): Promise<number | undefined> => {
+  const probeVersion = async (claim?: string): Promise<{ version?: number; serverId?: string }> => {
     const params = new URLSearchParams()
     params.set('limit', '1')
-    const response = await deps.client.get(`${prefix}/items/top`, params, { signal })
-    serverId = serverId ?? response.headers.get('zotero-server-id') ?? undefined
-    return numericHeader(response.headers, 'last-modified-version')
+    const response = await deps.client.get(`${prefix}/items/top`, params, {
+      signal,
+      ...(claim === undefined ? {} : { serverId: claim }),
+    })
+    const version = numericHeader(response.headers, 'last-modified-version')
+    const observed = response.headers.get('zotero-server-id') ?? undefined
+    return {
+      ...(version !== undefined ? { version } : {}),
+      ...(observed !== undefined ? { serverId: observed } : {}),
+    }
   }
 
-  if (request.since === undefined) {
+  if (since === undefined) {
     // A library that cannot serve versioned items at all has no changes
     // story; the baseline reading reports an unknown version.
-    const version = await optional(probeVersion)
+    const probe = await optional(() => probeVersion())
+    const observed = probe?.serverId
+    const cursor = cursorFor(observed, library, probe?.version)
     return {
       library,
-      ...(serverId !== undefined ? { serverId } : {}),
-      ...(version !== undefined ? { toVersion: version } : {}),
+      ...(observed !== undefined ? { serverId: observed } : {}),
+      // A baseline mints the cursor the next call diffs from. Without a
+      // version, or without an instance to pin it to, there is nothing this
+      // call can hand back — a cursor-less result is the honest answer.
+      ...(cursor !== undefined ? { cursor } : {}),
       changed: {},
     }
   }
 
+  // The cursor's instance is this call's identity: every request carries it,
+  // and every response has to confirm it (below).
+  const instance = since.serverId
   // The version this diff is pinned to. Every array resource reports the
   // library's *current* version in `Last-Modified-Version` — not the newest
   // version on its page — so any other reading means a write landed while this
   // call was reading, and the range cannot be attributed to one version.
-  const snapshot = await optional(probeVersion)
+  const probe = await optional(() => probeVersion(instance))
+  assertSameInstance(probe?.serverId, instance)
+  const snapshot = probe?.version
   let complete = snapshot !== undefined
   let libraryChanged = false
 
@@ -142,17 +217,21 @@ export async function changes(
     entries: ZoteroChangedObject[]
     total: number
     complete: boolean
+    serverId?: string
     version?: number
   }> => {
     const params = new URLSearchParams()
-    params.set('since', String(request.since))
+    params.set('since', String(since.version))
     params.set('format', 'versions')
     // Deliberately no `limit`: the local API answers an unbounded request in
     // full, and a capped read could not be resumed (the API has no version
     // upper bound, and the reported version would already sit past the rows
     // the cap hid).
-    const { json, headers } = await deps.client.getJson<unknown>(path, params, { signal })
-    serverId = serverId ?? headers.get('zotero-server-id') ?? undefined
+    const { json, headers } = await deps.client.getJson<unknown>(path, params, {
+      signal,
+      serverId: instance,
+    })
+    const observed = headers.get('zotero-server-id') ?? undefined
     const map = asRecord(json)
     const rawKeys = map === undefined ? [] : Object.keys(map)
     const entries = Object.entries(map ?? {})
@@ -167,6 +246,7 @@ export async function changes(
       // A non-map body read as "no changes" would be a silent lie, so it counts
       // as an incomplete read instead.
       complete: map !== undefined && (headerTotal === undefined || headerTotal === rawKeys.length),
+      ...(observed !== undefined ? { serverId: observed } : {}),
       ...(version !== undefined ? { version } : {}),
     }
   }
@@ -195,6 +275,7 @@ export async function changes(
       unsupported.push(kind.include)
       return undefined
     }
+    assertSameInstance(result.serverId, instance)
     if (snapshot !== undefined && result.version !== undefined && result.version !== snapshot) {
       // A write landed while this call was reading, so no single version
       // describes the range this result reports.
@@ -248,15 +329,16 @@ export async function changes(
   if (include.has('deleted')) {
     const payload = await optional(async () => {
       const params = new URLSearchParams()
-      params.set('since', String(request.since))
+      params.set('since', String(since.version))
       return await deps.client.getJson<unknown>(`${prefix}/deleted`, params, {
         signal,
+        serverId: instance,
       })
     })
     if (payload === undefined) {
       unsupported.push('deleted')
     } else {
-      serverId = serverId ?? payload.headers.get('zotero-server-id') ?? undefined
+      assertSameInstance(payload.headers.get('zotero-server-id') ?? undefined, instance)
       const record = asRecord(payload.json)
       const keysOf = (field: string): string[] =>
         (Array.isArray(record?.[field]) ? (record![field] as unknown[]) : []).filter(
@@ -280,14 +362,16 @@ export async function changes(
   }
 
   const served = Object.keys(totals).length > 0
+  // The next cursor is the snapshot reading, pinned to the instance that
+  // answered. Every served resource was read whole (or the call would not be
+  // complete) and none reported another version, so this cursor covers the
+  // entire range the result reports — and only this library on this instance.
+  const cursor = complete ? cursorFor(instance, library, snapshot) : undefined
   return {
     library,
-    ...(serverId !== undefined ? { serverId } : {}),
-    fromVersion: request.since,
-    // The cursor is the snapshot reading itself: every served resource was
-    // read whole (or the call would not be complete), so advancing to it
-    // covers the entire range this result reports.
-    ...(complete && snapshot !== undefined ? { toVersion: snapshot } : {}),
+    serverId: instance,
+    fromVersion: since.version,
+    ...(cursor !== undefined ? { cursor } : {}),
     ...(libraryChanged ? { libraryChanged } : {}),
     changed,
     ...(deleted.items.length > 0 ||

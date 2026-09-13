@@ -86,3 +86,17 @@ export function parseLibrary(value: unknown): SupportedLocalLibrary | undefined 
   if (type === 'group' && (id as number) <= 0) invalid('group id must be positive integer')
   return { type: type as SupportedLocalLibrary['type'], id: id as number } as SupportedLocalLibrary
 }
+
+/**
+ * Parse a `library` argument that has no meaningful absent case — a cursor's
+ * library, for one: a value without one cannot say which counter its version
+ * belongs to, so absence fails loud instead of defaulting.
+ * @throws {ZoteroError} `ZOTERO_INVALID_ARGUMENT` when absent or malformed.
+ */
+export function requireLibrary(value: unknown): SupportedLocalLibrary {
+  const library = parseLibrary(value)
+  if (library === undefined) {
+    invalid('library is required here, as {type: "user"|"group", id}')
+  }
+  return library
+}

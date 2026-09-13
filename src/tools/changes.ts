@@ -3,8 +3,9 @@
  * Zotero 10+ versions are local transaction versions — any edit, sync, or
  * local write advances them — so a `since` diff answers "what changed in my
  * library" request-driven, without the cloud and without background
- * polling. A call without `since` takes a baseline reading (current version
- * only); the model passes that version back as `since` later.
+ * polling. A call without `since` takes a baseline reading and mints the
+ * cursor (version plus the instance and library it belongs to) that later
+ * calls pass back.
  * @module dsh-zotero/tools/changes
  */
 
@@ -21,8 +22,19 @@ import { withConnectivityAsk } from '../ask.js'
 import { asRecord } from '../json.js'
 import { boundedPresentationMeta } from '../presentation-meta.js'
 import { metaRecordOf } from './present.js'
-import { assertIntInRange, assertNonEmptyList, parseLibrary } from './validate.js'
-import type { ZoteroChangesInclude, ZoteroChangesRequest, SupportedLocalLibrary } from '../types.js'
+import {
+  assertIntInRange,
+  assertNonEmptyList,
+  invalid,
+  parseLibrary,
+  requireLibrary,
+} from './validate.js'
+import type {
+  ZoteroChangesCursor,
+  ZoteroChangesInclude,
+  ZoteroChangesRequest,
+  SupportedLocalLibrary,
+} from '../types.js'
 import type { ZoteroService } from '../service.js'
 
 const ALL_INCLUDES: ZoteroChangesInclude[] = [
@@ -47,20 +59,36 @@ const DEFAULT_INCLUDES: ZoteroChangesInclude[] = [
   'deleted',
 ]
 
+/** The library shape both the `library` parameter and a cursor's library use. */
+const LIBRARY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string', enum: ['user', 'group'], required: true },
+    id: { type: 'integer', required: true },
+  },
+} as const
+
+/** The checkpoint the tool hands back and accepts, provenance included. */
+const CURSOR_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    serverId: { type: 'string', required: true },
+    library: { ...LIBRARY_SCHEMA, required: true },
+    version: { type: 'integer', required: true },
+  },
+} as const
+
 const CHANGES_PARAMETERS = {
   library: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      type: { type: 'string', enum: ['user', 'group'], required: true },
-      id: { type: 'integer', required: true },
-    },
+    ...LIBRARY_SCHEMA,
     description: 'Library to diff; omitted defaults to personal user/0.',
   },
   since: {
-    type: 'integer',
+    ...CURSOR_SCHEMA,
     description:
-      'The library version to diff from — reuse toVersion from an earlier zotero_changes result that carried one. Never advance from a result without toVersion: that read did not verify the whole range. A version covers only the resource kinds the call that produced it included. Omit to take a baseline reading (current version, no diffs).',
+      'The cursor to diff from, passed back verbatim from an earlier zotero_changes result. It carries the instance, the library and the version it belongs to: a bare version number is not accepted, because the same number means an unrelated counter in another database or library. A cursor from another instance is rejected, and one for another library is an argument error. Never advance from a result without a cursor: that read did not verify the whole range. A cursor covers only the resource kinds the call that produced it included. Omit to take a baseline reading (current version, no diffs).',
   },
   include: {
     type: 'array',
@@ -86,17 +114,10 @@ const CHANGES_OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    library: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        type: { type: 'string', required: true },
-        id: { type: 'integer', required: true },
-      },
-    },
+    library: LIBRARY_SCHEMA,
     serverId: { type: 'string' },
     fromVersion: { type: 'integer' },
-    toVersion: { type: 'integer' },
+    cursor: CURSOR_SCHEMA,
     libraryChanged: { type: 'boolean' },
     changed: {
       type: 'object',
@@ -138,10 +159,25 @@ const CHANGES_OUTPUT_SCHEMA = {
 
 type ChangesOutput = InferValue<typeof CHANGES_OUTPUT_SCHEMA>
 
+/**
+ * Turn the schema-validated cursor argument into the domain value. The schema
+ * owns the shape; what it cannot express is checked here — a blank instance
+ * id, a version outside a counter's range, or a library this plugin does not
+ * serve would otherwise pass through as an unpinned cursor.
+ */
+function parseCursor(value: ChangesArgs['since']): ZoteroChangesCursor | undefined {
+  if (value === undefined) return undefined
+  const serverId = value.serverId.trim()
+  if (serverId === '') {
+    invalid('since.serverId must be the instance id the cursor came from')
+  }
+  assertIntInRange('since.version', value.version, 0, Number.MAX_SAFE_INTEGER)
+  return { serverId, library: requireLibrary(value.library), version: value.version }
+}
+
 function buildRequest(args: ChangesArgs): ZoteroChangesRequest {
   const library = parseLibrary((args as Record<string, unknown>).library)
-  const since = args.since
-  if (since !== undefined) assertIntInRange('since', since, 0, Number.MAX_SAFE_INTEGER)
+  const since = parseCursor(args.since)
   if (args.include !== undefined) {
     assertNonEmptyList(
       args.include as readonly unknown[],
@@ -160,12 +196,15 @@ function buildRequest(args: ChangesArgs): ZoteroChangesRequest {
 
 export function renderChanges(_args: ChangesArgs, value: ChangesOutput): ContentBlock[] {
   const lines = []
+  const cursor = value.cursor
   if (value.fromVersion === undefined) {
     lines.push(
-      `Baseline reading${value.toVersion === undefined ? '' : `: library is at version ${value.toVersion}`}. Pass it as since on a later call to see what changed.`,
+      cursor === undefined
+        ? 'Baseline reading.'
+        : `Baseline reading: library is at version ${cursor.version} on instance ${cursor.serverId}. Pass that cursor back as since on a later call to see what changed.`,
     )
-  } else if (value.toVersion !== undefined) {
-    lines.push(`Changes ${value.fromVersion} → ${value.toVersion}`)
+  } else if (cursor !== undefined) {
+    lines.push(`Changes ${value.fromVersion} → ${cursor.version}`)
   } else if (value.libraryChanged === true) {
     lines.push(
       `Changes ${value.fromVersion} → version not advanced: the library changed while this call was reading — re-run for a settled cursor.`,
@@ -241,13 +280,14 @@ function presentChangesResult(_args: ChangesArgs, result: ToolResult): ToolResul
   if (changed === undefined && deleted === undefined) {
     // Baseline reading, or an over-budget diff whose detail rows the byte
     // budget dropped (detailOmitted): never invent counts.
-    const toVersion = record.toVersion
-    if (typeof toVersion !== 'number') return undefined
+    const cursor = asRecord(record.cursor)
+    const version = cursor?.version
+    if (typeof version !== 'number') return undefined
     const fromVersion = record.fromVersion
     if (typeof fromVersion !== 'number') {
-      return { card: 'generic', title: `Zotero changes: baseline at version ${toVersion}` }
+      return { card: 'generic', title: `Zotero changes: baseline at version ${version}` }
     }
-    return { card: 'generic', title: `Zotero changes: ${fromVersion} → ${toVersion}` }
+    return { card: 'generic', title: `Zotero changes: ${fromVersion} → ${version}` }
   }
   // The listings are capped digests; `totals` carries the true counts, so the
   // card reports what changed, not what fit. Only a record without totals (a
@@ -284,8 +324,8 @@ export function registerChangesTool(ctx: Context, service: ZoteroService): void 
       name: 'zotero_changes',
       description: [
         'See what changed in the Zotero library since a version: new/edited items, collections, saved searches, reindexed full text, and deletions.',
-        'Call without since first to take a baseline reading of the current library version, then pass that version back as since later — fully local, no cloud.',
-        'Listings are capped digests; totals reports the true counts behind them. A returned toVersion always accounts for every change in the range it reports, so it is safe to pass back as since; a result without toVersion is not.',
+        'Call without since first to take a baseline reading, then pass the cursor it returns back as since — fully local, no cloud.',
+        'Listings are capped digests; totals reports the true counts behind them. A returned cursor always accounts for every change in the range it reports, so it is safe to pass back as since; a result without one is not. The cursor is pinned to the instance and library it came from, and a cursor from another database is refused instead of diffed against this one.',
       ].join(' '),
       parameters: CHANGES_PARAMETERS,
       output: {
@@ -297,7 +337,7 @@ export function registerChangesTool(ctx: Context, service: ZoteroService): void 
         card: 'generic',
         kind: 'read',
         title: 'Read Zotero changes',
-        rawInput: args.since === undefined ? 'baseline' : String(args.since),
+        rawInput: args.since === undefined ? 'baseline' : String(args.since.version),
       }),
       presentResult: presentChangesResult,
       isConcurrencySafe: () => true,

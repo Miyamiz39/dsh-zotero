@@ -220,29 +220,31 @@ zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
 
 ## zotero_changes
 
-See what changed in the library since a version. Zotero 10+ versions are local transaction versions — any edit, sync, or local write advances them. Call without `since` first for a baseline reading (current version only), then pass it back as `since`.
+See what changed in the library since a version. Zotero 10+ versions are local transaction versions — any edit, sync, or local write advances them. Call without `since` first for a baseline reading, which mints a **cursor**: the version together with the instance and library it belongs to. Pass that cursor back as `since` later.
 
-**Cursor contract**: a returned `toVersion` is safe by construction — it means this call read the whole changed set it reports and the library version did not move while it read, so it can be passed back as `since` directly. When the read was not whole (a build that caps the response) or a write landed mid-read (also flagged `libraryChanged: true`), no `toVersion` is returned and the caller must not advance from that result. A version covers only the resource kinds the call that produced it included.
+**Cursor contract**: a returned `cursor` is safe by construction — it means this call read the whole changed set it reports and the library version did not move while it read, so it can be passed back as `since` directly. When the read was not whole (a build that caps the response) or a write landed mid-read (also flagged `libraryChanged: true`), no `cursor` is returned and the caller must not advance from that result. A cursor covers only the resource kinds the call that produced it included.
+
+**A cursor carries its identity**: a version is one library's transaction counter, so the same integer means an unrelated counter in another Zotero instance or another library. The cursor therefore carries `serverId` and `library`, and a bare version number is not accepted. Used as `since`, that instance claim travels as the `Zotero-Server-ID` request header on every request; the server answers 412 for another database and the plugin reports `ZOTERO_SERVER_MISMATCH` — which holds after a client rebuild, a settings hot-reload or a host restart, because the check does not rely on plugin memory. A cursor whose library differs from the call's `library` is refused with `ZOTERO_INVALID_ARGUMENT` before any request.
 
 **`fulltext` is not in the default set**: `/fulltext?since=` filters on `fulltextItems.version`, the full-text index's own counter (`fulltext_<libraryID>`, see Zotero's `fulltext.js`), not the library version. Verified against a live Zotero 10.0.2-beta.9: `since=0` and `since=<library version>` return the same rows, and the endpoint sends no version header at all. Those rows are therefore a listing rather than a delta on the library version, so they are read only when `fulltext` is named explicitly.
 
 ### Parameters
 
-| Parameter | Type     | Default          | Description                                                                                                                   |
-| --------- | -------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `library` | object   | —                | `{type, id}`; omitted defaults to personal `user/0`                                                                           |
-| `since`   | integer  | —                | Library version to diff from; reuse it only from an earlier result that carried `toVersion`; omitted takes a baseline reading |
-| `include` | string[] | all but fulltext | `items` / `collections` / `savedSearches` / `fulltext` / `deleted` (an explicit empty array is an argument error)             |
+| Parameter | Type     | Default          | Description                                                                                                                                                                       |
+| --------- | -------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `library` | object   | —                | `{type, id}`; omitted defaults to personal `user/0`                                                                                                                               |
+| `since`   | object   | —                | The cursor to diff from, `{serverId, library, version}`: pass an earlier result's `cursor` back verbatim; a bare version number is not accepted; omitted takes a baseline reading |
+| `include` | string[] | all but fulltext | `items` / `collections` / `savedSearches` / `fulltext` / `deleted` (an explicit empty array is an argument error)                                                                 |
 
 ### Output
 
-`{library, serverId?, fromVersion?, toVersion?, libraryChanged?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, totals?, unsupported?, truncated?}`. Each resource is read whole, but the rows listed are capped at `maxChangesResults` (default 50) with `truncated` marking the listing as a digest; `totals` reports the true counts per resource (including `deletedItems`/`deletedCollections`/`deletedSavedSearches`) before that cap. A resource the current build cannot serve (e.g. Zotero 10.0.2-beta.9 has no `/deleted` route) does not fail the read: it is listed in `unsupported` — changes of that kind (including removals) are not observable, and the version does not account for them.
+`{library, serverId?, fromVersion?, cursor?, libraryChanged?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, totals?, unsupported?, truncated?}`. Each resource is read whole, but the rows listed are capped at `maxChangesResults` (default 50) with `truncated` marking the listing as a digest; `totals` reports the true counts per resource (including `deletedItems`/`deletedCollections`/`deletedSavedSearches`) before that cap. A resource the current build cannot serve (e.g. Zotero 10.0.2-beta.9 has no `/deleted` route) does not fail the read: it is listed in `unsupported` — changes of that kind (including removals) are not observable, and the version does not account for them.
 
 ### Example
 
 ```
 zotero_changes()
-zotero_changes(since=1234, include=["items", "deleted"])
+zotero_changes(since={serverId: "<from cursor>", library: {type: "user", id: 0}, version: 1234}, include=["items", "deleted"])
 ```
 
 ---
