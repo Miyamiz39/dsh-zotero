@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { loadItemGraph, type LoadItemGraphOptions } from '../../src/item-graph.js'
+import { deferred, progress } from '../helpers/sync.js'
 
 function attachment(key: string): unknown {
   return { key, data: { itemType: 'attachment', contentType: 'application/pdf' } }
@@ -122,19 +123,34 @@ describe('loadItemGraph', () => {
     ])
     let inFlight = 0
     let peak = 0
-    const graph = await loadItemGraph({
+    /** Resolvers of the attachment requests the walk is holding open, in start order. */
+    const held: Array<() => void> = []
+    const reached = progress()
+    const walk = loadItemGraph({
       parentKey: 'PARENT000',
       fetchChildren: async (key) => {
         if (key === 'PARENT000') return routes.get(key)!
         inFlight += 1
         peak = Math.max(peak, inFlight)
-        await new Promise((resolve) => setTimeout(resolve, 5))
+        const slot = deferred()
+        held.push(slot.resolve)
+        reached.notify()
+        await slot.promise
         inFlight -= 1
         return routes.get(key)!
       },
       concurrency: 2,
       withAnnotations: true,
     })
+    // Eight attachments and two slots leave `min(2, remaining)` requests open,
+    // and only a release below lets the next one start: the walk never runs
+    // ahead of the test, so the peak it recorded is its own cap rather than
+    // whatever overlap a delay happened to allow.
+    for (let released = 0; released < keys.length; released += 1) {
+      await reached.when(() => held.length >= Math.min(2, keys.length - released))
+      held.shift()!()
+    }
+    const graph = await walk
     expect(peak).toBe(2)
     expect(graph.attachmentAnnotations).toHaveLength(8)
   })

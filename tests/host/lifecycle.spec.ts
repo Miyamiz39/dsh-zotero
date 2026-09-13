@@ -1,14 +1,6 @@
-import { Context, Service, type Context as CordisContext, type Fiber } from '@deepseek-ai/cordis'
-import {
-  CommandId,
-  type CommandDefinition,
-  type CommandInvocation,
-  type CommandResult,
-} from '@deepseek-ai/dsh-commands'
+import { CommandId, type CommandInvocation, type CommandResult } from '@deepseek-ai/dsh-commands'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import ZoteroService from '../../src/index.js'
 import {
   ZOTERO_CAPABILITY_UNAVAILABLE,
@@ -18,56 +10,17 @@ import {
 import { parseRef } from '../../src/refs.js'
 import { ZOTERO_PROMPT_ANCHOR, ZOTERO_PROMPT_ORDER_OFFSET } from '../../src/prompt.js'
 import type { ZoteroProvider } from '../../src/types.js'
-import { MockZotero } from '../helpers/mock-zotero.js'
+import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
+import { ZOTERO_TOOL_NAMES } from '../helpers/tool-names.js'
 
-/** Minimal command registry stand-in so the optional /zotero command path can be exercised. */
-class StubCommands extends Service {
-  readonly registered: CommandDefinition[] = []
-
-  constructor(ctx: CordisContext) {
-    super(ctx, 'commands')
-  }
-
-  register(definition: CommandDefinition): () => void {
-    const registered = this.registered
-    // Effect-scoped like the real registry: the registration lives in the
-    // scope that called register(), so a disposed injection unwinds it.
-    return this.ctx.effect(() => {
-      registered.push(definition)
-      return () => {
-        const index = registered.indexOf(definition)
-        if (index >= 0) registered.splice(index, 1)
-      }
-    }, 'StubCommands.register()')
-  }
-}
-
-let mock: MockZotero
-
-beforeEach(async () => {
-  mock = await MockZotero.start()
-})
+/** The lane the current test booted; `afterEach` releases it. */
+let lane: HostLane | undefined
 
 afterEach(async () => {
-  await mock.close()
+  await lane?.ctx.fiber.dispose()
+  await lane?.teardown()
+  lane = undefined
 })
-
-async function bootContext(
-  commands: boolean,
-  config: Record<string, unknown> = {},
-): Promise<{ ctx: Context; stub?: StubCommands; zoteroFiber: Fiber }> {
-  const ctx = new Context()
-  await ctx.plugin(SystemPrompt, {})
-  await ctx.plugin(ToolRuntime, {})
-  let stub: StubCommands | undefined
-  if (commands) {
-    await ctx.plugin(StubCommands)
-    stub = ctx.get('commands') as unknown as StubCommands
-  }
-  const zoteroFiber = ctx.plugin(ZoteroService, { baseUrl: mock.baseUrl, ...config })
-  await zoteroFiber
-  return { ctx, stub, zoteroFiber }
-}
 
 function invocation(
   rawInput: string,
@@ -84,37 +37,46 @@ function invocation(
 
 describe('ZoteroService lifecycle', () => {
   it('provides ctx.zotero and removes it when its fiber is disposed', async () => {
-    const { ctx, zoteroFiber } = await bootContext(true)
+    lane = await setupHostLane(undefined, { commands: true })
+    const { ctx, zoteroFiber } = lane
     expect(ctx.get('zotero')).toBeInstanceOf(ZoteroService)
     await zoteroFiber.dispose()
     expect(ctx.get('zotero')).toBeUndefined()
   })
 
   it('registers the zotero command only when a command registry exists', async () => {
-    const withCommands = await bootContext(true)
-    expect(withCommands.stub!.registered.map((definition) => definition.name)).toEqual(['zotero'])
+    lane = await setupHostLane(undefined, { commands: true })
+    expect(lane.stub!.registered.map((definition) => definition.name)).toEqual(['zotero'])
 
-    const withoutCommands = await bootContext(false)
+    // This lane is released here; `lane` above is the one `afterEach` tears down.
+    const withoutCommands = await setupHostLane()
     // The plugin still loads fine; there is just no command registry to register into.
     expect(withoutCommands.ctx.get('zotero')).toBeInstanceOf(ZoteroService)
+    await withoutCommands.ctx.fiber.dispose()
+    await withoutCommands.teardown()
   })
 
   it('never touches Zotero while loading or disposing — the plugin is request-driven only', async () => {
-    const withCommands = await bootContext(true)
-    expect(mock.requests).toEqual([])
-    await withCommands.zoteroFiber.dispose()
-    expect(mock.requests).toEqual([])
+    lane = await setupHostLane(undefined, { commands: true })
+    expect(lane.mock.requests).toEqual([])
+    await lane.zoteroFiber.dispose()
+    expect(lane.mock.requests).toEqual([])
 
-    const withoutCommands = await bootContext(false)
-    expect(mock.requests).toEqual([])
+    // The second composition observes its own server, so a request made while
+    // loading or disposing shows up in the lane that made it.
+    const withoutCommands = await setupHostLane()
+    expect(withoutCommands.mock.requests).toEqual([])
     await withoutCommands.zoteroFiber.dispose()
-    expect(mock.requests).toEqual([])
+    expect(withoutCommands.mock.requests).toEqual([])
+    await withoutCommands.ctx.fiber.dispose()
+    await withoutCommands.teardown()
   })
 })
 
 describe('/zotero status command', () => {
   it('reports a connected instance with the build that answered', async () => {
-    mock.route('GET', '/api/', (req, res, helpers) =>
+    lane = await setupHostLane(undefined, { commands: true })
+    lane.mock.route('GET', '/api/', (req, res, helpers) =>
       helpers.json(
         {},
         {
@@ -125,8 +87,7 @@ describe('/zotero status command', () => {
         },
       ),
     )
-    const { stub } = await bootContext(true)
-    const definition = stub!.registered[0]!
+    const definition = lane.stub!.registered[0]!
     const result = (await definition.handler(invocation('status'))) as CommandResult
     expect(result.kind).toBe('success')
     if (result.kind !== 'success') throw new Error('unreachable')
@@ -140,9 +101,9 @@ describe('/zotero status command', () => {
   })
 
   it('reports a missing Server-ID and missing headers as a degraded instance without failing', async () => {
-    mock.route('GET', '/api/', (req, res, helpers) => helpers.json({}))
-    const { stub } = await bootContext(true)
-    const definition = stub!.registered[0]!
+    lane = await setupHostLane(undefined, { commands: true })
+    lane.mock.route('GET', '/api/', (req, res, helpers) => helpers.json({}))
+    const definition = lane.stub!.registered[0]!
     const result = (await definition.handler(invocation('status'))) as CommandResult
     expect(result.kind).toBe('success')
     if (result.kind !== 'success') throw new Error('unreachable')
@@ -156,15 +117,11 @@ describe('/zotero status command', () => {
   })
 
   it('reports a disconnected Zotero with the actionable diagnosis', async () => {
-    const url = mock.baseUrl
-    await mock.close()
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt, {})
-    await ctx.plugin(ToolRuntime, {})
-    await ctx.plugin(StubCommands)
-    const registered = (ctx.get('commands') as unknown as StubCommands).registered
-    await ctx.plugin(ZoteroService, { baseUrl: url })
-    const definition = registered[0]!
+    lane = await setupHostLane(undefined, { commands: true })
+    // The plugin makes no request while loading, so closing the mock after the
+    // mount leaves the same dead endpoint this command has always probed.
+    await lane.mock.close()
+    const definition = lane.stub!.registered[0]!
     const result = (await definition.handler(invocation('status'))) as CommandResult
     expect(result.kind).toBe('success')
     if (result.kind !== 'success') throw new Error('unreachable')
@@ -173,11 +130,11 @@ describe('/zotero status command', () => {
   })
 
   it('rejects unknown subcommands with usage text', async () => {
-    mock.route('GET', '/api/', (req, res, helpers) =>
+    lane = await setupHostLane(undefined, { commands: true })
+    lane.mock.route('GET', '/api/', (req, res, helpers) =>
       helpers.json({}, { 'Zotero-API-Version': '3' }),
     )
-    const { stub } = await bootContext(true)
-    const definition = stub!.registered[0]!
+    const definition = lane.stub!.registered[0]!
     const result = (await definition.handler(invocation('open'))) as CommandResult
     expect(result).toEqual({ kind: 'error', text: 'Usage: /zotero status' })
   })
@@ -185,8 +142,8 @@ describe('/zotero status command', () => {
 
 describe('prompt section', () => {
   it('contributes the zotero policy section after the first-party tool band', async () => {
-    const { ctx } = await bootContext(true)
-    const assembly = await ctx.systemPrompt.assemble()
+    lane = await setupHostLane(undefined, { commands: true })
+    const assembly = await lane.ctx.systemPrompt.assemble()
     const section = assembly.sections.find((entry) => entry.name === 'zotero:policy')
     expect(section).toBeDefined()
     // Assemblies expose name/text only; order is observed through position —
@@ -200,17 +157,8 @@ describe('prompt section', () => {
     // instead of passing by restatement.
     expect(ZOTERO_PROMPT_ANCHOR).toBe('TOOL_REPORT')
     expect(ZOTERO_PROMPT_ORDER_OFFSET).toBe(100)
-    expect(ctx.systemPrompt.getSectionOrder(ZOTERO_PROMPT_ANCHOR)).toBe(2900)
-    for (const tool of [
-      'zotero_search',
-      'zotero_get',
-      'zotero_children',
-      'zotero_browse',
-      'zotero_retrieve',
-      'zotero_attachment',
-      'zotero_export',
-      'zotero_changes',
-    ]) {
+    expect(lane.ctx.systemPrompt.getSectionOrder(ZOTERO_PROMPT_ANCHOR)).toBe(2900)
+    for (const tool of ZOTERO_TOOL_NAMES) {
       expect(section!.text).toContain(tool)
     }
     expect(section!.text).toContain('zotero://user/0/item/')
@@ -225,8 +173,8 @@ describe('prompt section', () => {
   })
 
   it('states the live tool caps the model must stay within', async () => {
-    const { ctx } = await bootContext(true)
-    const assembly = await ctx.systemPrompt.assemble()
+    lane = await setupHostLane(undefined, { commands: true })
+    const assembly = await lane.ctx.systemPrompt.assemble()
     const section = assembly.sections.find((entry) => entry.name === 'zotero:policy')
     expect(section!.text).toContain('zotero_search limit up to 20')
     expect(section!.text).toContain('zotero_retrieve passages up to 4')
@@ -236,12 +184,11 @@ describe('prompt section', () => {
   })
 
   it('tracks config edits in the assembled cap values', async () => {
-    const { ctx } = await bootContext(true, {
-      maxSearchResults: 30,
-      maxEvidencePassages: 6,
-      maxExportRefs: 50,
-    })
-    const assembly = await ctx.systemPrompt.assemble()
+    lane = await setupHostLane(
+      { maxSearchResults: 30, maxEvidencePassages: 6, maxExportRefs: 50 },
+      { commands: true },
+    )
+    const assembly = await lane.ctx.systemPrompt.assemble()
     const section = assembly.sections.find((entry) => entry.name === 'zotero:policy')
     expect(section!.text).toContain('zotero_search limit up to 30')
     expect(section!.text).toContain('zotero_retrieve passages up to 6')
@@ -257,24 +204,25 @@ describe('disposal unwinds registrations', () => {
     // unwinds it on unload. What has to hold is that such a request cannot
     // hang the host — the provider deadline ends it, so a reload leaves no
     // work waiting forever.
-    const { ctx, zoteroFiber } = await bootContext(true, { timeoutMs: 60 })
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+    lane = await setupHostLane({ timeoutMs: 60 }, { commands: true })
+    lane.mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
       helpers.delayJson({ key: 'ABCD1234', data: {} }, 5000),
     )
-    const pending = ctx.tools.execute({
+    const pending = lane.ctx.tools.execute({
       callId: ToolCallId('lifecycle-in-flight'),
       name: 'zotero_get',
       arguments: { ref: 'zotero://user/0/item/ABCD1234' },
       signal: new AbortController().signal,
     })
-    await zoteroFiber.dispose()
+    await lane.zoteroFiber.dispose()
     const result = await pending
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result)).toContain('ZOTERO_TIMEOUT')
   })
 
   it('removes tools, the prompt section, and the command when the plugin fiber is disposed', async () => {
-    const { ctx, stub, zoteroFiber } = await bootContext(true)
+    lane = await setupHostLane(undefined, { commands: true })
+    const { ctx, stub, zoteroFiber } = lane
     expect(ctx.tools.get('zotero_search')).toBeDefined()
     expect(
       (await ctx.systemPrompt.assemble()).sections.some((entry) => entry.name === 'zotero:policy'),
@@ -295,11 +243,8 @@ describe('disposal unwinds registrations', () => {
 
 describe('provider selection', () => {
   it('fails with PROVIDER_UNAVAILABLE when the configured provider is not registered', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt, {})
-    await ctx.plugin(ToolRuntime, {})
-    await ctx.plugin(ZoteroService, { baseUrl: mock.baseUrl, provider: 'sqlite' })
-    const service = ctx.get('zotero') as ZoteroService
+    lane = await setupHostLane({ provider: 'sqlite' })
+    const service = lane.ctx.get('zotero') as ZoteroService
     let thrown: unknown
     try {
       await service.status()
@@ -314,8 +259,8 @@ describe('provider selection', () => {
 
 describe('provider registration', () => {
   it('rejects a duplicate provider id', async () => {
-    const { ctx } = await bootContext(true)
-    const service = ctx.get('zotero') as ZoteroService
+    lane = await setupHostLane(undefined, { commands: true })
+    const service = lane.ctx.get('zotero') as ZoteroService
     const foreign: ZoteroProvider = {
       id: 'local',
       capabilities: new Set(),
@@ -356,8 +301,8 @@ describe('provider registration', () => {
   })
 
   it('removes a provider when its registration disposer runs', async () => {
-    const { ctx } = await bootContext(true)
-    const service = ctx.get('zotero') as ZoteroService
+    lane = await setupHostLane(undefined, { commands: true })
+    const service = lane.ctx.get('zotero') as ZoteroService
     const foreign: ZoteroProvider = {
       id: 'foreign',
       capabilities: new Set(),
@@ -390,7 +335,7 @@ describe('provider registration', () => {
     const dispose = service.registerProvider(foreign)
     dispose()
     // The service still resolves its configured 'local' provider; 'foreign' is gone from the registry.
-    mock.route('GET', '/api/', (req, res, helpers) =>
+    lane.mock.route('GET', '/api/', (req, res, helpers) =>
       helpers.json({}, { 'Zotero-API-Version': '3' }),
     )
     const status = await service.status()
@@ -400,11 +345,8 @@ describe('provider registration', () => {
 
 describe('capability gating', () => {
   it('refuses search when the configured provider lacks the capability', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt, {})
-    await ctx.plugin(ToolRuntime, {})
-    await ctx.plugin(ZoteroService, { baseUrl: mock.baseUrl, provider: 'limited' })
-    const service = ctx.get('zotero') as ZoteroService
+    lane = await setupHostLane({ provider: 'limited' })
+    const service = lane.ctx.get('zotero') as ZoteroService
     service.registerProvider({
       id: 'limited',
       capabilities: new Set(['metadata']),
@@ -453,11 +395,8 @@ describe('capability gating', () => {
   })
 
   it('refuses export on a provider without the citation capability', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt, {})
-    await ctx.plugin(ToolRuntime, {})
-    await ctx.plugin(ZoteroService, { baseUrl: mock.baseUrl, provider: 'nocite' })
-    const service = ctx.get('zotero') as ZoteroService
+    lane = await setupHostLane({ provider: 'nocite' })
+    const service = lane.ctx.get('zotero') as ZoteroService
     service.registerProvider({
       id: 'nocite',
       capabilities: new Set(['metadata']),
@@ -499,11 +438,8 @@ describe('capability gating', () => {
   })
 
   it('refuses every capability a search-only provider does not declare', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt, {})
-    await ctx.plugin(ToolRuntime, {})
-    await ctx.plugin(ZoteroService, { baseUrl: mock.baseUrl, provider: 'searchonly' })
-    const service = ctx.get('zotero') as ZoteroService
+    lane = await setupHostLane({ provider: 'searchonly' })
+    const service = lane.ctx.get('zotero') as ZoteroService
     service.registerProvider({
       id: 'searchonly',
       capabilities: new Set(['search']),

@@ -14,6 +14,7 @@ import {
   ZOTERO_UNEXPECTED,
 } from '../../src/errors.js'
 import { MockZotero } from '../helpers/mock-zotero.js'
+import { deferred, progress, type Progress } from '../helpers/sync.js'
 
 let mock: MockZotero
 let client: ZoteroHttpClient
@@ -183,11 +184,19 @@ describe('identity protection', () => {
   })
 
   it('propagates caller cancellation during the identity refresh', async () => {
-    mock.route('GET', '/api/', (req, res, helpers) => helpers.delayJson({}, 5000))
+    const refreshing = deferred()
+    mock.route('GET', '/api/', (req, res, helpers) => {
+      refreshing.resolve()
+      helpers.delayJson({}, 5000)
+    })
     routeServerMismatch()
     const controller = new AbortController()
     const pending = client.getJson('users/0/items', undefined, { signal: controller.signal })
-    setTimeout(() => controller.abort(), 30).unref()
+    // Abort while the refresh is on the wire — the request has reached the
+    // server and its response is still outstanding — so this drives the
+    // cancellation path instead of racing a delay against it.
+    await refreshing.promise
+    controller.abort()
     await expectZoteroError(pending, TOOL_ABORTED, 'aborted')
   })
 })
@@ -370,6 +379,37 @@ describe('in-flight bound', () => {
     })
   }
 
+  /** A route the test answers itself: every response waits for its release. */
+  interface HeldRoute {
+    /** Notifications as requests arrive; the test waits on this, never on a delay. */
+    readonly arrived: Progress
+    /** How many responses the mock is still holding. */
+    pending(): number
+    /** Answer the oldest held request with a 200 JSON body. */
+    release(): void
+  }
+
+  /**
+   * Hold every matching request's response until the test releases it. The
+   * overlap counter above needs a response delay to see several requests at
+   * once — a delay long enough that an unbounded client's whole burst lands
+   * inside it — while a test that only needs one request on the wire waits for
+   * the arrival itself, so nothing in it depends on such a delay.
+   */
+  function routeHeld(): HeldRoute {
+    const held: Array<() => void> = []
+    const arrived = progress()
+    mock.route('GET', /^\/api\/users\/0\/items\/[A-Z0-9]+$/, (req, res, helpers) => {
+      held.push(() => helpers.json({ ok: true }))
+      arrived.notify()
+    })
+    return {
+      arrived,
+      pending: () => held.length,
+      release: () => held.shift()!(),
+    }
+  }
+
   it('keeps no more than the configured requests in flight', async () => {
     const gate = new ZoteroHttpClient({
       baseUrl: mock.baseUrl,
@@ -397,15 +437,19 @@ describe('in-flight bound', () => {
       maxResponseBytes: 1024,
       maxInFlight: 1,
     })
-    const peak = { value: 0 }
-    routeCounting(peak, 60)
+    const route = routeHeld()
     const controller = new AbortController()
     const holding = gate.getJson('users/0/items/AAAA0001')
     const queued = gate.getJson('users/0/items/AAAA0002', undefined, {
       signal: controller.signal,
     })
-    setTimeout(() => controller.abort(), 10).unref()
+    // The first request is on the wire — and holds the only slot — before the
+    // queued one is aborted: the abort lands on a waiter the client is already
+    // holding, not on a race between a delay and the slot being taken.
+    await route.arrived.when(() => route.pending() >= 1)
+    controller.abort()
     await expectZoteroError(queued, TOOL_ABORTED, 'aborted')
+    route.release()
     await holding
     // The aborted request never reached the server, and its slot was not lost:
     // the first request still completed normally.
@@ -461,10 +505,18 @@ describe('failure translation', () => {
   })
 
   it('preserves caller cancellation as an abort instead of a timeout', async () => {
-    mock.route('GET', '/api/', (req, res, helpers) => helpers.delayJson({}, 5000))
+    const outstanding = deferred()
+    mock.route('GET', '/api/', (req, res, helpers) => {
+      outstanding.resolve()
+      helpers.delayJson({}, 5000)
+    })
     const controller = new AbortController()
     const pending = client.getJson('', undefined, { signal: controller.signal })
-    setTimeout(() => controller.abort(), 30).unref()
+    // Abort with the response still outstanding — long before the 5 s provider
+    // deadline — so the failure below is the caller's cancellation, never a
+    // timeout that arrived first.
+    await outstanding.promise
+    controller.abort()
     await expectZoteroError(pending, TOOL_ABORTED, 'aborted')
   })
 })

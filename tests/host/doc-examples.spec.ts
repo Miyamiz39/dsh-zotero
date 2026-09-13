@@ -13,7 +13,6 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, {
@@ -23,6 +22,13 @@ import ToolRuntime, {
 } from '@deepseek-ai/dsh-tools'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import ZoteroService from '../../src/index.js'
+
+/**
+ * The repo root, resolved from this spec's own location. Resolving from
+ * `process.cwd()` instead would silently depend on where vitest was started,
+ * and a run from another directory would pass by scanning the wrong tree.
+ */
+const REPO_ROOT = new URL('../../', import.meta.url)
 
 /** Docs every example in them is held to. */
 const DOC_FILES = [
@@ -113,7 +119,7 @@ function callBody(line: string, openIndex: number): string | undefined {
  */
 function examplesIn(file: string): DocExample[] {
   const found: DocExample[] = []
-  const lines = readFileSync(join(process.cwd(), file), 'utf8').split('\n')
+  const lines = readFileSync(new URL(file, REPO_ROOT), 'utf8').split('\n')
   lines.forEach((line, index) => {
     const pattern = /\b(zotero_[a-z_]+)\(/g
     for (let match = pattern.exec(line); match !== null; match = pattern.exec(line)) {

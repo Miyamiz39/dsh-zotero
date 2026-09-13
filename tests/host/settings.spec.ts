@@ -7,58 +7,41 @@
  * @module tests/settings
  */
 
-import { Context } from '@deepseek-ai/cordis'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
-import ZoteroService from '../../src/index.js'
 import { ZOTERO_PROVIDER_UNAVAILABLE } from '../../src/errors.js'
 import { ZOTERO_SETTINGS_NAMESPACE } from '../../src/settings-namespace.js'
-import { MemorySettings } from '../helpers/memory-settings.js'
-import { MockZotero } from '../helpers/mock-zotero.js'
+import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 
-let mock: MockZotero | undefined
-let ctx: Context | undefined
-let callCounter = 0
+/** The lane the current test booted; `afterEach` releases it. */
+let lane: HostLane | undefined
 
 afterEach(async () => {
-  await ctx?.fiber.dispose()
-  ctx = undefined
-  await mock?.close()
-  mock = undefined
+  await lane?.ctx.fiber.dispose()
+  await lane?.teardown()
+  lane = undefined
 })
 
-/** Wait for the settings commit's watcher chain (rebuild) to settle. */
-async function flush(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0))
-}
-
-async function boot(options: { baseUrl: string; doc?: Record<string, unknown> }) {
-  const context = new Context()
-  await context.plugin(SystemPrompt, {})
-  await context.plugin(ToolRuntime, {})
-  await context.plugin(MemorySettings, options.doc)
-  await context.plugin(ZoteroService, { baseUrl: options.baseUrl })
-  return context
-}
-
-type ToolExecution = ReturnType<Context['tools']['execute']>
-
-function runTool(name: string, args: Record<string, unknown>): ToolExecution {
-  // The module-level ctx is assigned before any test invokes this helper.
-  const tools = ctx as Context
-  return tools.tools.execute({
-    callId: ToolCallId(`settings-tool-${++callCounter}`),
-    name,
-    arguments: args,
-    signal: new AbortController().signal,
-  })
+/**
+ * Commit one settings edit and return once the service has applied it. The
+ * write promise is the observation point: the seam swaps the namespace's
+ * resolved value and runs its watch callbacks — for this plugin the rebuild
+ * that applies the section, and the source swap the tools read per request —
+ * before that promise settles (sequenced this way by the seam's own suite:
+ * packages/settings/settings/tests/settings.spec.ts, `commits, notifies
+ * watchers, and emits with source update`). Nothing here waits for a duration,
+ * so the state asserted below is the state the write produced.
+ * @param patch - the user-layer patch to commit.
+ */
+async function applySettings(patch: Record<string, unknown>): Promise<void> {
+  // The lane is booted before any test calls this.
+  const { ctx } = lane as HostLane
+  await ctx.settings.update(ZOTERO_SETTINGS_NAMESPACE, patch)
 }
 
 describe('the zotero settings namespace', () => {
   it('registers with the Config schema and the composition entry as its base', async () => {
-    ctx = await boot({ baseUrl: 'http://127.0.0.1:1/api' })
+    lane = await setupHostLane({ baseUrl: 'http://127.0.0.1:1/api' }, { settings: {} })
+    const { ctx } = lane
     const resolved = ctx.settings.get(ZOTERO_SETTINGS_NAMESPACE) as Record<string, unknown>
     expect(resolved.baseUrl).toBe('http://127.0.0.1:1/api')
     expect(resolved.timeoutMs).toBe(5000)
@@ -69,23 +52,22 @@ describe('the zotero settings namespace', () => {
   })
 
   it('honors a stored section from the settings document at boot', async () => {
-    ctx = await boot({
-      baseUrl: 'http://127.0.0.1:1/api',
-      doc: { zotero: { timeoutMs: 7000, maxSearchResults: 5 } },
-    })
-    expect(ctx.zotero.config.timeoutMs).toBe(7000)
-    expect(ctx.zotero.config.maxSearchResults).toBe(5)
+    lane = await setupHostLane(
+      { baseUrl: 'http://127.0.0.1:1/api' },
+      { settings: { zotero: { timeoutMs: 7000, maxSearchResults: 5 } } },
+    )
+    expect(lane.ctx.zotero.config.timeoutMs).toBe(7000)
+    expect(lane.ctx.zotero.config.maxSearchResults).toBe(5)
   })
 
   it('live-applies a baseUrl edit by rebuilding the transport', async () => {
-    mock = await MockZotero.start()
-    mock.route('GET', '/api/', (req, res, helpers) =>
+    lane = await setupHostLane({ baseUrl: 'http://127.0.0.1:1/api' }, { settings: {} })
+    lane.mock.route('GET', '/api/', (req, res, helpers) =>
       helpers.json({}, { 'Zotero-Server-ID': 'S1', 'Zotero-API-Version': '3' }),
     )
-    ctx = await boot({ baseUrl: 'http://127.0.0.1:1/api' })
+    const { ctx, mock } = lane
     expect((await ctx.zotero.status()).connected).toBe(false)
-    await ctx.settings.update(ZOTERO_SETTINGS_NAMESPACE, { baseUrl: mock.baseUrl })
-    await flush()
+    await applySettings({ baseUrl: mock.baseUrl })
     const status = await ctx.zotero.status()
     expect(status.connected).toBe(true)
     expect(status.serverId).toBe('S1')
@@ -93,20 +75,18 @@ describe('the zotero settings namespace', () => {
   })
 
   it('refuses a write that violates the config constraints', async () => {
-    ctx = await boot({ baseUrl: 'http://127.0.0.1:1/api' })
+    lane = await setupHostLane({ baseUrl: 'http://127.0.0.1:1/api' }, { settings: {} })
     await expect(
-      ctx.settings.update(ZOTERO_SETTINGS_NAMESPACE, { baseUrl: 'http://example.com/api' }),
+      lane.ctx.settings.update(ZOTERO_SETTINGS_NAMESPACE, { baseUrl: 'http://example.com/api' }),
     ).rejects.toThrow(/loopback/)
-    expect(ctx.zotero.config.baseUrl).toBe('http://127.0.0.1:1/api')
+    expect(lane.ctx.zotero.config.baseUrl).toBe('http://127.0.0.1:1/api')
   })
 
   it('live-applies a provider selection change', async () => {
-    mock = await MockZotero.start()
-    ctx = await boot({ baseUrl: mock.baseUrl })
-    await ctx.settings.update(ZOTERO_SETTINGS_NAMESPACE, { provider: 'missing' })
-    await flush()
+    lane = await setupHostLane(undefined, { settings: {} })
+    await applySettings({ provider: 'missing' })
     await expect(
-      ctx.zotero.search({
+      lane.ctx.zotero.search({
         scope: { kind: 'library' },
         mode: 'metadata',
         sort: 'dateModified',
@@ -118,10 +98,9 @@ describe('the zotero settings namespace', () => {
   })
 
   it('live-applies a tool validation limit', async () => {
-    ctx = await boot({ baseUrl: 'http://127.0.0.1:1/api' })
-    await ctx.settings.update(ZOTERO_SETTINGS_NAMESPACE, { maxSearchResults: 5 })
-    await flush()
-    const result = await runTool('zotero_search', { query: 'x', limit: 10 })
+    lane = await setupHostLane({ baseUrl: 'http://127.0.0.1:1/api' }, { settings: {} })
+    await applySettings({ maxSearchResults: 5 })
+    const result = await lane.runTool('zotero_search', { query: 'x', limit: 10 })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
     expect((result.content[0] as { text: string }).text).toContain(

@@ -1,13 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { ConcurrencyGate, GateAbortedError, mapWithConcurrency } from '../../src/concurrency.js'
+import { deferred, progress } from '../helpers/sync.js'
 
 describe('mapWithConcurrency', () => {
   it('preserves input order under concurrency', async () => {
-    const result = await mapWithConcurrency([3, 1, 2], 2, async (value) => {
-      await new Promise((resolve) => setTimeout(resolve, value))
+    /** One gate per value: the test decides when each worker finishes. */
+    const finish = new Map([3, 1, 2].map((value) => [value, deferred<void>()]))
+    const started: number[] = []
+    const running = progress()
+    const walk = mapWithConcurrency([3, 1, 2], 2, async (value) => {
+      started.push(value)
+      running.notify()
+      await finish.get(value)!.promise
       return value * 10
     })
-    expect(result).toEqual([30, 10, 20])
+    // The workers finish in the order 1, 2, 3 — not the order they were
+    // started in — so the results below can only be right if they follow the
+    // input positions rather than the order completions arrive in. The test
+    // releases each worker itself instead of letting a sleep decide.
+    for (const value of [1, 2, 3]) {
+      await running.when(() => started.includes(value))
+      finish.get(value)!.resolve()
+    }
+    expect(await walk).toEqual([30, 10, 20])
   })
 
   it('propagates the first worker rejection', async () => {
@@ -38,16 +53,30 @@ describe('ConcurrencyGate', () => {
     let active = 0
     let peak = 0
     const order: number[] = []
+    /** One release per holder: the test hands the slot back, not a sleep. */
+    const entered = new Map<number, () => void>()
+    const inside = progress()
     const hold = async (id: number): Promise<void> => {
       const release = await gate.acquire()
       active += 1
       peak = Math.max(peak, active)
       order.push(id)
-      await new Promise((resolve) => setTimeout(resolve, 5))
+      const slot = deferred()
+      entered.set(id, slot.resolve)
+      inside.notify()
+      await slot.promise
       active -= 1
       release()
     }
-    await Promise.all([1, 2, 3, 4].map(hold))
+    const all = Promise.all([1, 2, 3, 4].map(hold))
+    // Two slots, four holders: the first two run, and each release below hands
+    // its slot to the next waiter, so every holder is observed while it is
+    // actually inside the gate — the peak is never a function of timing.
+    for (const id of [1, 2, 3, 4]) {
+      await inside.when(() => entered.has(id))
+      entered.get(id)!()
+    }
+    await all
     expect(peak).toBe(2)
     expect([...order].sort()).toEqual([1, 2, 3, 4])
   })

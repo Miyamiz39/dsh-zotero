@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { load } from 'js-yaml'
 import { afterEach, describe, expect, it } from 'vitest'
-import { Context, Service, type Context as CordisContext } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include, { entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -21,26 +21,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ZoteroService from '../../src/index.js'
 import { MockZotero } from '../helpers/mock-zotero.js'
-
-/** Minimal command registry stand-in so the optional /zotero command path loads. */
-class StubCommands extends Service {
-  readonly registered: unknown[] = []
-
-  constructor(ctx: CordisContext) {
-    super(ctx, 'commands')
-  }
-
-  register(definition: unknown): () => void {
-    const registered = this.registered
-    return this.ctx.effect(() => {
-      registered.push(definition)
-      return () => {
-        const index = registered.indexOf(definition)
-        if (index >= 0) registered.splice(index, 1)
-      }
-    }, 'StubCommands.register()')
-  }
-}
+import { StubCommands } from '../helpers/stub-commands.js'
+import { ZOTERO_TOOL_NAMES } from '../helpers/tool-names.js'
 
 let root: string | undefined
 let context: Context | undefined
@@ -108,25 +90,13 @@ describe('the shipped bundle patch through a real Loader composition', () => {
 
     expect(context.get('zotero')).toBeInstanceOf(ZoteroService)
     const names = context.tools.schemas().map((schema) => schema.name)
-    // Registration order is a dependency-resolution artifact, not a contract.
-    expect([...names].sort()).toEqual(
-      [
-        'zotero_search',
-        'zotero_get',
-        'zotero_children',
-        'zotero_retrieve',
-        'zotero_attachment',
-        'zotero_export',
-        'zotero_browse',
-        'zotero_changes',
-      ].sort(),
-    )
+    // Registration order is a dependency-resolution artifact, not a contract,
+    // so the composition asserts the set the shared list declares.
+    expect([...names].sort()).toEqual([...ZOTERO_TOOL_NAMES].sort())
     const assembly = await context.systemPrompt.assemble()
     expect(assembly.sections.some((entry) => entry.name === 'zotero:policy')).toBe(true)
     const commands = context.get('commands') as StubCommands | undefined
-    expect(commands?.registered.map((definition) => (definition as { name: string }).name)).toEqual(
-      ['zotero'],
-    )
+    expect(commands?.registered.map((definition) => definition.name)).toEqual(['zotero'])
 
     // One end-to-end tool call through the assembled registry.
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
