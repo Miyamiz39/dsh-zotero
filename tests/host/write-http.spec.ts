@@ -45,7 +45,9 @@ const API_KEY = 'localwritekey0123456789abcdef'
 /** A documented-shape batch answer for one created note. */
 function batchBody(): Record<string, unknown> {
   return {
-    successful: { '0': { key: 'NEWKEY123', version: 12, data: { itemType: 'note', note: '<div>x</div>' } } },
+    successful: {
+      '0': { key: 'NEWKEY123', version: 12, data: { itemType: 'note', note: '<div>x</div>' } },
+    },
     success: { '0': 'NEWKEY123' },
     unchanged: {},
     failed: {},
@@ -97,7 +99,11 @@ describe('request shaping', () => {
     mock.route('POST', '/api/users/0/items', (_req, res, helpers) =>
       helpers.raw(200, batchResponseHeaders(), JSON.stringify(batchBody())),
     )
-    await client.batch('users/0/items', [{ itemType: 'note', note: '<div>x</div>' }], writeOptions())
+    await client.batch(
+      'users/0/items',
+      [{ itemType: 'note', note: '<div>x</div>' }],
+      writeOptions(),
+    )
     const request = mock.requests[0]!
     expect(request.method).toBe('POST')
     expect(request.pathname).toBe('/api/users/0/items')
@@ -233,7 +239,11 @@ describe('batch outcome buckets', () => {
 
   it('fails loud on a failed entry missing its status or statement', async () => {
     mock.route('POST', '/api/users/0/items', (_req, res, helpers) =>
-      helpers.raw(200, batchResponseHeaders(), JSON.stringify({ failed: { '0': { key: 'BROKEN123' } } })),
+      helpers.raw(
+        200,
+        batchResponseHeaders(),
+        JSON.stringify({ failed: { '0': { key: 'BROKEN123' } } }),
+      ),
     )
     await expectZoteroError(
       client.batch('users/0/items', [{ itemType: 'note' }], writeOptions()),
@@ -409,7 +419,9 @@ describe('cancellation and bounds', () => {
       timeoutMs: 20,
       maxResponseBytes: 1024 * 1024,
     })
-    mock.route('POST', '/api/users/0/items', (_req, res, helpers) => helpers.delayJson(batchBody(), 2000))
+    mock.route('POST', '/api/users/0/items', (_req, res, helpers) =>
+      helpers.delayJson(batchBody(), 2000),
+    )
     await expectZoteroError(
       short.batch('users/0/items', [{ itemType: 'note' }], writeOptions()),
       ZOTERO_TIMEOUT,
@@ -453,7 +465,11 @@ describe('cancellation and bounds', () => {
 describe('authorize', () => {
   it('POSTs the app name without an API key and returns the grant', async () => {
     mock.route('POST', '/api/local/authorize', (_req, res, helpers) =>
-      helpers.raw(200, { 'Zotero-Server-ID': SERVER_ID }, JSON.stringify({ key: 'K'.repeat(32), remember: true })),
+      helpers.raw(
+        200,
+        { 'Zotero-Server-ID': SERVER_ID },
+        JSON.stringify({ key: 'K'.repeat(32), remember: true }),
+      ),
     )
     const grant = await client.authorize('dsh (Zotero plugin)', { serverId: SERVER_ID })
     expect(grant).toEqual({ key: 'K'.repeat(32), remember: true })
@@ -477,7 +493,11 @@ describe('authorize', () => {
 
   it('maps the rate limit with its Retry-After', async () => {
     mock.route('POST', '/api/local/authorize', (_req, res, helpers) =>
-      helpers.raw(429, { 'Content-Type': 'text/plain', 'Retry-After': '12' }, 'Too many authorization requests'),
+      helpers.raw(
+        429,
+        { 'Content-Type': 'text/plain', 'Retry-After': '12' },
+        'Too many authorization requests',
+      ),
     )
     await expectZoteroError(
       client.authorize('dsh (Zotero plugin)', { serverId: SERVER_ID }),

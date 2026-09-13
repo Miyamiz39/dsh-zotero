@@ -101,13 +101,19 @@ function writeDeps(): {
 /** Register the authorize dialog answering with a persistent grant. */
 function grantAuthorize(): void {
   mock.route('POST', '/api/local/authorize', (_req, res, helpers) =>
-    helpers.raw(200, { 'Zotero-Server-ID': SERVER_ID }, JSON.stringify({ key: 'R'.repeat(32), remember: true })),
+    helpers.raw(
+      200,
+      { 'Zotero-Server-ID': SERVER_ID },
+      JSON.stringify({ key: 'R'.repeat(32), remember: true }),
+    ),
   )
 }
 
 function resolveThrough(directory: ScopeDirectory) {
   return (refOrName: string, signal?: AbortSignal) =>
-    directory.resolveNamed('collection', refOrName, { type: 'user', id: 0 }, signal).then((r) => r.ref)
+    directory
+      .resolveNamed('collection', refOrName, { type: 'user', id: 0 }, signal)
+      .then((r) => r.ref)
 }
 
 const ITEM_REF = parseRef(`zotero://user/0/item/${ITEM_KEY}`)
@@ -147,7 +153,10 @@ describe('createNote', () => {
     grantAuthorize()
     let entry: Record<string, unknown> | undefined
     mock.route('POST', '/api/users/0/items', (_req, res, helpers) => {
-      entry = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '{}')[0] as Record<string, unknown>
+      entry = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '{}')[0] as Record<
+        string,
+        unknown
+      >
       helpers.raw(
         200,
         batchHeaders(42),
@@ -160,21 +169,19 @@ describe('createNote', () => {
       )
     })
     const { deps, directory } = writeDeps()
-    const result = await createNote(
-      deps,
-      resolveThrough(directory),
-      {
-        markdown: '**方法**：见第 2 节。',
-        collections: ['方法论'],
-        tags: ['methods'],
-        sourceRefs: [SOURCE_REF],
-      },
-    )
+    const result = await createNote(deps, resolveThrough(directory), {
+      markdown: '**方法**：见第 2 节。',
+      collections: ['方法论'],
+      tags: ['methods'],
+      sourceRefs: [SOURCE_REF],
+    })
     expect(result.kind).toBe('applied')
     expect(result.key).toBe(NEW_KEY)
     expect(result.ref).toBe(`zotero://user/0/item/${NEW_KEY}?server=${SERVER_ID}`)
     expect(result.version).toBe(42)
-    expect(result.collections).toEqual([`zotero://user/0/collection/${COLLECTION_KEY}?server=${SERVER_ID}`])
+    expect(result.collections).toEqual([
+      `zotero://user/0/collection/${COLLECTION_KEY}?server=${SERVER_ID}`,
+    ])
     expect(result.tags).toEqual(['methods'])
     expect(result.sourceRefs).toEqual([`zotero://user/0/item/SOURCE01?server=${SERVER_ID}`])
     expect(result.libraryVersion).toBe(42)
@@ -183,22 +190,27 @@ describe('createNote', () => {
     expect(entry?.note).toBe('<p><strong>方法</strong>：见第 2 节。</p>')
     expect(entry?.tags).toEqual([{ tag: 'methods' }])
     expect(entry?.collections).toEqual([COLLECTION_KEY])
-    expect(entry?.relations).toEqual({ 'dc:relation': ['http://zotero.org/users/0/items/SOURCE01'] })
+    expect(entry?.relations).toEqual({
+      'dc:relation': ['http://zotero.org/users/0/items/SOURCE01'],
+    })
   })
 
   it('creates a child note under its parent with relations and without collections', async () => {
     grantAuthorize()
     let entry: Record<string, unknown> | undefined
     mock.route('POST', '/api/users/0/items', (_req, res, helpers) => {
-      entry = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '{}')[0] as Record<string, unknown>
+      entry = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '{}')[0] as Record<
+        string,
+        unknown
+      >
       helpers.raw(200, batchHeaders(43), batchBody(NEW_KEY, 43, { parentItem: ITEM_KEY }))
     })
     const { deps, directory } = writeDeps()
-    const result = await createNote(
-      deps,
-      resolveThrough(directory),
-      { markdown: 'reads it', parentItem: ITEM_REF, sourceRefs: [SOURCE_REF] },
-    )
+    const result = await createNote(deps, resolveThrough(directory), {
+      markdown: 'reads it',
+      parentItem: ITEM_REF,
+      sourceRefs: [SOURCE_REF],
+    })
     expect(result.parentItem).toBe(`zotero://user/0/item/${ITEM_KEY}?server=${SERVER_ID}`)
     expect(result.collections).toEqual([])
     expect(entry?.parentItem).toBe(ITEM_KEY)
@@ -209,11 +221,11 @@ describe('createNote', () => {
     const { deps, directory } = writeDeps()
     let thrown: unknown
     try {
-      await createNote(
-        deps,
-        resolveThrough(directory),
-        { markdown: 'x', parentItem: ITEM_REF, collections: ['方法论'] },
-      )
+      await createNote(deps, resolveThrough(directory), {
+        markdown: 'x',
+        parentItem: ITEM_REF,
+        collections: ['方法论'],
+      })
     } catch (error) {
       thrown = error
     }
@@ -274,7 +286,11 @@ describe('createNote', () => {
       helpers.raw(200, batchHeaders(45), batchBody(NEW_KEY, 45, {}))
     })
     mock.route('POST', '/api/local/authorize', (_req, res, helpers) =>
-      helpers.raw(200, { 'Zotero-Server-ID': SERVER_ID }, JSON.stringify({ key: 'R'.repeat(32), remember: true })),
+      helpers.raw(
+        200,
+        { 'Zotero-Server-ID': SERVER_ID },
+        JSON.stringify({ key: 'R'.repeat(32), remember: true }),
+      ),
     )
     const { deps, directory } = writeDeps()
     const result = await createNote(deps, resolveThrough(directory), { markdown: 'x' })
@@ -290,7 +306,11 @@ describe('createNote', () => {
       helpers.raw(401, { 'Content-Type': 'text/plain' }, 'API key required'),
     )
     mock.route('POST', '/api/local/authorize', (_req, res, helpers) =>
-      helpers.raw(200, { 'Zotero-Server-ID': SERVER_ID }, JSON.stringify({ key: 'R'.repeat(32), remember: false })),
+      helpers.raw(
+        200,
+        { 'Zotero-Server-ID': SERVER_ID },
+        JSON.stringify({ key: 'R'.repeat(32), remember: false }),
+      ),
     )
     const { deps, directory } = writeDeps()
     let thrown: unknown
@@ -320,7 +340,10 @@ describe('updateTags', () => {
     serveItem({ tags: [{ tag: 'existing', type: 1 }] })
     let body: Record<string, unknown> | undefined
     mock.route('PATCH', `/api/users/0/items/${ITEM_KEY}`, (_req, res, helpers) => {
-      body = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '{}') as Record<string, unknown>
+      body = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '{}') as Record<
+        string,
+        unknown
+      >
       helpers.raw(204, { 'Zotero-Server-ID': SERVER_ID, 'Last-Modified-Version': '12' }, '')
     })
     const { deps } = writeDeps()
@@ -381,7 +404,10 @@ describe('addToCollection', () => {
     serveItem([])
     let body: Record<string, unknown> | undefined
     mock.route('PATCH', `/api/users/0/items/${ITEM_KEY}`, (_req, res, helpers) => {
-      body = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '{}') as Record<string, unknown>
+      body = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '{}') as Record<
+        string,
+        unknown
+      >
       helpers.raw(204, { 'Zotero-Server-ID': SERVER_ID, 'Last-Modified-Version': '13' }, '')
     })
     const { deps, directory } = writeDeps()
@@ -390,7 +416,9 @@ describe('addToCollection', () => {
       collection: '方法论',
     })
     expect(result.added).toBe(true)
-    expect(result.collections).toEqual([`zotero://user/0/collection/${COLLECTION_KEY}?server=${SERVER_ID}`])
+    expect(result.collections).toEqual([
+      `zotero://user/0/collection/${COLLECTION_KEY}?server=${SERVER_ID}`,
+    ])
     expect(result.version).toBe(13)
     expect(body).toEqual({ collections: [COLLECTION_KEY] })
   })
@@ -419,13 +447,19 @@ describe('addToCollection', () => {
       code = (error as { code?: string }).code
     }
     expect(code).toBe(ZOTERO_NOT_FOUND)
-    expect(mock.requests.some((request) => request.pathname === `/api/users/0/items/${ITEM_KEY}`)).toBe(false)
+    expect(
+      mock.requests.some((request) => request.pathname === `/api/users/0/items/${ITEM_KEY}`),
+    ).toBe(false)
   })
 })
 
 describe('the provider seam', () => {
   it('serves the write capability only when the write collaborators are wired', async () => {
-    const client = new ZoteroHttpClient({ baseUrl: mock.baseUrl, timeoutMs: 1000, maxResponseBytes: 1024 })
+    const client = new ZoteroHttpClient({
+      baseUrl: mock.baseUrl,
+      timeoutMs: 1000,
+      maxResponseBytes: 1024,
+    })
     const bare = new LocalApiProvider(client, LIMITS)
     expect(bare.capabilities.has('write')).toBe(false)
     let thrown: unknown

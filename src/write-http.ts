@@ -32,6 +32,7 @@ import {
   ZOTERO_LOCAL_API_VERSION,
   ZOTERO_MAX_WRITE_INFLIGHT_REQUESTS,
   ZOTERO_SERVER_ID_HEADER,
+  ZOTERO_WRITE_AUTHORIZE_DEADLINE_MS,
 } from './constants.js'
 import {
   API_DISABLED_MESSAGE,
@@ -178,9 +179,19 @@ export class ZoteroWriteHttpClient {
    * per-object buckets and the library version it advanced to; a non-atomic
    * batch reports successes and failures side by side.
    */
-  async batch(path: string, entries: readonly unknown[], opts: ZoteroBatchWriteOptions): Promise<ZoteroBatchWrite> {
+  async batch(
+    path: string,
+    entries: readonly unknown[],
+    opts: ZoteroBatchWriteOptions,
+  ): Promise<ZoteroBatchWrite> {
     const writeToken = nextWriteToken()
-    const { body, headers } = await this.send(path, 'POST', opts, { 'Zotero-Write-Token': writeToken }, JSON.stringify(entries))
+    const { body, headers } = await this.send(
+      path,
+      'POST',
+      opts,
+      { 'Zotero-Write-Token': writeToken },
+      JSON.stringify(entries),
+    )
     const libraryVersion = libraryVersionOf(headers)
     if (libraryVersion === undefined) {
       throw new ZoteroError(WRITE_LIBRARY_VERSION_MISSING_MESSAGE, ZOTERO_UNEXPECTED)
@@ -225,6 +236,8 @@ export class ZoteroWriteHttpClient {
       { signal: opts.signal, serverId: opts.serverId, apiKey: '' },
       {},
       JSON.stringify({ appName }),
+      // The dialog waits for a human: the data deadline must not cut it off.
+      ZOTERO_WRITE_AUTHORIZE_DEADLINE_MS,
     )
     let json: unknown
     try {
@@ -251,6 +264,7 @@ export class ZoteroWriteHttpClient {
     opts: ZoteroWriteOptions,
     extraHeaders: Record<string, string>,
     body: string,
+    deadlineMs: number = this.options.timeoutMs,
   ): Promise<{ body: string; headers: Headers }> {
     if (opts.serverId === '') {
       throw new ZoteroError(WRITE_IDENTITY_MISSING_MESSAGE, ZOTERO_UNEXPECTED)
@@ -258,7 +272,7 @@ export class ZoteroWriteHttpClient {
     const url = new URL(path, this.baseUrlWithSlash)
     const release = await this.takeSlot(opts.signal)
     try {
-      using d = deadline(opts.signal, this.options.timeoutMs, ZOTERO_TIMEOUT)
+      using d = deadline(opts.signal, deadlineMs, ZOTERO_TIMEOUT)
       const headers: Record<string, string> = {
         'Zotero-API-Version': ZOTERO_LOCAL_API_VERSION,
         'Zotero-Server-ID': opts.serverId,
@@ -270,7 +284,7 @@ export class ZoteroWriteHttpClient {
       try {
         response = await fetch(url, { method, headers, body, redirect: 'manual', signal: d.signal })
       } catch (error) {
-        translateFetchError(error, d.signal, opts.signal, this.options.timeoutMs)
+        translateFetchError(error, d.signal, opts.signal, deadlineMs)
       }
       this.rememberServerId(response.headers)
       if (!response.ok) {
@@ -284,7 +298,7 @@ export class ZoteroWriteHttpClient {
                 this.options.maxResponseBytes,
                 d.signal,
                 opts.signal,
-                this.options.timeoutMs,
+                deadlineMs,
               )
             : ''
         this.translateWriteStatus(response, detail)
@@ -293,7 +307,7 @@ export class ZoteroWriteHttpClient {
       try {
         responseBody = await readBody(response, this.options.maxResponseBytes)
       } catch (error) {
-        translateFetchError(error, d.signal, opts.signal, this.options.timeoutMs)
+        translateFetchError(error, d.signal, opts.signal, deadlineMs)
       }
       return { body: responseBody, headers: response.headers }
     } finally {
@@ -363,7 +377,9 @@ export class ZoteroWriteHttpClient {
         const raw = response.headers.get('retry-after')
         const waitSeconds = raw === null ? undefined : Number(raw)
         throw new ZoteroError(
-          writeRateLimitedMessage(waitSeconds !== undefined && Number.isFinite(waitSeconds) ? waitSeconds : undefined),
+          writeRateLimitedMessage(
+            waitSeconds !== undefined && Number.isFinite(waitSeconds) ? waitSeconds : undefined,
+          ),
           ZOTERO_WRITE_RATE_LIMITED,
         )
       }
@@ -397,7 +413,12 @@ export class ZoteroWriteHttpClient {
       const key = shape === undefined ? undefined : asString(shape.key)
       const message = shape === undefined ? undefined : asString(shape.message)
       const code = shape === undefined ? undefined : shape.code
-      if (key === undefined || message === undefined || typeof code !== 'number' || !Number.isFinite(code)) {
+      if (
+        key === undefined ||
+        message === undefined ||
+        typeof code !== 'number' ||
+        !Number.isFinite(code)
+      ) {
         throw new ZoteroError(writeBatchShapeMessage('failed'), ZOTERO_UNEXPECTED)
       }
       failed[index] = { key, code, message }

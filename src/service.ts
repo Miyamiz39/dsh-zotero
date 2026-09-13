@@ -55,6 +55,9 @@ import { registerGetTool } from './tools/get.js'
 import { registerExportTool } from './tools/export.js'
 import { registerRetrieveTool } from './tools/retrieve.js'
 import { registerSearchTool } from './tools/search.js'
+import { registerCreateNoteTool } from './tools/create-note.js'
+import { registerAddTagsTool } from './tools/add-tags.js'
+import { registerAddToCollectionTool } from './tools/add-to-collection.js'
 import type {
   ZoteroAttachmentLocation,
   ZoteroBrowseRequest,
@@ -108,6 +111,8 @@ export class ZoteroService extends Service {
   private source: () => ResolvedConfig
   /** Disposer of the currently registered `local` provider, released before a rebuild re-registers it. */
   private providerDispose: (() => void) | undefined
+  /** Disposers of the conditionally registered write tools, tracked for the writeEnabled flip. */
+  private writeToolDisposes: Array<() => void> = []
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'zotero')
@@ -205,6 +210,27 @@ export class ZoteroService extends Service {
     this.providerDispose = this.registerProvider(
       new LocalApiProvider(client, localProviderLimits(config), {}, writer, authorizer),
     )
+    this.reconcileWriteTools(config.writeEnabled)
+  }
+
+  /**
+   * Register or retire the write tools as `writeEnabled` flips. When the
+   * flag is off the tools are absent from the model's surface entirely — a
+   * tool that can only ever answer "write capability is disabled" would
+   * invite the model to retry it — and a settings commit re-registers them
+   * without a restart, like the provider itself.
+   */
+  private reconcileWriteTools(enabled: boolean): void {
+    if (enabled && this.writeToolDisposes.length === 0) {
+      this.writeToolDisposes = [
+        registerCreateNoteTool(this.ctx, this),
+        registerAddTagsTool(this.ctx, this),
+        registerAddToCollectionTool(this.ctx, this),
+      ]
+    } else if (!enabled && this.writeToolDisposes.length > 0) {
+      for (const dispose of this.writeToolDisposes) dispose()
+      this.writeToolDisposes = []
+    }
   }
 
   /**

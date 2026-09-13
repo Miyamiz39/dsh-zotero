@@ -142,7 +142,10 @@ async function ensureServerId(deps: WriteDomainDeps, signal?: AbortSignal): Prom
  * kinds, and always the personal library — the write contract covers
  * `zotero://user/0/...` and nothing else.
  */
-function requireWritableRef(ref: ZoteroObjectRef, kinds: readonly ZoteroObjectRef['kind'][]): ZoteroObjectRef {
+function requireWritableRef(
+  ref: ZoteroObjectRef,
+  kinds: readonly ZoteroObjectRef['kind'][],
+): ZoteroObjectRef {
   requireSupportedLocalRef(ref, kinds)
   if (ref.library.type !== 'user' || ref.library.id !== 0) {
     throw new ZoteroError(writeLibraryUnsupportedMessage(ref.library), ZOTERO_INVALID_ARGUMENT)
@@ -263,9 +266,7 @@ export async function createNote(
 ): Promise<ZoteroCreateNoteResult> {
   const serverId = await ensureServerId(deps, signal)
   const parent =
-    request.parentItem === undefined
-      ? undefined
-      : requireWritableRef(request.parentItem, ['item'])
+    request.parentItem === undefined ? undefined : requireWritableRef(request.parentItem, ['item'])
   if (parent !== undefined && (request.collections?.length ?? 0) > 0) {
     throw new ZoteroError(WRITE_CHILD_COLLECTIONS_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
@@ -288,11 +289,11 @@ export async function createNote(
       : {}),
   }
   return await withWriteKey(deps, serverId, signal, async (apiKey) => {
-    const batch = await deps.writer.batch(
-      `${libraryPrefix(PERSONAL_LIBRARY)}/items`,
-      [entry],
-      { serverId, apiKey, signal },
-    )
+    const batch = await deps.writer.batch(`${libraryPrefix(PERSONAL_LIBRARY)}/items`, [entry], {
+      serverId,
+      apiKey,
+      signal,
+    })
     const refused = batch.failed['0']
     if (refused !== undefined) throw objectRefusedError(refused)
     const written = batch.successful['0']
@@ -309,15 +310,14 @@ export async function createNote(
       ref: noteRef(key, serverId),
       key,
       version: typeof written?.version === 'number' ? written.version : batch.libraryVersion,
-      ...(parent !== undefined
-        ? { parentItem: noteRef(parent.key, serverId) }
-        : {}),
+      ...(parent !== undefined ? { parentItem: noteRef(parent.key, serverId) } : {}),
       collections:
         parent !== undefined
           ? []
-          : (savedCollectionKeys.length > 0 ? savedCollectionKeys : collections.map((ref) => ref.key)).map(
-              (collectionKey) => collectionRef(collectionKey, serverId),
-            ),
+          : (savedCollectionKeys.length > 0
+              ? savedCollectionKeys
+              : collections.map((ref) => ref.key)
+            ).map((collectionKey) => collectionRef(collectionKey, serverId)),
       tags: savedTags.length > 0 ? savedTags : tags,
       sourceRefs:
         savedRelations.length > 0

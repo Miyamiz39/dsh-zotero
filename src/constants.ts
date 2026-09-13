@@ -124,6 +124,29 @@ export const ZOTERO_WRITE_OBJECT_BATCH = 50
 export const ZOTERO_LIBRARY_VERSION_HEADER = 'last-modified-version'
 
 /**
+ * Markdown character budget for one `zotero_create_note` call. The converted
+ * HTML rides back inside the batch's successful bucket (bounded by
+ * maxResponseBytes); this bound keeps one pathological note from dominating
+ * a batch before conversion ever runs.
+ */
+export const ZOTERO_WRITE_NOTE_MAX_CHARS = 65_536
+
+/**
+ * Per-list bound for the write tools' array arguments (tags, collections,
+ * source refs) — the same scale as the write batch cap, so one call can
+ * never fan out into many protocol batches.
+ */
+export const ZOTERO_WRITE_LIST_MAX_ITEMS = 50
+
+/**
+ * The deadline for one `/api/local/authorize` request. Zotero shows its
+ * authorization dialog for that request and the user answers it in person,
+ * so the budget covers a human reading the dialog — deliberately far above
+ * the per-request data deadline, which must not apply here.
+ */
+export const ZOTERO_WRITE_AUTHORIZE_DEADLINE_MS = 120_000
+
+/**
  * How many attachments one `zotero_retrieve` call may rank full text from.
  * Each member costs a metadata read and a full-text read, and all of their
  * text enters one ranking — a bound on the call's own work, not on what a

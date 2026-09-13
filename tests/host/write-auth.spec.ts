@@ -136,7 +136,10 @@ describe('persisted grants', () => {
     expect(first).toEqual({ key: ISSUED_KEY, oneTime: false })
     expect(authorizeCalls).toBe(1)
     const stored = credentials.records.get(String(WRITE_KEY_RECORD))
-    expect(stored).toMatchObject({ kind: 'grant', payload: { key: ISSUED_KEY, serverId: SERVER_ID } })
+    expect(stored).toMatchObject({
+      kind: 'grant',
+      payload: { key: ISSUED_KEY, serverId: SERVER_ID },
+    })
     const second = await writer.keyFor(SERVER_ID)
     expect(second.key).toBe(ISSUED_KEY)
     expect(authorizeCalls).toBe(1)

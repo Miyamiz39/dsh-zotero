@@ -64,7 +64,9 @@ describe('emphasis and code', () => {
 describe('links', () => {
   it('renders https and zotero links, keeping their text formattable', () => {
     expect(
-      markdownToNoteHtml('[**paper**](https://example.io/a) and [记](zotero://user/0/items/ABCD1234)'),
+      markdownToNoteHtml(
+        '[**paper**](https://example.io/a) and [记](zotero://user/0/items/ABCD1234)',
+      ),
     ).toBe(
       '<p><a href="https://example.io/a"><strong>paper</strong></a> and ' +
         '<a href="zotero://user/0/items/ABCD1234">记</a></p>',
@@ -164,6 +166,8 @@ describe('the escape-unknown guarantee', () => {
   })
 
   it('ends a paragraph when a real block starts on the next line', () => {
-    expect(markdownToNoteHtml('intro text\n- item')).toBe('<p>intro text</p>\n<ul><li>item</li></ul>')
+    expect(markdownToNoteHtml('intro text\n- item')).toBe(
+      '<p>intro text</p>\n<ul><li>item</li></ul>',
+    )
   })
 })

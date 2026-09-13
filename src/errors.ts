@@ -213,6 +213,27 @@ export function writeObjectRefusedMessage(message: string, status: number): stri
   return `Zotero refused the write: ${message} (status ${status}).`
 }
 
+/** Shown when one note's markdown exceeds the character bound. */
+export function writeNoteTooLongMessage(maxChars: number): string {
+  return `The note markdown exceeds the ${maxChars}-character bound; shorten it or split the note.`
+}
+
+/** Shown when a write tool's list argument exceeds its bound. */
+export function writeListTooLongMessage(name: string, maxItems: number): string {
+  return `${name} carries more than ${maxItems} items; split the call.`
+}
+
+/** Shown when a write tool's list argument is empty when at least one item is required. */
+export function writeListEmptyMessage(name: string): string {
+  return `${name} must carry at least one item.`
+}
+
+/** Shown when no approval channel answers the plan-review question; writes fail closed. */
+export const WRITE_APPROVAL_UNAVAILABLE_MESSAGE =
+  'The write was not approved: no approval channel answered the plan review. Writes require the ' +
+  'plan-review question to be answered by the user; run in a conversation where user questions are ' +
+  'available, and never write around an unanswered plan.'
+
 const UNREACHABLE_CODES = new Set([
   'ECONNREFUSED',
   'ECONNRESET',

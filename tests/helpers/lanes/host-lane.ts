@@ -55,6 +55,13 @@ export interface HostLaneOptions {
    * for it).
    */
   readonly typert?: boolean
+  /**
+   * Compose any further service before the plugin mounts — a user-questions
+   * stand-in, for one: a plugin fiber resolves services at call time, but a
+   * seam the tools must find has to exist before the plugin's own fiber
+   * snapshot is taken.
+   */
+  readonly compose?: (ctx: Context) => Promise<void>
 }
 
 /** One booted lane: the mounted context, the scripted server, and the call surface. */
@@ -92,6 +99,7 @@ export async function setupHostLane(
   if (options.commands === true) await ctx.plugin(StubCommands)
   if (options.typert === true) await ctx.plugin(TypertRegistry)
   if (options.settings !== undefined) await ctx.plugin(MemorySettings, options.settings)
+  if (options.compose !== undefined) await options.compose(ctx)
   const zoteroFiber = ctx.plugin(ZoteroService, { baseUrl: mock.baseUrl, ...config })
   await zoteroFiber
   let callCounter = 0
