@@ -59,7 +59,7 @@ const ALLOWED_CONTROL = new Set([0x09, 0x0a, 0x0d])
  * commit that splits a file, never preemptively.
  * Target once the refactor lands: 800.
  */
-const MAX_SPEC_LINES = 2534
+const MAX_SPEC_LINES = 1642
 
 /**
  * Ratchet: the directories a spec may live in, relative to `tests/`. An empty
@@ -67,7 +67,7 @@ const MAX_SPEC_LINES = 2534
  * as `client/sources` are covered by their first segment.
  * Target once the refactor lands: ['unit', 'local', 'tools', 'host', 'client', 'integration'].
  */
-const SPEC_LANES = ['', 'provider', 'client', 'integration']
+const SPEC_LANES = ['', 'provider', 'tools', 'client', 'integration']
 
 const failures = []
 
