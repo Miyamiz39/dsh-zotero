@@ -63,6 +63,9 @@ const FIELD_SPECS = [
   { key: 'maxChangesResults', kind: 'number', group: 'groupOutput' },
   { key: 'defaultStyle', kind: 'text', group: 'groupDefaults' },
   { key: 'defaultLocale', kind: 'text', group: 'groupDefaults' },
+  { key: 'writeEnabled', kind: 'boolean', group: 'groupWrite' },
+  { key: 'writeConfirm', kind: 'boolean', group: 'groupWrite' },
+  { key: 'writePersistKey', kind: 'boolean', group: 'groupWrite' },
 ] as const satisfies readonly {
   key: keyof ResolvedConfig
   kind: 'text' | 'number' | 'boolean'

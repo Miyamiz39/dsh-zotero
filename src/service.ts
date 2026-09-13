@@ -23,11 +23,15 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-settings'
 // Type-only: brings the `ctx.typert` Context merge into this program.
 import type {} from '@deepseek-ai/dsh-typert-registry'
+// Type-only: brings the `ctx.credentials` Context merge into this program.
+import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { ConnectivityRecovery } from './ask.js'
 import { ZoteroHttpClient } from './http-client.js'
 import { registerStatusCommand } from './command.js'
 import { ZoteroRuntime } from './remote.js'
 import { TYPERT_MANIFEST } from './typert.js'
+import { WriteAuthorizer } from './write-auth.js'
+import { ZoteroWriteHttpClient } from './write-http.js'
 import {
   Config as ConfigSchema,
   resolveConfig,
@@ -60,6 +64,10 @@ import type {
   ZoteroChangesResult,
   ZoteroChildrenRequest,
   ZoteroChildrenResult,
+  ZoteroCollectionAddRequest,
+  ZoteroCollectionAddResult,
+  ZoteroCreateNoteRequest,
+  ZoteroCreateNoteResult,
   ZoteroGetRequest,
   ZoteroItemDetail,
   ZoteroObjectRef,
@@ -72,6 +80,8 @@ import type {
   ZoteroSearchRequest,
   ZoteroSearchResult,
   ZoteroStatus,
+  ZoteroTagUpdateRequest,
+  ZoteroTagUpdateResult,
 } from './types.js'
 
 declare module '@deepseek-ai/cordis' {
@@ -159,10 +169,13 @@ export class ZoteroService extends Service {
   }
 
   /**
-   * Rebuild the HTTP client and the `local` provider from the current config.
-   * The previous provider registration is disposed first so the duplicate-id
-   * guard never fires; a request already in flight finishes on the client it
-   * started with, and later calls resolve the fresh provider.
+   * Rebuild the HTTP clients and the `local` provider from the current
+   * config. The previous provider registration is disposed first so the
+   * duplicate-id guard never fires; a request already in flight finishes on
+   * the client it started with, and later calls resolve the fresh provider.
+   * The write transport and authorizer exist only while `writeEnabled` is
+   * set: without them the provider declares no `write` capability, so the
+   * gate answers before any network happens.
    */
   private rebuild(): void {
     this.providerDispose?.()
@@ -173,9 +186,34 @@ export class ZoteroService extends Service {
       timeoutMs: config.timeoutMs,
       maxResponseBytes: config.maxResponseBytes,
     })
+    const writeEnabled = config.writeEnabled
+    const writer = writeEnabled
+      ? new ZoteroWriteHttpClient({
+          baseUrl: config.baseUrl,
+          timeoutMs: config.timeoutMs,
+          maxResponseBytes: config.maxResponseBytes,
+        })
+      : undefined
+    const authorizer =
+      writer === undefined
+        ? undefined
+        : new WriteAuthorizer({
+            client: writer,
+            credentials: this.credentials(),
+            persistKey: () => this.config.writePersistKey,
+          })
     this.providerDispose = this.registerProvider(
-      new LocalApiProvider(client, localProviderLimits(config)),
+      new LocalApiProvider(client, localProviderLimits(config), {}, writer, authorizer),
     )
+  }
+
+  /**
+   * The host credentials seam, resolved lazily: a composition without a
+   * credentials service keeps write grants in memory only, and the plugin
+   * never hard-depends on the seam being mounted.
+   */
+  private credentials(): CredentialProvider | undefined {
+    return this.ctx.get('credentials')
   }
 
   /**
@@ -316,6 +354,57 @@ export class ZoteroService extends Service {
     this.requireCapability(provider, 'changes')
     const changes = this.requireMethod(provider, 'changes')
     return await changes(request, signal)
+  }
+
+  /**
+   * Create a research note (standalone, or a child note under a parent item)
+   * with tags, collections, and source relations. The write capability gate
+   * answers before any network; the plan-review approval the tool shows the
+   * user happens before this method is called.
+   * @param request - the markdown body, optional parent, collections, tags, and sources.
+   * @param signal - caller cancellation; forwarded to the provider.
+   * @returns the created note's ref, version, and the saved collections/tags/relations.
+   */
+  async createNote(
+    request: ZoteroCreateNoteRequest,
+    signal?: AbortSignal,
+  ): Promise<ZoteroCreateNoteResult> {
+    const provider = this.resolveProvider()
+    this.requireCapability(provider, 'write')
+    const createNote = this.requireMethod(provider, 'createNote')
+    return await createNote(request, signal)
+  }
+
+  /**
+   * Add tags to an item, preserving what it already carries.
+   * @param request - the item ref and the tags to add.
+   * @param signal - caller cancellation; forwarded to the provider.
+   * @returns the merged tag list, the additions, and the resulting versions.
+   */
+  async updateTags(
+    request: ZoteroTagUpdateRequest,
+    signal?: AbortSignal,
+  ): Promise<ZoteroTagUpdateResult> {
+    const provider = this.resolveProvider()
+    this.requireCapability(provider, 'write')
+    const updateTags = this.requireMethod(provider, 'updateTags')
+    return await updateTags(request, signal)
+  }
+
+  /**
+   * Add an item to a collection.
+   * @param request - the item ref and the collection ref or name.
+   * @param signal - caller cancellation; forwarded to the provider.
+   * @returns the resulting collection list and whether the membership is new.
+   */
+  async addToCollection(
+    request: ZoteroCollectionAddRequest,
+    signal?: AbortSignal,
+  ): Promise<ZoteroCollectionAddResult> {
+    const provider = this.resolveProvider()
+    this.requireCapability(provider, 'write')
+    const addToCollection = this.requireMethod(provider, 'addToCollection')
+    return await addToCollection(request, signal)
   }
 
   private resolveProvider(): ZoteroProvider {

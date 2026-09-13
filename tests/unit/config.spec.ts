@@ -25,6 +25,9 @@ describe('resolveConfig', () => {
       maxChangesResults: 50,
       defaultStyle: 'apa',
       defaultLocale: 'en-US',
+      writeEnabled: false,
+      writeConfirm: true,
+      writePersistKey: true,
       webEnabled: true,
     })
   })

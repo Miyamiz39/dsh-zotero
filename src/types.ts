@@ -27,6 +27,12 @@ export type ZoteroCapability =
   | 'retrieve'
   /** Incremental library reads through local transaction versions (`?since=`). */
   | 'changes'
+  /**
+   * Writes to the local personal library: research notes, tags, collection
+   * membership. Zotero 10 gates every write behind a locally issued API key
+   * and the serving instance id; the write domain owns that protocol.
+   */
+  | 'write'
 
 /** The library a Zotero object lives in. The Local API serves the logged-in user's library. */
 export interface ZoteroLibraryRef {
@@ -778,6 +784,106 @@ export interface ZoteroChangesResult {
 }
 
 /**
+ * The write domain. Zotero 10 accepts local writes only behind its own
+ * authorization: a locally issued API key bound to the serving instance id.
+ * Requests here are validated and converted by the provider (markdown
+ * becomes note HTML under an escape-unknown grammar); a per-object failure
+ * inside a batch surfaces as a typed error, never as a silently skipped
+ * object. Every applied result carries the written object's ref and the
+ * library version the write advanced to.
+ */
+export interface ZoteroCreateNoteRequest {
+  /** The note body in markdown; converted to safe note HTML under the plugin's restricted grammar. */
+  markdown: string
+  /** Parent item ref: the note is created as that item's child note. */
+  parentItem?: ZoteroObjectRef
+  /** Collections (refs or names) a standalone note joins; child notes inherit their parent's collections. */
+  collections?: string[]
+  /** Tags applied at creation. */
+  tags?: string[]
+  /** Source item refs the note derives from, recorded as `dc:relation` links. */
+  sourceRefs?: ZoteroObjectRef[]
+}
+
+export interface ZoteroCreateNoteResult {
+  kind: 'applied'
+  /** The created note ref, provenance-qualified with the serving instance id. */
+  ref: string
+  key: string
+  /** The note's object version; equals the library version it was written at. */
+  version: number
+  /** The parent item ref, for a child note. */
+  parentItem?: string
+  /** Collections the note joined, as refs; empty for a child note. */
+  collections: string[]
+  /** Tags as Zotero saved them. */
+  tags: string[]
+  /** The source relations as Zotero recorded them (`http://zotero.org/...` URIs). */
+  sourceRefs: string[]
+  /** The library version the write advanced the library to. */
+  libraryVersion: number
+  serverId?: string
+}
+
+export interface ZoteroTagUpdateRequest {
+  /** The item to tag. */
+  item: ZoteroObjectRef
+  /** Tags to add. Existing tags and their colored/automatic types are preserved. */
+  tags: string[]
+}
+
+export interface ZoteroTagUpdateResult {
+  kind: 'applied'
+  ref: string
+  /** The item's version after the update. */
+  version: number
+  /** The full tag list now on the item. */
+  tags: string[]
+  /** The tags this call added. */
+  added: string[]
+  /** True when every requested tag was already present and nothing was written. */
+  unchanged: boolean
+  /** The library version the write advanced the library to; absent when unchanged. */
+  libraryVersion?: number
+  serverId?: string
+}
+
+export interface ZoteroCollectionAddRequest {
+  /** The item to add. */
+  item: ZoteroObjectRef
+  /** The collection to add it to, as a ref or a name. */
+  collection: string
+}
+
+export interface ZoteroCollectionAddResult {
+  kind: 'applied'
+  ref: string
+  /** The item's version after the update. */
+  version: number
+  /** The item's collections after the add, as refs. */
+  collections: string[]
+  /** True when the item was newly added; false when it was already a member. */
+  added: boolean
+  /** The library version the write advanced the library to; absent when already a member. */
+  libraryVersion?: number
+  serverId?: string
+}
+
+/**
+ * The outcome when the user answers the plan-review card without approving.
+ * Nothing was written, nothing was contacted beyond the approval channel,
+ * and the tool returns this instead of an error — declining is a normal
+ * outcome, not a failure.
+ */
+export interface ZoteroWriteDeclined {
+  kind: 'declined'
+}
+
+export type ZoteroCreateNoteOutcome = ZoteroCreateNoteResult | ZoteroWriteDeclined
+export type ZoteroTagUpdateOutcome = ZoteroTagUpdateResult | ZoteroWriteDeclined
+export type ZoteroCollectionAddOutcome = ZoteroCollectionAddResult | ZoteroWriteDeclined
+
+/**
  * The storage side of the `ctx.zotero` seam. Providers declare which
  * capabilities they safely support; the service gates every domain call on
  * that declaration first and on the corresponding method's presence second —
@@ -851,6 +957,34 @@ export interface ZoteroProvider {
    */
   export?(request: ZoteroExportRequest, signal?: AbortSignal): Promise<ZoteroExportResult>
   browse?(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult>
+  /**
+   * Create a research note (standalone or under a parent item) with tags,
+   * collections, and source relations.
+   * @param request - the markdown body, optional parent, collections, tags, and sources.
+   * @param signal - caller cancellation; forwarded to the transport.
+   * @returns the created note's ref, version, and the saved collections/tags/relations.
+   */
+  createNote?(
+    request: ZoteroCreateNoteRequest,
+    signal?: AbortSignal,
+  ): Promise<ZoteroCreateNoteResult>
+  /**
+   * Add tags to an item (read-merge-write; existing tags are preserved).
+   * @param request - the item ref and the tags to add.
+   * @param signal - caller cancellation; forwarded to the transport.
+   * @returns the merged tag list, the additions, and the resulting versions.
+   */
+  updateTags?(request: ZoteroTagUpdateRequest, signal?: AbortSignal): Promise<ZoteroTagUpdateResult>
+  /**
+   * Add an item to a collection (read-merge-write).
+   * @param request - the item ref and the collection ref or name.
+   * @param signal - caller cancellation; forwarded to the transport.
+   * @returns the resulting collection list and whether the membership is new.
+   */
+  addToCollection?(
+    request: ZoteroCollectionAddRequest,
+    signal?: AbortSignal,
+  ): Promise<ZoteroCollectionAddResult>
 }
 
 /**

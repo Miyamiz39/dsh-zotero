@@ -53,6 +53,24 @@ export interface Config {
   /** CSL locale for citation/bibliography formats. */
   defaultLocale?: string
   /**
+   * Whether the write tools register and the `local` provider serves writes
+   * (research notes, tags, collection membership). Off by default: writing
+   * is an explicit opt-in, and the capability stays absent until it is.
+   */
+  writeEnabled?: boolean
+  /**
+   * Whether every write shows the plan-review question before Zotero is
+   * contacted. Zotero's own authorize dialog and key gate remain the hard
+   * boundary; this is the in-conversation confirmation layer.
+   */
+  writeConfirm?: boolean
+  /**
+   * Whether an Always-Allow grant from Zotero's authorization dialog is
+   * persisted into the host credentials store (bound to the Zotero instance
+   * that issued it). One-time keys are never persisted regardless.
+   */
+  writePersistKey?: boolean
+  /**
    * Whether the dedicated Zotero web view (tool cards in a conversation tab) is enabled.
    * Client-only: the host half never reads this (it shares the `zotero`
    * settings namespace so the card and the tab stay on one document); only
@@ -83,6 +101,9 @@ export const Config: Schema<Config> = Schema.object({
   maxChangesResults: Schema.number().default(50),
   defaultStyle: Schema.string().default('apa'),
   defaultLocale: Schema.string().default('en-US'),
+  writeEnabled: Schema.boolean().default(false),
+  writeConfirm: Schema.boolean().default(true),
+  writePersistKey: Schema.boolean().default(true),
   webEnabled: Schema.boolean().default(true),
 })
 
@@ -108,6 +129,9 @@ export interface ResolvedConfig {
   readonly maxChangesResults: number
   readonly defaultStyle: string
   readonly defaultLocale: string
+  readonly writeEnabled: boolean
+  readonly writeConfirm: boolean
+  readonly writePersistKey: boolean
   readonly webEnabled: boolean
 }
 

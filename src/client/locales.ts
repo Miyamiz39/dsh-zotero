@@ -175,6 +175,16 @@ export const en: Record<ZoteroLocaleKey, string> = {
   groupSearch: 'Search limits',
   groupOutput: 'Output limits',
   groupDefaults: 'Export defaults',
+  groupWrite: 'Writing',
+  writeEnabled: 'Enable write tools',
+  writeEnabledHint:
+    'Registers zotero_create_note, zotero_add_tags, and zotero_add_to_collection, and lets the local provider serve writes. Zotero 10 still gates every write behind its own authorization dialog.',
+  writeConfirm: 'Confirm each write',
+  writeConfirmHint:
+    'Shows a plan card and waits for your approval before every write. The Zotero key gate stays in force either way.',
+  writePersistKey: 'Store the Zotero write key',
+  writePersistKeyHint:
+    'Persists an "Always Allow" key from the Zotero dialog into the credentials store, bound to the Zotero instance that issued it. One-time keys are never stored.',
   baseUrl: 'Local API base URL',
   baseUrlHint: 'Must be a loopback HTTP address (127.0.0.1, localhost, or ::1).',
   provider: 'Provider id',
@@ -368,6 +378,16 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   groupSearch: '检索限制',
   groupOutput: '输出限制',
   groupDefaults: '导出默认',
+  groupWrite: '写入',
+  writeEnabled: '启用写入工具',
+  writeEnabledHint:
+    '注册 zotero_create_note、zotero_add_tags、zotero_add_to_collection，并允许 local provider 提供写入能力。Zotero 10 仍会用它自己的授权弹窗把关每一次写入。',
+  writeConfirm: '每次写入前确认',
+  writeConfirmHint:
+    '每次写入前展示计划卡片并等待你批准。无论此项开关如何，Zotero 自己的 key 关卡始终生效。',
+  writePersistKey: '保存 Zotero 写入密钥',
+  writePersistKeyHint:
+    '把 Zotero 授权弹窗里"Always Allow"签发的密钥存入宿主凭据库，并绑定到签发它的 Zotero 实例。一次性密钥永不落盘。',
   baseUrl: 'Local API 地址',
   baseUrlHint: '仅允许本机回环 HTTP 地址（127.0.0.1、localhost 或 ::1）。',
   provider: '提供方 ID',

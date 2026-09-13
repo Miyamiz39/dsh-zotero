@@ -188,6 +188,31 @@ export function writeRateLimitedMessage(waitSeconds: number | undefined): string
   return `Zotero is rate-limiting write authorization requests (429). Wait ${wait} and try again.`
 }
 
+/** Shown when the connected Zotero build reports no instance id, which local writes require. */
+export const WRITE_IDENTITY_UNSUPPORTED_MESSAGE =
+  'The connected Zotero build does not report an instance id (Zotero-Server-ID). Writing requires Zotero 10 or newer.'
+
+/** Shown when a read backing a write does not carry the object version the precondition needs. */
+export const WRITE_VERSION_MISSING_MESSAGE =
+  'Zotero answered the read without the object version a write precondition needs; the response does not match the documented shape.'
+
+/** Shown when collections are requested for a child note, which inherits its parent item's collections. */
+export const WRITE_CHILD_COLLECTIONS_MESSAGE =
+  'A child note inherits the collections of its parent item; pass collections only for a standalone note.'
+
+/** Shown when a write ref names a library the plugin refuses to write to. */
+export function writeLibraryUnsupportedMessage(library: { type: string; id: number }): string {
+  return (
+    'Writing is limited to the local personal library zotero://user/0/...; ' +
+    `this ref names zotero://${library.type}/${library.id}.`
+  )
+}
+
+/** Shown when Zotero refuses one object of a write batch, with Zotero's own statement. */
+export function writeObjectRefusedMessage(message: string, status: number): string {
+  return `Zotero refused the write: ${message} (status ${status}).`
+}
+
 const UNREACHABLE_CODES = new Set([
   'ECONNREFUSED',
   'ECONNRESET',

@@ -21,6 +21,7 @@ import {
   ZOTERO_SERVER_ID_HEADER,
   ZOTERO_VERSION_HEADER,
 } from '../constants.js'
+import { PERSONAL_LIBRARY } from '../refs.js'
 import { errorMessageOf, ZoteroError } from '../errors.js'
 import type { ZoteroHttpClient } from '../http-client.js'
 import type { LocalApiLimits, LocalApiProviderOptions } from './limits.js'
@@ -32,6 +33,18 @@ import { getAttachmentLocation as attachmentLocationDomain } from './attachment-
 import { exportItems as exportItemsDomain } from './export-domain.js'
 import { changes as changesDomain } from './changes-domain.js'
 import { runBrowse } from './browse-domain.js'
+import {
+  WRITE_CAPABILITY_UNAVAILABLE_CODE,
+  writeCapabilityUnavailableMessage,
+} from './write-domain.js'
+import {
+  addToCollection as addToCollectionDomain,
+  createNote as createNoteDomain,
+  updateTags as updateTagsDomain,
+  type WriteDomainDeps,
+} from './write-domain.js'
+import type { WriteAuthorizer } from '../write-auth.js'
+import type { ZoteroWriteHttpClient } from '../write-http.js'
 import type {
   ZoteroAttachmentLocation,
   ZoteroBrowseRequest,
@@ -41,6 +54,10 @@ import type {
   ZoteroChangesResult,
   ZoteroChildrenRequest,
   ZoteroChildrenResult,
+  ZoteroCollectionAddRequest,
+  ZoteroCollectionAddResult,
+  ZoteroCreateNoteRequest,
+  ZoteroCreateNoteResult,
   ZoteroExportRequest,
   ZoteroExportResult,
   ZoteroGetRequest,
@@ -52,20 +69,13 @@ import type {
   ZoteroSearchRequest,
   ZoteroSearchResult,
   ZoteroStatus,
+  ZoteroTagUpdateRequest,
+  ZoteroTagUpdateResult,
 } from '../types.js'
 
 export class LocalApiProvider implements ZoteroProvider {
   readonly id = LOCAL_PROVIDER_ID
-  readonly capabilities: ReadonlySet<ZoteroCapability> = new Set<ZoteroCapability>([
-    'metadata',
-    'search',
-    'attachments',
-    'fulltext',
-    'citation',
-    'browse',
-    'retrieve',
-    'changes',
-  ])
+  readonly capabilities: ReadonlySet<ZoteroCapability>
 
   private readonly directory: ScopeDirectory
 
@@ -73,6 +83,8 @@ export class LocalApiProvider implements ZoteroProvider {
     private readonly client: ZoteroHttpClient,
     private readonly limits: LocalApiLimits,
     private readonly options: LocalApiProviderOptions = {},
+    private readonly writer?: ZoteroWriteHttpClient,
+    private readonly authorizer?: WriteAuthorizer,
   ) {
     // The directory owns the scope-listing and breadcrumb caches; rebuilding
     // the provider rebuilds it, so a settings commit starts a fresh
@@ -81,11 +93,52 @@ export class LocalApiProvider implements ZoteroProvider {
       client,
       this.options.scopeListingTtlMs ?? ZOTERO_SCOPE_LISTING_TTL_MS,
     )
+    // `write` is declared only when the write collaborators are wired: a
+    // capability without its method would be a gate that routes into
+    // nothing.
+    this.capabilities = new Set<ZoteroCapability>([
+      'metadata',
+      'search',
+      'attachments',
+      'fulltext',
+      'citation',
+      'browse',
+      'retrieve',
+      'changes',
+      ...(writer !== undefined && authorizer !== undefined ? (['write'] as const) : []),
+    ])
   }
 
   /** One deps bundle per call keeps every domain signature explicit. */
   private deps(): { client: ZoteroHttpClient; limits: LocalApiLimits } {
     return { client: this.client, limits: this.limits }
+  }
+
+  /**
+   * The write collaborators, asserted: the service only reaches the write
+   * methods through the `write` capability gate, which this provider declares
+   * exactly when both collaborators exist — so this assertion guards direct
+   * provider callers, not the service path.
+   */
+  private writeDeps(): WriteDomainDeps {
+    if (this.writer === undefined || this.authorizer === undefined) {
+      throw new ZoteroError(
+        writeCapabilityUnavailableMessage(this.id),
+        WRITE_CAPABILITY_UNAVAILABLE_CODE,
+      )
+    }
+    return { client: this.client, writer: this.writer, authorizer: this.authorizer }
+  }
+
+  /**
+   * Resolve a collection from a ref or a name through the cached scope
+   * directory — the write domain takes the resolver as a function, so the
+   * domain module stays free of the directory's cache semantics.
+   */
+  private resolveCollection(refOrName: string, signal?: AbortSignal): Promise<ZoteroObjectRef> {
+    return this.directory
+      .resolveNamed('collection', refOrName, PERSONAL_LIBRARY, signal)
+      .then((resolved) => resolved.ref)
   }
 
   /**
@@ -194,5 +247,50 @@ export class LocalApiProvider implements ZoteroProvider {
    */
   async browse(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult> {
     return runBrowse(this.deps(), this.directory, request, signal)
+  }
+
+  /**
+   * Create a research note (standalone, or a child note under a parent item)
+   * with tags, collections, and source relations. The domain logic lives in
+   * `local/write-domain`; this is the seam, and it is only reachable through
+   * the `write` capability gate.
+   */
+  async createNote(
+    request: ZoteroCreateNoteRequest,
+    signal?: AbortSignal,
+  ): Promise<ZoteroCreateNoteResult> {
+    return createNoteDomain(
+      this.writeDeps(),
+      (refOrName) => this.resolveCollection(refOrName, signal),
+      request,
+      signal,
+    )
+  }
+
+  /**
+   * Add tags to an item, preserving the tags it already carries. The domain
+   * logic lives in `local/write-domain`; this is the seam.
+   */
+  async updateTags(
+    request: ZoteroTagUpdateRequest,
+    signal?: AbortSignal,
+  ): Promise<ZoteroTagUpdateResult> {
+    return updateTagsDomain(this.writeDeps(), request, signal)
+  }
+
+  /**
+   * Add an item to a collection. The domain logic lives in
+   * `local/write-domain`; this is the seam.
+   */
+  async addToCollection(
+    request: ZoteroCollectionAddRequest,
+    signal?: AbortSignal,
+  ): Promise<ZoteroCollectionAddResult> {
+    return addToCollectionDomain(
+      this.writeDeps(),
+      (refOrName) => this.resolveCollection(refOrName, signal),
+      request,
+      signal,
+    )
   }
 }
