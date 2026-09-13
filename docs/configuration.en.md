@@ -21,7 +21,7 @@ All configuration fields are defined in `src/config.ts`, with defaults provided 
 | `maxNoteRecords`       | `50`                         | `zotero_get` max note count                                                                    |
 | `maxAnnotationRecords` | `100`                        | `zotero_get` max annotation count                                                              |
 | `fulltextChunkWords`   | `200`                        | Word count for full-text chunks entering ranking                                               |
-| `maxFulltextChars`     | `250000`                     | Max full-text characters accepted by `zotero_retrieve` ranking                                 |
+| `maxFulltextChars`     | `250000`                     | Max full-text characters one `zotero_retrieve` call accepts (shared across its attachments)    |
 | `maxResponseBytes`     | `16777216`                   | Single API response stream byte limit (16 MiB)                                                 |
 | `maxExportChars`       | `1000000`                    | Export output hard limit (1M characters)                                                       |
 | `maxExportRefs`        | `50`                         | Single `zotero_export` ref count limit                                                         |

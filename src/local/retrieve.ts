@@ -10,7 +10,7 @@
 
 import type { ZoteroHttpClient } from '../http-client.js'
 import { mapWithConcurrency } from '../concurrency.js'
-import { ZOTERO_GRAPH_CONCURRENCY } from '../constants.js'
+import { ZOTERO_GRAPH_CONCURRENCY, ZOTERO_RETRIEVE_ATTACHMENT_CAP } from '../constants.js'
 import {
   isNotFoundError,
   NO_FULLTEXT_MESSAGE,
@@ -20,7 +20,7 @@ import {
   ZOTERO_SERVER_MISMATCH,
   ZoteroError,
 } from '../errors.js'
-import { chunkText, rankChunks, tokenize } from '../evidence.js'
+import { chunkText, rankChunks, tokenize, type EvidenceChunk } from '../evidence.js'
 import { asRecord, asString } from '../json.js'
 import { selectAttachments, bestAttachmentFromLinks } from '../attachments.js'
 import { formatRef, libraryPrefix, refForLibrary, requireSupportedLocalRef } from '../refs.js'
@@ -41,6 +41,8 @@ import type {
   ZoteroEvidenceSource,
   ZoteroFulltextPayload,
   ZoteroObjectRef,
+  ZoteroRetrieveAttachment,
+  ZoteroRetrieveAttachmentStatus,
   ZoteroRetrieveRequest,
   ZoteroRetrieveResult,
 } from '../types.js'
@@ -164,6 +166,7 @@ export async function retrieve(
   let attachmentRef: string | undefined
   let attachmentContentType: string | undefined
   let coverage: ZoteroCoverage | undefined
+  let attachments: ZoteroRetrieveAttachment[] | undefined
   const passages: {
     source: ZoteroEvidenceSource
     sourceRef: string
@@ -248,10 +251,26 @@ export async function retrieve(
         contentType: candidate.contentType,
       }))
     } else {
+      // One attachment contributes once: the same text entering the corpus
+      // twice would read as two sources agreeing with each other. The set is
+      // taken before the cap so a list that repeats one ref is not rejected
+      // as if it named many.
+      const wanted = new Map<string, ZoteroObjectRef>()
+      for (const attachmentRef of request.attachmentRefs!) {
+        const identity = `${attachmentRef.library.type}/${attachmentRef.library.id}/${attachmentRef.key}?${attachmentRef.serverId ?? ''}`
+        if (!wanted.has(identity)) wanted.set(identity, attachmentRef)
+      }
+      if (wanted.size > ZOTERO_RETRIEVE_ATTACHMENT_CAP) {
+        throw new ZoteroError(
+          `attachmentRefs lists ${wanted.size} attachments; at most ${ZOTERO_RETRIEVE_ATTACHMENT_CAP} can enter one ranking — split the work across calls.`,
+          ZOTERO_INVALID_ARGUMENT,
+        )
+      }
       candidates = await mapWithConcurrency(
-        request.attachmentRefs!,
+        [...wanted.values()],
         ZOTERO_GRAPH_CONCURRENCY,
-        async (wanted): Promise<{ key: string; contentType?: string }> => {
+        async (attachmentRef): Promise<{ key: string; contentType?: string }> => {
+          const wanted = attachmentRef
           // The ref is a claim about where this text comes from. Reading a
           // same-key object out of the wrong library or the wrong database
           // would attach a stranger's words to this item, so the claim is
@@ -294,8 +313,8 @@ export async function retrieve(
         },
       )
     }
-    // One attachment contributes once: the same text entering the corpus
-    // twice would read as two sources agreeing with each other.
+    // An `allIndexed` selection can repeat a key only if the listing did; the
+    // set is taken for both policies so no attachment enters the corpus twice.
     const unique = new Map<string, { key: string; contentType?: string }>()
     for (const candidate of candidates) {
       if (!unique.has(candidate.key)) unique.set(candidate.key, candidate)
@@ -304,80 +323,48 @@ export async function retrieve(
     if (candidates.length === 0) {
       skipped.push('fulltext')
     } else {
-      const fetched = await mapWithConcurrency(
-        candidates,
-        ZOTERO_GRAPH_CONCURRENCY,
-        async (candidate) => {
-          try {
-            return {
-              candidate,
-              payload: await fetchFulltext(
-                deps,
-                candidate.key,
-                ref.library as SupportedLocalLibrary,
-                serverId,
-                signal,
-              ),
-            }
-          } catch (error) {
-            // An unindexed member of the set degrades alone; only an
-            // entirely unindexed set reads as a skipped source.
-            if (error instanceof ZoteroError && error.code === ZOTERO_NO_FULLTEXT) {
-              return { candidate, payload: undefined }
-            }
-            throw error
-          }
-        },
-      )
-      const indexed = fetched.filter(
-        (entry): entry is typeof entry & { payload: ZoteroFulltextPayload } =>
-          entry.payload !== undefined,
+      const sources = await readFulltextSources(deps, ref, serverId, candidates, signal)
+      const indexed = sources.filter(
+        (source): source is Extract<FulltextSource, { status: 'indexed' }> =>
+          source.status === 'indexed',
       )
       if (indexed.length === 0) skipped.push('fulltext')
-      for (const { candidate, payload } of indexed) {
+      for (const source of indexed) {
         const passageAttachmentRef = formatRef(
-          refForLibrary(
-            ref.library as SupportedLocalLibrary,
-            'attachment',
-            candidate.key,
-            serverId,
-          ),
+          refForLibrary(ref.library as SupportedLocalLibrary, 'attachment', source.key, serverId),
         )
-        const content = typeof payload.content === 'string' ? payload.content : ''
-        const bounded = truncateText(content, deps.limits.maxFulltextChars)
-        fulltextWasCut = fulltextWasCut || bounded.truncated
-        const chunks = chunkText(
-          bounded.text,
-          deps.limits.fulltextChunkWords,
-          deps.limits.maxEvidenceChars,
-        )
-        for (const chunk of chunks) {
+        fulltextWasCut = fulltextWasCut || source.inputTruncated
+        for (const chunk of source.chunks) {
           passages.push({
             source: 'fulltext',
             sourceRef: passageAttachmentRef,
             text: chunk.text,
             chunkIndex: chunk.index,
-            chunkCount: chunks.length,
+            chunkCount: source.chunks.length,
           })
         }
       }
+      attachments = sources.map((source) => ({
+        ref: formatRef(
+          refForLibrary(ref.library as SupportedLocalLibrary, 'attachment', source.key, serverId),
+        ),
+        ...(source.contentType === undefined || source.contentType === ''
+          ? {}
+          : { contentType: source.contentType }),
+        ...attachmentFactOf(source),
+      }))
       // Result-level provenance stays unambiguous: with exactly one
       // contributing attachment it names that file; with several, the
       // per-passage refs carry the mapping.
       if (indexed.length === 1) {
-        const { candidate, payload } = indexed[0]!
+        const source = indexed[0]!
         attachmentRef = formatRef(
-          refForLibrary(
-            ref.library as SupportedLocalLibrary,
-            'attachment',
-            candidate.key,
-            serverId,
-          ),
+          refForLibrary(ref.library as SupportedLocalLibrary, 'attachment', source.key, serverId),
         )
-        if (candidate.contentType !== undefined && candidate.contentType !== '') {
-          attachmentContentType = candidate.contentType
+        if (source.contentType !== undefined && source.contentType !== '') {
+          attachmentContentType = source.contentType
         }
-        coverage = normalizeCoverage(payload)
+        coverage = source.coverage
       }
     }
   }
@@ -502,10 +489,126 @@ export async function retrieve(
     ...(attachmentRef !== undefined ? { attachmentRef } : {}),
     ...(attachmentContentType !== undefined ? { attachmentContentType } : {}),
     ...(coverage !== undefined ? { coverage } : {}),
+    ...(attachments !== undefined ? { attachments } : {}),
     evidence,
     truncated,
     sourcesSkipped,
   }
+}
+
+/**
+ * One full-text source of a retrieval and what reading it produced. The arms
+ * carry exactly what their status can prove: an indexed source has Zotero's
+ * coverage facts, the payload, its accepted chunks and whether this call's
+ * budget cut it; an unindexed or unread one has nothing to report beyond the
+ * fact that it contributed no text.
+ */
+type FulltextSource = {
+  readonly key: string
+  readonly contentType?: string
+} & (
+  | {
+      readonly status: 'indexed'
+      readonly coverage: ZoteroCoverage
+      readonly payload: ZoteroFulltextPayload
+      readonly inputTruncated: boolean
+      readonly chunks: readonly EvidenceChunk[]
+    }
+  | { readonly status: 'unindexed' }
+  | { readonly status: 'unread' }
+)
+
+/**
+ * The per-source fact a result reports for one considered attachment: an
+ * indexed source carries what it gave, the others carry only their status,
+ * which is itself the finding ("Zotero's index has no text for this file" /
+ * "this call did not read it").
+ */
+function attachmentFactOf(source: FulltextSource): {
+  status: ZoteroRetrieveAttachmentStatus
+  coverage?: ZoteroCoverage
+  inputTruncated?: boolean
+  passages?: number
+} {
+  if (source.status !== 'indexed') return { status: source.status }
+  return {
+    status: 'indexed',
+    coverage: source.coverage,
+    inputTruncated: source.inputTruncated,
+    passages: source.chunks.length,
+  }
+}
+
+/**
+ * Read every candidate attachment's full text and cut each one to its share
+ * of the call's input budget.
+ *
+ * Three bounds meet here, all of them about the call rather than the work:
+ * at most {@link ZOTERO_RETRIEVE_ATTACHMENT_CAP} attachments are read at all
+ * (the rest report `unread` instead of silently vanishing), the whole call
+ * accepts at most `maxFulltextChars` characters — split evenly across the
+ * sources it reads, so no single file can starve the others and the result
+ * does not depend on which read finished first — and an unindexed member
+ * degrades alone rather than failing the call. Each file is chunked as it
+ * arrives, so its full text is released instead of being held for a ranking
+ * pass at the end.
+ */
+async function readFulltextSources(
+  deps: { client: ZoteroHttpClient; limits: LocalApiLimits },
+  ref: ZoteroObjectRef,
+  serverId: string | undefined,
+  candidates: readonly { key: string; contentType?: string }[],
+  signal: AbortSignal | undefined,
+): Promise<FulltextSource[]> {
+  const read = candidates.slice(0, ZOTERO_RETRIEVE_ATTACHMENT_CAP)
+  const perSourceChars = Math.max(1, Math.floor(deps.limits.maxFulltextChars / read.length))
+  const results = await mapWithConcurrency(
+    read,
+    ZOTERO_GRAPH_CONCURRENCY,
+    async (candidate): Promise<FulltextSource> => {
+      const base = {
+        key: candidate.key,
+        ...(candidate.contentType !== undefined ? { contentType: candidate.contentType } : {}),
+      }
+      let payload: ZoteroFulltextPayload
+      try {
+        payload = await fetchFulltext(
+          deps,
+          candidate.key,
+          ref.library as SupportedLocalLibrary,
+          serverId,
+          signal,
+        )
+      } catch (error) {
+        if (error instanceof ZoteroError && error.code === ZOTERO_NO_FULLTEXT) {
+          return { ...base, status: 'unindexed' }
+        }
+        throw error
+      }
+      const content = typeof payload.content === 'string' ? payload.content : ''
+      const bounded = truncateText(content, perSourceChars)
+      return {
+        ...base,
+        status: 'indexed',
+        coverage: normalizeCoverage(payload),
+        inputTruncated: bounded.truncated,
+        chunks: chunkText(
+          bounded.text,
+          deps.limits.fulltextChunkWords,
+          deps.limits.maxEvidenceChars,
+        ),
+        payload,
+      }
+    },
+  )
+  return [
+    ...results,
+    ...candidates.slice(ZOTERO_RETRIEVE_ATTACHMENT_CAP).map((candidate): FulltextSource => ({
+      key: candidate.key,
+      ...(candidate.contentType !== undefined ? { contentType: candidate.contentType } : {}),
+      status: 'unread',
+    })),
+  ]
 }
 
 /**

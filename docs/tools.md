@@ -84,7 +84,7 @@ zotero_get(ref="zotero://user/0/item/ABC123", include=["notes", "annotations"])
 
 ### 输出
 
-`ref`, `attachmentRef`, `attachmentContentType`, `coverage`（indexedChars/totalChars/complete 等）, `evidence`（source, sourceRef, text, chunkIndex, chunkCount, comment, pageLabel, matchedFields）, `truncated`, `sourcesSkipped`
+`ref`, `attachmentRef`, `attachmentContentType`, `coverage`（indexedChars/totalChars/complete 等）, `attachments`（多附件策略下逐个附件的事实）, `evidence`（source, sourceRef, text, chunkIndex, chunkCount, comment, pageLabel, matchedFields）, `truncated`, `sourcesSkipped`
 
 ### 注意事项
 
@@ -97,6 +97,8 @@ zotero_get(ref="zotero://user/0/item/ABC123", include=["notes", "annotations"])
 - 需要另一条目的全文时按该条目单独调用 `zotero_retrieve`，而不是把它挂到当前条目的证据里
 - 排序用的词元与 Zotero 搜索使用同一套折叠（音调符号、排版引号/破折号、NFKD 分解），所以 `cafe` 能命中正文里的 `café`；返回的段落文本始终是原文，不被改写
 - 批注按"高亮原文 + 读者评论"一起参与排序，所以只写了评论、没有选中文字的批注也能被检索到；`matchedFields` 标明命中来自 `text` 还是 `comment`，只有评论命中时结果会明确提示那是批注者的话、不是论文原文（其余来源只有单一文本字段，不带该字段）
+- 多附件策略（`allIndexed` / `specified`）下 `attachments` 逐个列出这次真正考虑的全文来源：`indexed`（读到全文，附 `coverage`、`passages`、是否被字符预算截断）、`unindexed`（Zotero 索引里没有该文件）、`unread`（本次达到附件上限未读）。因此"补充材料没有索引"表现为明确缺口，而不是"其中没有相关内容"
+- `maxFulltextChars` 是**单次调用**的全文输入预算，在本次读取的附件之间均分：单个附件时即全额；多附件时各自按份内额度截断，并在 `attachments[].inputTruncated` 与 `truncated` 上报告。单次调用最多读取 16 个附件（见上）
 
 ### 示例
 

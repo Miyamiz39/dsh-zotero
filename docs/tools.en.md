@@ -84,7 +84,7 @@ Collect and query-rank evidence passages for a single item. Sources include: Zot
 
 ### Output
 
-`ref`, `attachmentRef`, `attachmentContentType`, `coverage` (indexedChars/totalChars/complete etc.), `evidence` (source, sourceRef, text, chunkIndex, chunkCount, comment, pageLabel, matchedFields), `truncated`, `sourcesSkipped`
+`ref`, `attachmentRef`, `attachmentContentType`, `coverage` (indexedChars/totalChars/complete etc.), `attachments` (per-source facts under the multi-attachment policies), `evidence` (source, sourceRef, text, chunkIndex, chunkCount, comment, pageLabel, matchedFields), `truncated`, `sourcesSkipped`
 
 ### Notes
 
@@ -97,6 +97,8 @@ Collect and query-rank evidence passages for a single item. Sources include: Zot
 - To gather evidence from another item, call `zotero_retrieve` for that item instead of attaching its files to this item's evidence
 - Ranking tokens are folded exactly as Zotero's own search folds text (diacritics, typographic quotes and dashes, NFKD decomposition), so `cafe` matches `café` in a passage; the passage text returned is always the original
 - An annotation ranks on its highlight and its reader comment together, so a comment-only annotation (no selected text) is still findable. `matchedFields` says whether the match came from `text` or `comment`, and a comment-only hit states plainly that those are the annotator's words rather than the paper's text; single-text sources carry no such field
+- Under the multi-attachment policies (`allIndexed` / `specified`) `attachments` lists every full-text source the call actually considered: `indexed` (full text read, with `coverage`, `passages`, and whether the character budget cut it), `unindexed` (Zotero's index has no text for that file), `unread` (not read — the call was already at its attachment limit). An unindexed supplement therefore reads as a named gap, never as "the supplement says nothing"
+- `maxFulltextChars` is the whole call's full-text input budget, shared evenly across the attachments it reads: a single source gets all of it, several are each cut to their share, reported per file in `attachments[].inputTruncated` and once in `truncated`. One call reads at most 16 attachments (see above)
 
 ### Example
 

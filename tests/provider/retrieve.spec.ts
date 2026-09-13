@@ -577,6 +577,152 @@ describe('retrieve', () => {
     ])
     // One contributor survived, so the set did not count as a skipped source.
     expect(result.sourcesSkipped).toEqual([])
+    // Every member is reported on, so an unindexed supplement reads as a gap
+    // rather than as a file with nothing to say. Selection order is the
+    // deterministic PDF ranking, so SECD0001 leads.
+    expect(result.attachments).toEqual([
+      {
+        ref: 'zotero://user/0/attachment/SECD0001',
+        contentType: 'application/pdf',
+        status: 'indexed',
+        coverage: { complete: false },
+        inputTruncated: false,
+        passages: 1,
+      },
+      {
+        ref: 'zotero://user/0/attachment/WXYZ6789',
+        contentType: 'application/pdf',
+        status: 'unindexed',
+      },
+    ])
+  })
+
+  it('splits the call character budget across the attachments it reads', async () => {
+    const long = 'tiling '.repeat(400)
+    const secondPdf = {
+      key: 'SECD0001',
+      data: {
+        itemType: 'attachment',
+        title: 'Author Manuscript',
+        contentType: 'application/pdf',
+        linkMode: 'imported_file',
+      },
+    }
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json({ ...RETRIEVE_PARENT, links: { self: RETRIEVE_PARENT.links.self } }),
+    )
+    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
+      helpers.json([...RETRIEVE_CHILDREN, secondPdf]),
+    )
+    mock.route(
+      'GET',
+      /^\/api\/users\/0\/items\/(SECD0001|WXYZ6789)\/fulltext$/,
+      (req, res, helpers) => helpers.json({ content: long, indexedChars: 10, totalChars: 10 }),
+    )
+    const capped = makeProvider({ maxFulltextChars: 100 })
+    const result = await capped.retrieve(
+      retrieveRequest({
+        sources: ['fulltext'],
+        query: 'tiling',
+        passages: 4,
+        attachmentPolicy: 'allIndexed',
+      }),
+    )
+    // Two sources, 100 characters to share: each file is cut to 50, and the
+    // call says so per file and in its own truncated flag.
+    expect(result.attachments?.map((entry) => entry.inputTruncated)).toEqual([true, true])
+    expect(result.attachments?.every((entry) => (entry.passages ?? 0) > 0)).toBe(true)
+    expect(result.evidence.every((entry) => entry.text.length <= 50)).toBe(true)
+    expect(result.truncated).toBe(true)
+  })
+
+  it('reports attachments beyond the per-call limit as unread', async () => {
+    const many = Array.from({ length: 17 }, (_, index) => ({
+      key: `PDF${String(index).padStart(5, '0')}`,
+      data: {
+        itemType: 'attachment',
+        title: `File ${index}`,
+        contentType: 'application/pdf',
+        linkMode: 'imported_file',
+        parentItem: 'ABCD1234',
+      },
+    }))
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json({ ...RETRIEVE_PARENT, links: { self: RETRIEVE_PARENT.links.self } }),
+    )
+    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
+      helpers.json(many),
+    )
+    mock.route('GET', /^\/api\/users\/0\/items\/PDF\d{5}\/fulltext$/, (req, res, helpers) =>
+      helpers.json({ content: 'tiling strategies' }),
+    )
+    const result = await provider.retrieve(
+      retrieveRequest({
+        sources: ['fulltext'],
+        query: 'tiling',
+        passages: 4,
+        attachmentPolicy: 'allIndexed',
+      }),
+    )
+    expect(result.attachments).toHaveLength(17)
+    expect(result.attachments?.filter((entry) => entry.status === 'indexed')).toHaveLength(16)
+    expect(result.attachments?.filter((entry) => entry.status === 'unread')).toHaveLength(1)
+    // The 17th file was never fetched: the cap bounds the call's work.
+    expect(mock.requests.filter((entry) => entry.pathname.endsWith('/fulltext'))).toHaveLength(16)
+  })
+
+  it('reports a specified attachment whose row states no content type', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT),
+    )
+    mock.route('GET', '/api/users/0/items/LINK0001', (req, res, helpers) =>
+      helpers.json({
+        key: 'LINK0001',
+        data: { itemType: 'attachment', parentItem: 'ABCD1234', linkMode: 'linked_url' },
+      }),
+    )
+    mock.route('GET', '/api/users/0/items/LINK0001/fulltext', (req, res, helpers) =>
+      helpers.json({ content: 'linked page mentions tiling' }),
+    )
+    const result = await provider.retrieve(
+      retrieveRequest({
+        sources: ['fulltext'],
+        query: 'tiling',
+        attachmentPolicy: 'specified',
+        attachmentRefs: [parseRef('zotero://user/0/attachment/LINK0001')],
+      }),
+    )
+    // No content type to state: the field is absent rather than empty.
+    expect(result.attachments).toEqual([
+      {
+        ref: 'zotero://user/0/attachment/LINK0001',
+        status: 'indexed',
+        inputTruncated: false,
+        passages: 1,
+        coverage: { complete: false },
+      },
+    ])
+  })
+
+  it('refuses a specified list longer than the per-call limit before reading anything', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT),
+    )
+    const refs = Array.from({ length: 17 }, (_, index) =>
+      parseRef(`zotero://user/0/attachment/A${String(index).padStart(7, '0')}`),
+    )
+    await zoteroError(
+      provider.retrieve(
+        retrieveRequest({
+          sources: ['fulltext'],
+          attachmentPolicy: 'specified',
+          attachmentRefs: refs,
+        }),
+      ),
+      ZOTERO_INVALID_ARGUMENT,
+      'at most 16 can enter one ranking',
+    )
+    expect(mock.requests.map((entry) => entry.pathname)).toEqual(['/api/users/0/items/ABCD1234'])
   })
 
   it('reports allIndexed as skipped when every PDF is unindexed', async () => {

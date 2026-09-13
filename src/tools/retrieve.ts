@@ -101,6 +101,31 @@ const EVIDENCE_RECORD = {
   },
 } as const
 
+const COVERAGE_RECORD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    indexedPages: { type: 'integer' },
+    totalPages: { type: 'integer' },
+    indexedChars: { type: 'integer' },
+    totalChars: { type: 'integer' },
+    complete: { type: 'boolean', required: true },
+  },
+} as const
+
+const ATTACHMENT_RECORD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    ref: { type: 'string', required: true },
+    contentType: { type: 'string' },
+    status: { type: 'string', enum: ['indexed', 'unindexed', 'unread'], required: true },
+    coverage: COVERAGE_RECORD,
+    inputTruncated: { type: 'boolean' },
+    passages: { type: 'integer' },
+  },
+} as const
+
 const RETRIEVE_OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -108,17 +133,8 @@ const RETRIEVE_OUTPUT_SCHEMA = {
     ref: { type: 'string', required: true },
     attachmentRef: { type: 'string' },
     attachmentContentType: { type: 'string' },
-    coverage: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        indexedPages: { type: 'integer' },
-        totalPages: { type: 'integer' },
-        indexedChars: { type: 'integer' },
-        totalChars: { type: 'integer' },
-        complete: { type: 'boolean', required: true },
-      },
-    },
+    coverage: COVERAGE_RECORD,
+    attachments: { type: 'array', items: ATTACHMENT_RECORD },
     evidence: { type: 'array', required: true, items: EVIDENCE_RECORD },
     truncated: { type: 'boolean', required: true },
     sourcesSkipped: {
@@ -205,6 +221,24 @@ function matchLine(fields: readonly ZoteroEvidenceField[]): string {
   return `Matched in: ${where}${onlyComment}`
 }
 
+/** One full-text source's own facts: what it is, what it gave, what it could not. */
+function attachmentSourceLine(source: NonNullable<RetrieveOutput['attachments']>[number]): string {
+  const type = source.contentType === undefined ? '' : ` (${source.contentType})`
+  if (source.status === 'unindexed') {
+    return `${source.ref}${type}: no full text in Zotero's index`
+  }
+  if (source.status === 'unread') {
+    return `${source.ref}${type}: not read — this call was already at its attachment limit`
+  }
+  const chars =
+    source.coverage?.indexedChars === undefined
+      ? ''
+      : `, ${source.coverage.indexedChars}/${source.coverage.totalChars ?? '?'} chars indexed`
+  const cut =
+    source.inputTruncated === true ? ', text cut by this call\u2019s character budget' : ''
+  return `${source.ref}${type}: ${source.passages ?? 0} passages${chars}${cut}`
+}
+
 export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): ContentBlock[] {
   const lines = [
     `Evidence for ${value.ref} (${value.evidence.length} passage${value.evidence.length === 1 ? '' : 's'})`,
@@ -230,6 +264,19 @@ export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): Cont
         ? ''
         : `, ${coverage.indexedPages}/${coverage.totalPages ?? '?'} pages`
     lines.push(`Indexing coverage: ${chars}${pages}${coverage.complete ? ' (complete)' : ''}`)
+  }
+  if (value.attachments !== undefined) {
+    const total = value.attachments.length
+    const silent = value.attachments.filter((source) => source.status !== 'indexed').length
+    lines.push(
+      `\nFull-text sources read (${total - silent} of ${total}):`,
+      ...value.attachments.map((source) => `  - ${attachmentSourceLine(source)}`),
+    )
+    if (silent > 0) {
+      lines.push(
+        `${silent} of these ${total} attachments contributed no text, so whatever they contain is not covered here.`,
+      )
+    }
   }
   value.evidence.forEach((entry) => {
     const page =

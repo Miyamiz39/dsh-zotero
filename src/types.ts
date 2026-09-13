@@ -335,6 +335,33 @@ export interface ZoteroEvidence {
   matchedFields?: ZoteroEvidenceField[]
 }
 
+/**
+ * How one attachment of a multi-attachment retrieval was accounted for:
+ * `indexed` — its full text was read and entered the ranking; `unindexed` —
+ * Zotero's index has no full text for it; `unread` — this call did not read
+ * it, because the per-call attachment cap was already reached.
+ */
+export type ZoteroRetrieveAttachmentStatus = 'indexed' | 'unindexed' | 'unread'
+
+/**
+ * One full-text source a multi-attachment retrieval considered, whether or
+ * not it contributed text. The record exists so a source that produced
+ * nothing is visible instead of absent: a work whose supplement is
+ * unindexed reads as "the supplement is not covered here", never as
+ * "the supplement has nothing on this".
+ */
+export interface ZoteroRetrieveAttachment {
+  ref: string
+  contentType?: string
+  status: ZoteroRetrieveAttachmentStatus
+  /** Zotero's own indexing coverage for this file; present when indexed. */
+  coverage?: ZoteroCoverage
+  /** True when this file's share of the call's character budget cut its text. */
+  inputTruncated?: boolean
+  /** Passages this file contributed to the ranked corpus, returned or not. */
+  passages?: number
+}
+
 /** Full-text indexing coverage as reported by Zotero; `complete` is derived. */
 export interface ZoteroCoverage {
   indexedPages?: number
@@ -355,6 +382,12 @@ export interface ZoteroRetrieveResult {
   /** The content type of the attachment `attachmentRef` points at; absent when Zotero reported none. */
   attachmentContentType?: string
   coverage?: ZoteroCoverage
+  /**
+   * Every full-text source a multi-attachment policy considered, with its
+   * status and what it contributed. Absent under `best`, whose single
+   * source is already named by `attachmentRef`/`coverage`.
+   */
+  attachments?: ZoteroRetrieveAttachment[]
   evidence: ZoteroEvidence[]
   truncated: boolean
   /** Requested sources the item could not provide; retrieval degrades instead of failing. */

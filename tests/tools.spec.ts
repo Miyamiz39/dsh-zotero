@@ -1217,6 +1217,69 @@ describe('zotero_retrieve render', () => {
     expect(text).toContain('Skipped unavailable sources: fulltext')
   })
 
+  it('renders the note-body scan limit and the per-source character cut', () => {
+    const capped = render({
+      ref: 'zotero://user/0/attachment/SECD0001',
+      coverage: { indexedChars: 1000, totalChars: 1200, complete: false },
+      evidence: [
+        {
+          source: 'fulltext',
+          sourceRef: 'zotero://user/0/attachment/SECD0001',
+          text: 'cut text',
+          chunkIndex: 0,
+          chunkCount: 1,
+        },
+      ],
+      attachments: [
+        {
+          ref: 'zotero://user/0/attachment/SECD0001',
+          contentType: 'application/pdf',
+          status: 'indexed',
+          coverage: { indexedChars: 1000, totalChars: 1200, complete: false },
+          inputTruncated: true,
+          passages: 24,
+        },
+        { ref: 'zotero://user/0/attachment/WXYZ6789', status: 'indexed', passages: 3 },
+        {
+          ref: 'zotero://user/0/attachment/WXYZ6789',
+          contentType: 'application/pdf',
+          status: 'unindexed',
+        },
+        { ref: 'zotero://user/0/attachment/THRD0001', status: 'unread' },
+      ],
+      truncated: true,
+      sourcesSkipped: [],
+    } as never)
+    expect(capped).toContain('Full-text sources read (2 of 4):')
+    expect(capped).toContain(
+      '  - zotero://user/0/attachment/SECD0001 (application/pdf): 24 passages, 1000/1200 chars indexed, text cut by this call\u2019s character budget',
+    )
+    // A source with no reported counts still names what it gave.
+    expect(capped).toContain('  - zotero://user/0/attachment/WXYZ6789: 3 passages')
+    expect(capped).toContain("no full text in Zotero's index")
+    expect(capped).toContain('not read — this call was already at its attachment limit')
+    expect(capped).toContain(
+      '2 of these 4 attachments contributed no text, so whatever they contain is not covered here.',
+    )
+
+    // A count without its total is stated as unknown, never guessed.
+    const partial = render({
+      ref: 'zotero://user/0/attachment/SECD0001',
+      attachments: [
+        {
+          ref: 'zotero://user/0/attachment/SECD0001',
+          status: 'indexed',
+          coverage: { indexedChars: 5, complete: false },
+          passages: 1,
+        },
+      ],
+      evidence: [],
+      truncated: false,
+      sourcesSkipped: [],
+    } as never)
+    expect(partial).toContain('1 passages, 5/? chars indexed')
+  })
+
   it('announces omitted evidence and the fulltext attachment', () => {
     const text = render({
       ref: 'zotero://user/0/item/ABCD1234',
