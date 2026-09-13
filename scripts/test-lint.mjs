@@ -59,7 +59,7 @@ const ALLOWED_CONTROL = new Set([0x09, 0x0a, 0x0d])
  * commit that splits a file, never preemptively.
  * Target once the split of the search spec lands: 800.
  */
-const MAX_SPEC_LINES = 1057
+const MAX_SPEC_LINES = 886
 
 /**
  * Ratchet: the directories a spec may live in, relative to `tests/`. Each lane

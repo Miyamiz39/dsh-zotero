@@ -21,7 +21,30 @@ export default defineConfig({
         'src/client/css-modules.d.ts',
         'src/client/sources/model.ts',
       ],
+      // Thresholds are **ratchets per layer**, not aspirations: each number is
+      // set just under what that layer measures today, so any drop fails while
+      // no one is asked to write a test for a number's sake.
+      //
+      // One global average was the wrong instrument. `src/local` branches sat
+      // at 94.82% while the global read 96.43% — a layer below its own gate,
+      // hidden by layers far above it. The same averaging is what produced two
+      // spec files named after the coverage they raised; the layers now carry
+      // their own floor, and the two lowest are named in the open rather than
+      // averaged away.
+      //
+      // Raising any of these is a separate decision with its own evidence: a
+      // layer earns a higher floor by specifying more behavior, never by
+      // touching branches to satisfy the number.
       thresholds: {
+        'src/*.ts': { statements: 98, branches: 97, functions: 99, lines: 98 },
+        'src/local/**': { statements: 98, branches: 93, functions: 99, lines: 98 },
+        'src/tools/**': { statements: 98, branches: 95, functions: 99, lines: 99 },
+        'src/client/sources/**': { statements: 96, branches: 94, functions: 97, lines: 97 },
+        // The weakest layer, and the reason a single global number hid the
+        // shape of the suite: UI rendering leaves branches that only a test
+        // written to touch them would reach.
+        'src/client/components/**': { statements: 91, branches: 92, functions: 99, lines: 93 },
+        'src/client/**': { statements: 97, branches: 96, functions: 97, lines: 97 },
         statements: 97,
         branches: 95,
         functions: 98,
