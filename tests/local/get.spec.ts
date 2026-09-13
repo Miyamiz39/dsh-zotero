@@ -12,8 +12,17 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ZOTERO_FILE_MISSING, ZOTERO_NO_ATTACHMENT } from '../../src/errors.js'
 import { type LocalApiProvider } from '../../src/local/provider.js'
+import {
+  attachmentTypeMessage,
+  missingAttachmentFileMessage,
+  missingLinkedUrlMessage,
+  noAttachmentToResolveMessage,
+  noUsableFileLocationMessage,
+  notAWebLocationMessage,
+  unsupportedAttachmentProtocolMessage,
+} from '../../src/local/attachment-location.js'
 import type { LocalApiLimits } from '../../src/local/limits.js'
-import { parseRef } from '../../src/refs.js'
+import { expectedKindRefMessage, foreignUserRefMessage, parseRef } from '../../src/refs.js'
 import {
   createProvider,
   getRequest,
@@ -265,7 +274,7 @@ describe('getItem', () => {
         include: new Set(),
       }),
       'ZOTERO_INVALID_REF',
-      'Expected a item reference',
+      expectedKindRefMessage(['item'], 'attachment'),
     )
     expectRequestCount(mock, 0)
   })
@@ -303,7 +312,7 @@ describe('getAttachmentLocation', () => {
     const error = await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_FILE_MISSING,
-      'missing from disk',
+      missingAttachmentFileMessage(join(tempDir, 'gone.pdf')),
     )
     expect(error.message).toContain('gone.pdf')
   })
@@ -337,7 +346,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'reported none',
+      missingLinkedUrlMessage(ATTACHMENT_KEY),
     )
   })
 
@@ -350,7 +359,7 @@ describe('getAttachmentLocation', () => {
     const error = await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'not an attachment',
+      attachmentTypeMessage('note'),
     )
     expect(error.message).toContain('note')
     expectRequestCount(mock, 1)
@@ -362,7 +371,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'no usable file location',
+      noUsableFileLocationMessage(ATTACHMENT_KEY),
     )
   })
 
@@ -388,7 +397,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'unsupported protocol',
+      unsupportedAttachmentProtocolMessage('ftp:', ['file:', 'http:', 'https:']),
     )
   })
 
@@ -398,7 +407,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'unsupported protocol',
+      unsupportedAttachmentProtocolMessage('javascript:', ['file:', 'http:', 'https:']),
     )
   })
 
@@ -408,7 +417,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'no usable file location',
+      noUsableFileLocationMessage(ATTACHMENT_KEY),
     )
   })
 
@@ -427,7 +436,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'unsupported protocol',
+      unsupportedAttachmentProtocolMessage('javascript:', ['http:', 'https:']),
     )
   })
 
@@ -446,7 +455,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'unsupported protocol',
+      unsupportedAttachmentProtocolMessage('file:', ['http:', 'https:']),
     )
   })
 
@@ -465,7 +474,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
-      'not a usable web location',
+      notAWebLocationMessage(ATTACHMENT_KEY),
     )
   })
 
@@ -473,7 +482,7 @@ describe('getAttachmentLocation', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef('zotero://user/123/attachment/WXYZ6789')),
       'ZOTERO_INVALID_REF',
-      'user/0',
+      foreignUserRefMessage(parseRef('zotero://user/123/attachment/WXYZ6789')),
     )
     expectRequestCount(mock, 0)
   })
@@ -545,7 +554,7 @@ describe('getAttachmentLocation via item refs', () => {
     await zoteroError(
       provider.getAttachmentLocation(parseRef(itemRef())),
       ZOTERO_NO_ATTACHMENT,
-      'no attachment',
+      noAttachmentToResolveMessage(ITEM_KEY),
     )
   })
 

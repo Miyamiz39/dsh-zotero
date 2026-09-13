@@ -22,6 +22,7 @@ import {
   NOT_RUNNING_MESSAGE,
   RANGE_UNSUPPORTED_MESSAGE,
   SERVER_MISMATCH_MESSAGE,
+  TOOL_ABORTED_MESSAGE,
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
   ZOTERO_NOT_FOUND,
@@ -63,6 +64,69 @@ export interface ZoteroHttpResponse {
   readonly headers: Headers
 }
 
+/** Shown when the provider deadline elapses before Zotero answers. */
+export function requestTimeoutMessage(timeoutMs: number): string {
+  return `Zotero did not respond within ${timeoutMs} ms.`
+}
+
+/** Shown when a transport failure carries no more specific diagnosis. */
+export const UNEXPECTED_REQUEST_MESSAGE = 'Zotero local API request failed unexpectedly.'
+
+/** Shown when Zotero answers a request with a redirect, which this client refuses to follow. */
+export const REDIRECT_REFUSED_MESSAGE =
+  'Zotero responded with a redirect, which this plugin refuses to follow.'
+
+/** Shown when the requested object is not in the library. */
+export const OBJECT_NOT_FOUND_MESSAGE = 'Zotero did not find the requested object.'
+
+/** Shown when Zotero answers with an HTTP status this client has no translation for. */
+export function httpStatusMessage(status: number): string {
+  return `Zotero local API returned HTTP ${status}.`
+}
+
+/** Shown when a response body is not the JSON the API documents. */
+export const UNPARSEABLE_RESPONSE_MESSAGE = 'Zotero returned an unparseable response.'
+
+/** Shown when a response passes the byte bound while streaming. */
+export function responseTooLargeMessage(maxResponseBytes: number): string {
+  return `Zotero response exceeded the ${maxResponseBytes}-byte limit.`
+}
+
+/**
+ * The remedy when the running Zotero refused a version older than its own: it
+ * is newer than this plugin line, so the plugin is the side to update.
+ */
+export const NEWER_ZOTERO_ROUTE_MESSAGE =
+  'The running Zotero is newer than this plugin line: update dsh-zotero to a version that speaks its local API version.'
+
+/** The remedy when the running Zotero is older than the refused version. */
+export function upgradeZoteroRouteMessage(requiredVersion: string): string {
+  return `Upgrade Zotero to a version whose local API supports version ${requiredVersion}.`
+}
+
+/**
+ * Shown when Zotero's local API does not implement the API version this plugin
+ * requires. Both sides are named — the version Zotero refused and the version
+ * it answered as — because the direction decides which side has to move.
+ */
+export function apiVersionMismatchMessage(rejected: string, serverVersion: string | null): string {
+  const speaks = serverVersion === null ? 'an unnamed version' : `version ${serverVersion}`
+  const route =
+    serverVersion !== null && Number(serverVersion) > Number(rejected)
+      ? NEWER_ZOTERO_ROUTE_MESSAGE
+      : upgradeZoteroRouteMessage(ZOTERO_LOCAL_API_VERSION)
+  return `Zotero does not implement local API version ${rejected}, which this plugin requires; it answers as ${speaks}. ${route}`
+}
+
+/**
+ * Shown when a 501 is about the endpoint or its output format rather than the
+ * API version. `path` is the API-relative path that was refused, so the model
+ * knows which call this build cannot serve.
+ */
+export function notImplementedRequestMessage(path: string): string {
+  return `Zotero's local API does not implement the request this plugin made (${path}), and it reports no API-version problem: the endpoint or its output format is not available in this build. The connection and the API version are fine.`
+}
+
 /**
  * Translate a `fetch` or body-read rejection. Caller cancellation and the
  * provider's own deadline win over transport heuristics; the deadline is
@@ -83,18 +147,18 @@ function translateFetchError(
     throw error
   }
   if (callerSignal?.aborted) {
-    throw new HarnessError('tool call aborted', TOOL_ABORTED)
+    throw new HarnessError(TOOL_ABORTED_MESSAGE, TOOL_ABORTED)
   }
   const timeout = timeoutOf(signal, ZOTERO_TIMEOUT)
   if (timeout !== undefined) {
-    throw new ZoteroError(`Zotero did not respond within ${timeoutMs} ms.`, ZOTERO_TIMEOUT, {
+    throw new ZoteroError(requestTimeoutMessage(timeoutMs), ZOTERO_TIMEOUT, {
       cause: timeout,
     })
   }
   if (isUnreachableCause(error)) {
     throw new ZoteroError(NOT_RUNNING_MESSAGE, ZOTERO_NOT_RUNNING, { cause: errorCauseOf(error) })
   }
-  throw new ZoteroError('Zotero local API request failed unexpectedly.', ZOTERO_UNEXPECTED, {
+  throw new ZoteroError(UNEXPECTED_REQUEST_MESSAGE, ZOTERO_UNEXPECTED, {
     cause: errorCauseOf(error),
   })
 }
@@ -129,10 +193,7 @@ function translateHttpStatus(
   path: string,
 ): never {
   if (response.status >= 300 && response.status < 400) {
-    throw new ZoteroError(
-      'Zotero responded with a redirect, which this plugin refuses to follow.',
-      ZOTERO_UNEXPECTED,
-    )
+    throw new ZoteroError(REDIRECT_REFUSED_MESSAGE, ZOTERO_UNEXPECTED)
   }
   switch (response.status) {
     case 403:
@@ -140,7 +201,7 @@ function translateHttpStatus(
     case 501:
       throw notImplementedError(response, notImplementedDetail, path)
     case 404:
-      throw new ZoteroError('Zotero did not find the requested object.', ZOTERO_NOT_FOUND)
+      throw new ZoteroError(OBJECT_NOT_FOUND_MESSAGE, ZOTERO_NOT_FOUND)
     case 409:
       // A versioned read older than the history the server keeps. Zotero's own
       // sync client reads a 409 on `/deleted` the same way ("'since' value is
@@ -149,7 +210,7 @@ function translateHttpStatus(
       // what to make of it.
       throw new ZoteroError(RANGE_UNSUPPORTED_MESSAGE, ZOTERO_RANGE_UNSUPPORTED)
     default:
-      throw new ZoteroError(`Zotero local API returned HTTP ${response.status}.`, ZOTERO_UNEXPECTED)
+      throw new ZoteroError(httpStatusMessage(response.status), ZOTERO_UNEXPECTED)
   }
 }
 
@@ -167,25 +228,11 @@ function translateHttpStatus(
 function notImplementedError(response: Response, detail: string, path: string): ZoteroError {
   const version = NOT_IMPLEMENTED_VERSION.exec(detail.trim())
   if (version === null) {
-    return new ZoteroError(
-      `Zotero's local API does not implement the request this plugin made (${path}), and it reports no API-version problem: the endpoint or its output format is not available in this build. The connection and the API version are fine.`,
-      ZOTERO_NOT_IMPLEMENTED,
-    )
+    return new ZoteroError(notImplementedRequestMessage(path), ZOTERO_NOT_IMPLEMENTED)
   }
   const rejected = version[1]!
   const serverVersion = response.headers.get(ZOTERO_API_VERSION_HEADER)
-  const speaks = serverVersion === null ? 'an unnamed version' : `version ${serverVersion}`
-  // The two directions need different fixes, and the answering build names
-  // which one this is: a build whose version is above the one it refused is
-  // newer than this plugin, not older.
-  const route =
-    serverVersion !== null && Number(serverVersion) > Number(rejected)
-      ? 'The running Zotero is newer than this plugin line: update dsh-zotero to a version that speaks its local API version.'
-      : `Upgrade Zotero to a version whose local API supports version ${ZOTERO_LOCAL_API_VERSION}.`
-  return new ZoteroError(
-    `Zotero does not implement local API version ${rejected}, which this plugin requires; it answers as ${speaks}. ${route}`,
-    ZOTERO_API_VERSION,
-  )
+  return new ZoteroError(apiVersionMismatchMessage(rejected, serverVersion), ZOTERO_API_VERSION)
 }
 
 /**
@@ -205,10 +252,7 @@ async function readBody(response: Response, maxResponseBytes: number): Promise<s
     total += value.byteLength
     if (total > maxResponseBytes) {
       await reader.cancel()
-      throw new ZoteroError(
-        `Zotero response exceeded the ${maxResponseBytes}-byte limit.`,
-        ZOTERO_RESPONSE_TOO_LARGE,
-      )
+      throw new ZoteroError(responseTooLargeMessage(maxResponseBytes), ZOTERO_RESPONSE_TOO_LARGE)
     }
     parts.push(decoder.decode(value, { stream: true }))
   }
@@ -313,7 +357,7 @@ export class ZoteroHttpClient {
     try {
       return await this.gate.acquire(signal)
     } catch (error) {
-      throw new HarnessError('tool call aborted', TOOL_ABORTED, { cause: error })
+      throw new HarnessError(TOOL_ABORTED_MESSAGE, TOOL_ABORTED, { cause: error })
     }
   }
 
@@ -397,7 +441,7 @@ export class ZoteroHttpClient {
     try {
       json = JSON.parse(body) as T
     } catch (error) {
-      throw new ZoteroError('Zotero returned an unparseable response.', ZOTERO_UNEXPECTED, {
+      throw new ZoteroError(UNPARSEABLE_RESPONSE_MESSAGE, ZOTERO_UNEXPECTED, {
         cause: error,
       })
     }

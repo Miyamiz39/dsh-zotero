@@ -19,6 +19,13 @@ Cross-cutting behaviour goes in the lane of the module it belongs to, as a
 file named for the behaviour (`presentation.spec.ts`, `connectivity-ask.spec.ts`),
 never in a file named after a number or a function.
 
+The integration lane deliberately **re-asserts behaviour the mocked specs
+already cover**. That is not redundancy to prune: a mock can only encode what
+its author believed Zotero serves, and the live lane is what checks those
+beliefs. Where an assertion exists in both places, the mock's copy specifies
+the behaviour and the live copy keeps the mock honest — delete the live one and
+a fixture that drifted from reality would still pass every gate.
+
 ## The shared layer
 
 - `tests/helpers/server/keys.ts` — one canonical identity per object role

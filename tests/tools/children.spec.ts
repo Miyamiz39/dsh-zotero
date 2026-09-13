@@ -6,6 +6,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { attachmentTargetKindMessage } from '../../src/local/detail.js'
+import { expectedKindRefMessage } from '../../src/refs.js'
 import {
   CHILDREN_INCLUDE_EMPTY_MESSAGE,
   CHILDREN_NONE_REQUESTED_MESSAGE,
@@ -99,7 +101,7 @@ describe('zotero_children tool', () => {
     expect(annotationRef.isError).toBe(true)
     if (!annotationRef.isError) throw new Error('unreachable')
     expect((annotationRef.content[0] as { text: string }).text).toContain(
-      'Expected a item or attachment reference',
+      expectedKindRefMessage(['item', 'attachment'], 'annotation'),
     )
 
     mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
@@ -110,7 +112,9 @@ describe('zotero_children tool', () => {
     })
     expect(wrongTarget.isError).toBe(true)
     if (!wrongTarget.isError) throw new Error('unreachable')
-    expect((wrongTarget.content[0] as { text: string }).text).toContain('not an attachment')
+    expect((wrongTarget.content[0] as { text: string }).text).toContain(
+      attachmentTargetKindMessage('journalArticle'),
+    )
   })
 
   it('renders an empty result without sections', async () => {

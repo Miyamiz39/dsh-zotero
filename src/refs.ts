@@ -26,6 +26,35 @@ export function isRefString(value: string): boolean {
   return REF_PATTERN.test(value)
 }
 
+/** The model-facing message when a string is outside the ref grammar. */
+export function invalidRefMessage(value: string): string {
+  return `Invalid Zotero reference "${value}". Expected zotero://user/0/<item|attachment|annotation|collection|search>/<KEY> with an 8-character key, optionally followed by ?server=<id>.`
+}
+
+/** The model-facing message when a key is not 8 uppercase alphanumerics. */
+export function invalidRefKeyMessage(key: string): string {
+  return `Invalid Zotero key "${key}".`
+}
+
+/**
+ * The model-facing message for a library outside the local contract. Zotero's
+ * local API serves the logged-in user and their groups, so a foreign user id
+ * has no endpoint and is refused by name rather than rewritten.
+ */
+export function unsupportedLibraryMessage(library: { type: string; id: number }): string {
+  return `Unsupported library zotero://${library.type}/${library.id}: only user/0 and groups are supported.`
+}
+
+/** The model-facing message for a non-zero user id: the canonical ref to use instead. */
+export function foreignUserRefMessage(ref: ZoteroObjectRef): string {
+  return `Use zotero://user/0/${ref.kind}/${ref.key}: the local API serves only the logged-in user's library (group libraries use zotero://group/<id>/...).`
+}
+
+/** The model-facing message for a ref kind outside the caller's allowed set. */
+export function expectedKindRefMessage(kinds: readonly ZoteroKind[], got: string): string {
+  return `Expected a ${kinds.join(' or ')} reference, got ${got}.`
+}
+
 /**
  * Parse a model-provided ref string into a {@link ZoteroObjectRef}.
  * @param value - the exact string a tool argument or result carried.
@@ -35,10 +64,7 @@ export function isRefString(value: string): boolean {
 export function parseRef(value: string): ZoteroObjectRef {
   const match = REF_PATTERN.exec(value)
   if (match === null || match.groups === undefined) {
-    throw new ZoteroError(
-      `Invalid Zotero reference "${value}". Expected zotero://user/0/<item|attachment|annotation|collection|search>/<KEY> with an 8-character key, optionally followed by ?server=<id>.`,
-      ZOTERO_INVALID_REF,
-    )
+    throw new ZoteroError(invalidRefMessage(value), ZOTERO_INVALID_REF)
   }
   const { libraryType, libraryId, kind, key, serverId } = match.groups as {
     libraryType: string
@@ -101,13 +127,10 @@ export function refForLibrary(
   serverId?: string,
 ): ZoteroObjectRef {
   if (!isObjectKey(key)) {
-    throw new ZoteroError(`Invalid Zotero key "${key}".`, ZOTERO_INVALID_REF)
+    throw new ZoteroError(invalidRefKeyMessage(key), ZOTERO_INVALID_REF)
   }
   if (!isSupportedLocalLibrary(library)) {
-    throw new ZoteroError(
-      `Unsupported library zotero://${library.type}/${library.id}: only user/0 and groups are supported.`,
-      ZOTERO_INVALID_REF,
-    )
+    throw new ZoteroError(unsupportedLibraryMessage(library), ZOTERO_INVALID_REF)
   }
   return { library: { type: library.type, id: library.id }, kind, key, serverId }
 }
@@ -119,15 +142,9 @@ export function refForLibrary(
 function assertSupportedLocalRef(ref: ZoteroObjectRef): ZoteroObjectRef {
   if (!isSupportedLocalLibrary(ref.library)) {
     if (ref.library.type === 'user' && ref.library.id !== 0) {
-      throw new ZoteroError(
-        `Use zotero://user/0/${ref.kind}/${ref.key}: the local API serves only the logged-in user's library (group libraries use zotero://group/<id>/...).`,
-        ZOTERO_INVALID_REF,
-      )
+      throw new ZoteroError(foreignUserRefMessage(ref), ZOTERO_INVALID_REF)
     }
-    throw new ZoteroError(
-      `Unsupported library zotero://${ref.library.type}/${ref.library.id}: only user/0 and groups are supported.`,
-      ZOTERO_INVALID_REF,
-    )
+    throw new ZoteroError(unsupportedLibraryMessage(ref.library), ZOTERO_INVALID_REF)
   }
   return ref
 }
@@ -135,10 +152,7 @@ function assertSupportedLocalRef(ref: ZoteroObjectRef): ZoteroObjectRef {
 /** Assert the ref kind is one of the allowed kinds. @param kinds - allowed kinds. */
 function assertKind(ref: ZoteroObjectRef, kinds: readonly ZoteroKind[]): ZoteroObjectRef {
   if (!kinds.includes(ref.kind)) {
-    throw new ZoteroError(
-      `Expected a ${kinds.join(' or ')} reference, got ${ref.kind}.`,
-      ZOTERO_INVALID_REF,
-    )
+    throw new ZoteroError(expectedKindRefMessage(kinds, ref.kind), ZOTERO_INVALID_REF)
   }
   return ref
 }

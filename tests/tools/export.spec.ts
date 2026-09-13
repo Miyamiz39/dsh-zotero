@@ -6,6 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { invalidRefMessage } from '../../src/refs.js'
 import {
   EXPORT_LOCALE_BLANK_MESSAGE,
   EXPORT_REFS_EMPTY_MESSAGE,
@@ -160,7 +161,7 @@ describe('zotero_export tool', () => {
     const malformed = await runTool('zotero_export', { refs: ['nope'], format: 'bibtex' })
     expect(malformed.isError).toBe(true)
     if (!malformed.isError) throw new Error('unreachable')
-    expect((malformed.content[0] as { text: string }).text).toContain('Invalid Zotero reference')
+    expect((malformed.content[0] as { text: string }).text).toContain(invalidRefMessage('nope'))
 
     const blankStyle = await runTool('zotero_export', {
       refs: ['zotero://user/0/item/ABCD1234'],

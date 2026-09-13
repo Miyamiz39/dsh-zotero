@@ -10,6 +10,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  NOT_A_LOCAL_PATH_MESSAGE,
+  attachmentTypeMessage,
+  missingAttachmentFileMessage,
+} from '../../src/local/attachment-location.js'
+import { expectedKindRefMessage, invalidRefMessage } from '../../src/refs.js'
 import { FILE_ENVIRONMENT_MESSAGE } from '../../src/tools/attachment.js'
 import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 
@@ -92,7 +98,7 @@ describe('zotero_attachment tool', () => {
     })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain('not a usable local path')
+    expect((result.content[0] as { text: string }).text).toContain(NOT_A_LOCAL_PATH_MESSAGE)
   })
 
   it('resolves an item ref to its best attachment', async () => {
@@ -203,7 +209,9 @@ describe('zotero_attachment tool', () => {
       })
       expect(result.isError).toBe(true)
       if (!result.isError) throw new Error('unreachable')
-      expect((result.content[0] as { text: string }).text).toContain('missing from disk')
+      expect((result.content[0] as { text: string }).text).toContain(
+        missingAttachmentFileMessage(join(dir, 'gone.pdf')),
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -213,7 +221,9 @@ describe('zotero_attachment tool', () => {
     const malformed = await runTool('zotero_attachment', { ref: 'not-a-ref' })
     expect(malformed.isError).toBe(true)
     if (!malformed.isError) throw new Error('unreachable')
-    expect((malformed.content[0] as { text: string }).text).toContain('Invalid Zotero reference')
+    expect((malformed.content[0] as { text: string }).text).toContain(
+      invalidRefMessage('not-a-ref'),
+    )
 
     const wrongKind = await runTool('zotero_attachment', {
       ref: 'zotero://user/0/collection/COLL1234',
@@ -221,7 +231,7 @@ describe('zotero_attachment tool', () => {
     expect(wrongKind.isError).toBe(true)
     if (!wrongKind.isError) throw new Error('unreachable')
     expect((wrongKind.content[0] as { text: string }).text).toContain(
-      'Expected a item or attachment reference',
+      expectedKindRefMessage(['item', 'attachment'], 'collection'),
     )
 
     expect(mock.requests).toEqual([])

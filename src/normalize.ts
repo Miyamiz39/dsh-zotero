@@ -34,6 +34,14 @@ function nonEmpty(value: string | undefined): string | undefined {
   return value !== undefined && value !== '' ? value : undefined
 }
 
+/**
+ * Shown when an API row names no usable object key. Every normalized record
+ * is addressed by its key, so a row without one cannot be represented at all
+ * — the message is one rule and lives here, with the normalizer that owns it,
+ * for every caller that has to refuse the same row.
+ */
+export const ITEM_WITHOUT_KEY_MESSAGE = 'Zotero returned an item without a valid object key.'
+
 function asInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) ? value : undefined
 }
@@ -93,11 +101,11 @@ export function normalizeSearchItem(json: unknown, ctx?: NormalizeContext): Zote
   const context = resolveContext(ctx)
   const record = asRecord(json)
   if (record === undefined) {
-    throw new ZoteroError('Zotero returned an item without a valid object key.', ZOTERO_UNEXPECTED)
+    throw new ZoteroError(ITEM_WITHOUT_KEY_MESSAGE, ZOTERO_UNEXPECTED)
   }
   const key = asString(record.key)
   if (key === undefined || !isObjectKey(key)) {
-    throw new ZoteroError('Zotero returned an item without a valid object key.', ZOTERO_UNEXPECTED)
+    throw new ZoteroError(ITEM_WITHOUT_KEY_MESSAGE, ZOTERO_UNEXPECTED)
   }
   const data = asRecord(record.data)
   const meta = asRecord(record.meta)
@@ -569,7 +577,7 @@ export function normalizeItemDetail(input: NormalizeItemDetailInput): ZoteroItem
   const record = asRecord(input.parent)
   const key = asString(record?.key)
   if (key === undefined || !isObjectKey(key)) {
-    throw new ZoteroError('Zotero returned an item without a valid object key.', ZOTERO_UNEXPECTED)
+    throw new ZoteroError(ITEM_WITHOUT_KEY_MESSAGE, ZOTERO_UNEXPECTED)
   }
   const data = asRecord(record?.data)
   const meta = asRecord(record?.meta)

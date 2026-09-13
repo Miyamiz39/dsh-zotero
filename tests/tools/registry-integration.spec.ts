@@ -5,17 +5,19 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import ZoteroService from '../../src/index.js'
 import {
-  ITEM_FIELDS_ITEM_TYPE_MESSAGE,
-  ITEM_LEVEL_SCOPE_MESSAGE,
   ITEM_QUERY_MODE_MESSAGE,
-  ITEM_TYPE_SCOPE_MESSAGE,
-  libraryNotAllowedMessage,
-  PARENT_REF_SCOPE_MESSAGE,
-  Q_MATCH_SCOPE_MESSAGE,
+  ITEM_LEVEL_SCOPE_MESSAGE,
   TAG_COLLECTION_SCOPE_MESSAGE,
   TAG_FACET_SCOPE_MESSAGE,
   TAG_SCOPE_COLLECTION_MESSAGE,
 } from '../../src/tools/browse.js'
+import {
+  ITEM_FIELDS_ITEM_TYPE_MESSAGE,
+  ITEM_TYPE_SCOPE_MESSAGE,
+  PARENT_REF_SCOPE_MESSAGE,
+  Q_MATCH_SCOPE_MESSAGE,
+  libraryNotAllowedMessage,
+} from '../../src/local/browse-domain.js'
 import { nonBlankArgumentMessage } from '../../src/tools/validate.js'
 import { expectValue } from '../helpers/lanes/host-lane.js'
 import { MockZotero } from '../helpers/mock-zotero.js'

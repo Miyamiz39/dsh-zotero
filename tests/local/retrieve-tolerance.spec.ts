@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ZOTERO_UNEXPECTED } from '../../src/errors.js'
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import type { LocalApiLimits } from '../../src/local/limits.js'
-import { parseRef } from '../../src/refs.js'
+import { expectedKindRefMessage, parseRef } from '../../src/refs.js'
 import {
   createProvider,
   retrieveRequest,
@@ -316,7 +316,7 @@ describe('retrieve tolerances', () => {
     await zoteroError(
       provider.retrieve(retrieveRequest({ ref: parseRef(attachmentRef()) })),
       'ZOTERO_INVALID_REF',
-      'Expected a item reference',
+      expectedKindRefMessage(['item'], 'attachment'),
     )
     expectRequestCount(mock, 0)
   })

@@ -114,6 +114,18 @@ function libraryLabel(library: SupportedLocalLibrary): string {
   return `${library.type}/${String(library.id)}`
 }
 
+/**
+ * The model-facing message for a cursor minted in one library and passed to a
+ * diff of another. A version counter is a per-library transaction count, so
+ * the two numbers are unrelated and no response would reveal the mix-up.
+ */
+export function cursorLibraryMismatchMessage(
+  cursorLibrary: string,
+  requestLibrary: string,
+): string {
+  return `This cursor belongs to ${cursorLibrary}, but the call diffs ${requestLibrary}. A library version is only meaningful in the library it came from — diff that library, or take a baseline reading here.`
+}
+
 /** The cursor for `version`, or undefined when there is no instance to pin it to. */
 function cursorFor(
   serverId: string | undefined,
@@ -168,9 +180,7 @@ export async function changes(
   // any request, because no response would reveal the mix-up.
   if (since !== undefined && !sameLibrary(since.library, library)) {
     throw new ZoteroError(
-      `This cursor belongs to ${libraryLabel(since.library)}, but the call diffs ` +
-        `${libraryLabel(library)}. A library version is only meaningful in the library it ` +
-        `came from — diff that library, or take a baseline reading here.`,
+      cursorLibraryMismatchMessage(libraryLabel(since.library), libraryLabel(library)),
       ZOTERO_INVALID_ARGUMENT,
     )
   }

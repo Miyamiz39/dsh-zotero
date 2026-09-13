@@ -25,6 +25,7 @@ import type {
 } from '@deepseek-ai/dsh-user-questions'
 import { ZOTERO_LOCAL_API_VERSION } from './constants.js'
 import {
+  TOOL_ABORTED_MESSAGE,
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
   ZOTERO_NOT_RUNNING,
@@ -202,7 +203,7 @@ export async function withConnectivityAsk<T>(
     } catch {
       // A failed question (no provider, aborted ask, delegated caller) must
       // never mask the underlying connectivity failure.
-      if (exec.signal?.aborted) throw new HarnessError('tool call aborted', TOOL_ABORTED)
+      if (exec.signal?.aborted) throw new HarnessError(TOOL_ABORTED_MESSAGE, TOOL_ABORTED)
       throw error
     }
     if (!retry) throw error

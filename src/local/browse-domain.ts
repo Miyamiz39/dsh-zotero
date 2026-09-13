@@ -43,6 +43,68 @@ import type {
   ZoteroObjectRef,
 } from '../types.js'
 
+/**
+ * The model-facing messages the browse argument rules throw. The rules are
+ * enforced at both ends of the call — the tool's `buildRequest` and this
+ * entry — so the wording lives here, with the contract, and the tool imports
+ * it. The one exception is the near-identical pair below: `TAG_FACET_SCOPE`
+ * and `ITEM_LEVEL_SCOPE` name the *request* fields this layer validates,
+ * while the tool's own messages name the model-facing arguments (`tagScope`,
+ * `tagScope`) — different readers, so deliberately different strings.
+ */
+
+/** The model-facing message for a kind outside the browse enum. */
+export function unsupportedBrowseKindMessage(kind: string): string {
+  return `Unsupported browse kind ${kind}`
+}
+
+/** The model-facing message for a library argument on a kind that is global. */
+export function libraryNotAllowedMessage(kind: string): string {
+  return `library is not allowed for kind ${kind}; omit library for libraries/itemTypes/itemFields`
+}
+
+/** The model-facing message for an item type passed to a kind that takes none. */
+export const ITEM_TYPE_SCOPE_MESSAGE = 'itemType is only valid when kind="itemFields"'
+
+/** The model-facing message for the item-fields kind without a well-formed item type. */
+export const ITEM_FIELDS_ITEM_TYPE_MESSAGE =
+  'kind="itemFields" requires a Zotero item type name (e.g. dataset, journalArticle)'
+
+/** The model-facing message for a tag query/match on a kind that counts no tags. */
+export const Q_MATCH_SCOPE_MESSAGE = 'q/match are only valid when kind="tags"'
+
+/** The model-facing message for a match mode with no query to apply it to. */
+export const MATCH_REQUIRES_Q_MESSAGE = 'match requires q'
+
+/** The model-facing message for a parentRef outside collection navigation. */
+export const PARENT_REF_SCOPE_MESSAGE = 'parentRef is only valid when kind="collections"'
+
+/** The model-facing message for facet fields (`scope`, `itemLevel`, `itemQuery`) on another kind. */
+export const SCOPE_FACET_KIND_MESSAGE = 'scope/itemLevel/itemQuery are only valid when kind="tags"'
+
+/** The model-facing message for facet fields with no scope to count over. */
+export const ITEM_LEVEL_REQUIRES_SCOPE_MESSAGE =
+  'itemLevel/itemQuery require a scope (library, collection, or publications)'
+
+/** The model-facing message for a collection scope that names nothing. */
+export const SCOPE_NAME_MESSAGE = 'scope.refOrName must be a non-empty string'
+
+/** The model-facing message for a negative offset. */
+export const OFFSET_NON_NEGATIVE_MESSAGE = 'offset must be a non-negative integer'
+
+/** The model-facing message for a limit outside the configured browse cap. */
+export function browseLimitMessage(maxBrowseResults: number): string {
+  return `limit must be integer 1..${maxBrowseResults}`
+}
+
+/** The model-facing message for a parentRef naming another library than the request. */
+export function parentLibraryMismatchMessage(
+  parentRef: { type: string; id: number },
+  library: { type: string; id: number },
+): string {
+  return `Library mismatch: parentRef is ${parentRef.type}/${parentRef.id} but request library is ${library.type}/${library.id}.`
+}
+
 export async function runBrowse(
   deps: { client: ZoteroHttpClient; limits: LocalApiLimits },
   directory: ScopeDirectory,
@@ -51,10 +113,10 @@ export async function runBrowse(
 ): Promise<ZoteroBrowseResult> {
   const maxBrowse = deps.limits.maxBrowseResults
   if (!Number.isInteger(request.offset) || request.offset < 0) {
-    throw new ZoteroError('offset must be a non-negative integer', ZOTERO_INVALID_ARGUMENT)
+    throw new ZoteroError(OFFSET_NON_NEGATIVE_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
   if (!Number.isInteger(request.limit) || request.limit <= 0 || request.limit > maxBrowse) {
-    throw new ZoteroError(`limit must be integer 1..${maxBrowse}`, ZOTERO_INVALID_ARGUMENT)
+    throw new ZoteroError(browseLimitMessage(maxBrowse), ZOTERO_INVALID_ARGUMENT)
   }
   // Fail-closed: libraries/itemTypes/itemFields are global, so the library
   // parameter must not be set for them.
@@ -64,10 +126,7 @@ export async function runBrowse(
       request.kind === 'itemFields') &&
     request.library !== undefined
   ) {
-    throw new ZoteroError(
-      `library is not allowed for kind ${request.kind}; omit library for libraries/itemTypes/itemFields`,
-      ZOTERO_INVALID_ARGUMENT,
-    )
+    throw new ZoteroError(libraryNotAllowedMessage(request.kind), ZOTERO_INVALID_ARGUMENT)
   }
   if (
     (request.kind === 'libraries' ||
@@ -77,28 +136,22 @@ export async function runBrowse(
       request.kind === 'tags') &&
     request.itemType !== undefined
   ) {
-    throw new ZoteroError(`itemType is only valid when kind="itemFields"`, ZOTERO_INVALID_ARGUMENT)
+    throw new ZoteroError(ITEM_TYPE_SCOPE_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
   if (request.kind === 'itemFields') {
     if (request.itemType === undefined || !/^[A-Za-z][A-Za-z0-9]*$/.test(request.itemType)) {
-      throw new ZoteroError(
-        'kind="itemFields" requires a Zotero item type name (e.g. dataset, journalArticle)',
-        ZOTERO_INVALID_ARGUMENT,
-      )
+      throw new ZoteroError(ITEM_FIELDS_ITEM_TYPE_MESSAGE, ZOTERO_INVALID_ARGUMENT)
     }
     return await browseItemFields(deps, directory, request, signal)
   }
   if ((request.q !== undefined || request.match !== undefined) && request.kind !== 'tags') {
-    throw new ZoteroError('q/match are only valid when kind="tags"', ZOTERO_INVALID_ARGUMENT)
+    throw new ZoteroError(Q_MATCH_SCOPE_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
   if (request.match !== undefined && request.q === undefined) {
-    throw new ZoteroError('match requires q', ZOTERO_INVALID_ARGUMENT)
+    throw new ZoteroError(MATCH_REQUIRES_Q_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
   if (request.parentRef !== undefined && request.kind !== 'collections') {
-    throw new ZoteroError(
-      'parentRef is only valid when kind="collections"',
-      ZOTERO_INVALID_ARGUMENT,
-    )
+    throw new ZoteroError(PARENT_REF_SCOPE_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
   if (
     (request.scope !== undefined ||
@@ -107,23 +160,17 @@ export async function runBrowse(
       request.itemQueryMode !== undefined) &&
     request.kind !== 'tags'
   ) {
-    throw new ZoteroError(
-      'scope/itemLevel/itemQuery are only valid when kind="tags"',
-      ZOTERO_INVALID_ARGUMENT,
-    )
+    throw new ZoteroError(SCOPE_FACET_KIND_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
   if (request.scope === undefined) {
     if (request.itemLevel !== undefined || request.itemQuery !== undefined) {
-      throw new ZoteroError(
-        'itemLevel/itemQuery require a scope (library, collection, or publications)',
-        ZOTERO_INVALID_ARGUMENT,
-      )
+      throw new ZoteroError(ITEM_LEVEL_REQUIRES_SCOPE_MESSAGE, ZOTERO_INVALID_ARGUMENT)
     }
   } else if (request.scope.kind === 'collection' && !isRefString(request.scope.refOrName)) {
     // Name resolution happens in browseTags via resolveNamed; nothing to
     // check here beyond non-emptiness.
     if (request.scope.refOrName.trim() === '') {
-      throw new ZoteroError('scope.refOrName must be a non-empty string', ZOTERO_INVALID_ARGUMENT)
+      throw new ZoteroError(SCOPE_NAME_MESSAGE, ZOTERO_INVALID_ARGUMENT)
     }
   }
   switch (request.kind) {
@@ -139,7 +186,7 @@ export async function runBrowse(
       return await browseItemTypes(deps, directory, request, signal)
     default:
       throw new ZoteroError(
-        `Unsupported browse kind ${(request as { kind: string }).kind}`,
+        unsupportedBrowseKindMessage((request as { kind: string }).kind),
         ZOTERO_INVALID_ARGUMENT,
       )
   }
@@ -221,7 +268,7 @@ async function browseCollections(
     const parentRef = requireSupportedLocalRef(parseRef(request.parentRef), ['collection'])
     if (!sameLibrary(parentRef.library as SupportedLocalLibrary, library)) {
       throw new ZoteroError(
-        `Library mismatch: parentRef is ${parentRef.library.type}/${parentRef.library.id} but request library is ${library.type}/${library.id}.`,
+        parentLibraryMismatchMessage(parentRef.library, library),
         ZOTERO_INVALID_ARGUMENT,
       )
     }

@@ -18,6 +18,7 @@ import {
   ZoteroError,
 } from '../errors.js'
 import { asRecord, asString, isObjectKey } from '../json.js'
+import { ITEM_WITHOUT_KEY_MESSAGE } from '../normalize.js'
 import { locateExportItems } from '../export-mapping.js'
 import {
   formatRef,
@@ -257,10 +258,7 @@ async function fetchCitationBatch(
     const record = asRecord(row)
     const key = asString(record?.key)
     if (key === undefined || !isObjectKey(key)) {
-      throw new ZoteroError(
-        'Zotero returned an item without a valid object key.',
-        ZOTERO_UNEXPECTED,
-      )
+      throw new ZoteroError(ITEM_WITHOUT_KEY_MESSAGE, ZOTERO_UNEXPECTED)
     }
     citationByKey.set(key, asString(record?.citation) ?? '')
   }

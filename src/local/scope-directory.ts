@@ -29,6 +29,7 @@ import {
   requireSupportedLocalRef,
   refForLibrary,
   sameLibrary,
+  unsupportedLibraryMessage,
   PERSONAL_LIBRARY,
 } from '../refs.js'
 import {
@@ -333,10 +334,7 @@ export async function resolveScope(
     if (isSupportedLocalLibrary(parsed.library)) {
       effectiveLibrary = parsed.library as SupportedLocalLibrary
     } else {
-      throw new ZoteroError(
-        `Unsupported library zotero://${parsed.library.type}/${parsed.library.id}: only user/0 and groups are supported.`,
-        ZOTERO_INVALID_REF,
-      )
+      throw new ZoteroError(unsupportedLibraryMessage(parsed.library), ZOTERO_INVALID_REF)
     }
   } else {
     effectiveLibrary = PERSONAL_LIBRARY

@@ -1,5 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ZOTERO_INVALID_ARGUMENT } from '../../src/errors.js'
+import {
+  ITEM_FIELDS_ITEM_TYPE_MESSAGE,
+  ITEM_LEVEL_REQUIRES_SCOPE_MESSAGE,
+  ITEM_TYPE_SCOPE_MESSAGE,
+  MATCH_REQUIRES_Q_MESSAGE,
+  OFFSET_NON_NEGATIVE_MESSAGE,
+  PARENT_REF_SCOPE_MESSAGE,
+  Q_MATCH_SCOPE_MESSAGE,
+  SCOPE_FACET_KIND_MESSAGE,
+  SCOPE_NAME_MESSAGE,
+  browseLimitMessage,
+  libraryNotAllowedMessage,
+  parentLibraryMismatchMessage,
+  unsupportedBrowseKindMessage,
+} from '../../src/local/browse-domain.js'
 import { LocalApiProvider } from '../../src/local/provider.js'
 import {
   createProvider,
@@ -36,18 +51,22 @@ describe('browse: validation', () => {
     await zoteroError(
       provider.browse({ kind: 'collections', offset: -1, limit: 5 } as never),
       'ZOTERO_INVALID_ARGUMENT',
+      OFFSET_NON_NEGATIVE_MESSAGE,
     )
     await zoteroError(
       provider.browse({ kind: 'collections', offset: 0, limit: 0 } as never),
       'ZOTERO_INVALID_ARGUMENT',
+      browseLimitMessage(50),
     )
     await zoteroError(
       provider.browse({ kind: 'collections', offset: 0, limit: 1000 } as never),
       'ZOTERO_INVALID_ARGUMENT',
+      browseLimitMessage(50),
     )
     await zoteroError(
       provider.browse({ kind: 'unsupported' as never, offset: 0, limit: 5 }),
       'ZOTERO_INVALID_ARGUMENT',
+      unsupportedBrowseKindMessage('unsupported'),
     )
   })
 
@@ -55,12 +74,12 @@ describe('browse: validation', () => {
     await zoteroError(
       provider.browse({ kind: 'collections', q: 'x', offset: 0, limit: 5 }),
       ZOTERO_INVALID_ARGUMENT,
-      'q/match are only valid when kind="tags"',
+      Q_MATCH_SCOPE_MESSAGE,
     )
     await zoteroError(
       provider.browse({ kind: 'tags', match: 'contains', offset: 0, limit: 5 }),
       ZOTERO_INVALID_ARGUMENT,
-      'match requires q',
+      MATCH_REQUIRES_Q_MESSAGE,
     )
     await zoteroError(
       provider.browse({
@@ -70,7 +89,7 @@ describe('browse: validation', () => {
         limit: 5,
       }),
       ZOTERO_INVALID_ARGUMENT,
-      'non-empty string',
+      SCOPE_NAME_MESSAGE,
     )
   })
 
@@ -83,7 +102,7 @@ describe('browse: validation', () => {
         library: { type: 'group', id: 1 },
       }),
       ZOTERO_INVALID_ARGUMENT,
-      'library is not allowed',
+      libraryNotAllowedMessage('libraries'),
     )
     await zoteroError(
       provider.browse({
@@ -93,7 +112,7 @@ describe('browse: validation', () => {
         library: { type: 'user', id: 0 },
       }),
       ZOTERO_INVALID_ARGUMENT,
-      'library is not allowed',
+      libraryNotAllowedMessage('itemTypes'),
     )
   })
 })
@@ -297,7 +316,7 @@ describe('browse: collections', () => {
         limit: 10,
       }),
       ZOTERO_INVALID_ARGUMENT,
-      'Library mismatch',
+      parentLibraryMismatchMessage({ type: 'user', id: 0 }, { type: 'group', id: 42 }),
     )
   })
 
@@ -310,7 +329,7 @@ describe('browse: collections', () => {
         limit: 10,
       }),
       ZOTERO_INVALID_ARGUMENT,
-      'parentRef is only valid',
+      PARENT_REF_SCOPE_MESSAGE,
     )
   })
 
@@ -397,12 +416,12 @@ describe('browse: itemFields', () => {
     await zoteroError(
       provider.browse({ kind: 'itemFields', offset: 0, limit: 5 }),
       ZOTERO_INVALID_ARGUMENT,
-      'requires a Zotero item type name',
+      ITEM_FIELDS_ITEM_TYPE_MESSAGE,
     )
     await zoteroError(
       provider.browse({ kind: 'itemFields', itemType: 'bad type!', offset: 0, limit: 5 }),
       ZOTERO_INVALID_ARGUMENT,
-      'requires a Zotero item type name',
+      ITEM_FIELDS_ITEM_TYPE_MESSAGE,
     )
     await zoteroError(
       provider.browse({
@@ -413,12 +432,12 @@ describe('browse: itemFields', () => {
         limit: 5,
       }),
       ZOTERO_INVALID_ARGUMENT,
-      'library is not allowed',
+      libraryNotAllowedMessage('itemFields'),
     )
     await zoteroError(
       provider.browse({ kind: 'tags', itemType: 'dataset', offset: 0, limit: 5 }),
       ZOTERO_INVALID_ARGUMENT,
-      'itemType is only valid when kind="itemFields"',
+      ITEM_TYPE_SCOPE_MESSAGE,
     )
     expectRequestCount(mock, 0)
   })
@@ -633,12 +652,12 @@ describe('browse: tags', () => {
     await zoteroError(
       provider.browse({ kind: 'tags', itemQuery: 'x', offset: 0, limit: 5 }),
       ZOTERO_INVALID_ARGUMENT,
-      'require a scope',
+      ITEM_LEVEL_REQUIRES_SCOPE_MESSAGE,
     )
     await zoteroError(
       provider.browse({ kind: 'collections', scope: { kind: 'library' }, offset: 0, limit: 5 }),
       ZOTERO_INVALID_ARGUMENT,
-      'only valid when kind="tags"',
+      SCOPE_FACET_KIND_MESSAGE,
     )
   })
 })

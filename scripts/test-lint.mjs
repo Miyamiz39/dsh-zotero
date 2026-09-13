@@ -58,9 +58,9 @@ const ALLOWED_CONTROL = new Set([0x09, 0x0a, 0x0d])
 /**
  * Ratchet: the most lines one spec file may occupy. Lower it in the same
  * commit that splits a file, never preemptively.
- * Target once the split of the search spec lands: 800.
+ * Target: 800, now met. The ratchet holds the suite there.
  */
-const MAX_SPEC_LINES = 886
+const MAX_SPEC_LINES = 733
 
 /**
  * Ratchet: the directories a spec may live in, relative to `tests/`. Each lane

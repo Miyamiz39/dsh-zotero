@@ -19,6 +19,15 @@ import { boundedPresentationMeta } from '../presentation-meta.js'
 import { metaRecordOf } from './present.js'
 import { asRecord } from '../json.js'
 import { assertIntInRange, assertNonBlank, invalid, parseLibrary } from './validate.js'
+import {
+  ITEM_FIELDS_ITEM_TYPE_MESSAGE,
+  ITEM_TYPE_SCOPE_MESSAGE,
+  MATCH_REQUIRES_Q_MESSAGE,
+  PARENT_REF_SCOPE_MESSAGE,
+  Q_MATCH_SCOPE_MESSAGE,
+  libraryNotAllowedMessage,
+  unsupportedBrowseKindMessage,
+} from '../local/browse-domain.js'
 import type { ZoteroService } from '../service.js'
 import type { SupportedLocalLibrary, ZoteroBrowseKind, ZoteroBrowseRequest } from '../types.js'
 
@@ -210,22 +219,11 @@ const BROWSE_OUTPUT_SCHEMA = {
 
 type BrowseOutput = InferValue<typeof BROWSE_OUTPUT_SCHEMA>
 
-/** The model-facing message for a kind outside the browse enum. */
-export function unsupportedBrowseKindMessage(kind: string): string {
-  return `Unsupported browse kind ${kind}`
-}
-
-/** The model-facing message for a library argument on a kind that is global. */
-export function libraryNotAllowedMessage(kind: string): string {
-  return `library is not allowed for kind ${kind}; omit library for libraries/itemTypes/itemFields`
-}
-
-export const ITEM_TYPE_SCOPE_MESSAGE = 'itemType is only valid when kind="itemFields"'
-export const ITEM_FIELDS_ITEM_TYPE_MESSAGE =
-  'kind="itemFields" requires a Zotero item type name (e.g. dataset, journalArticle)'
-export const Q_MATCH_SCOPE_MESSAGE = 'q/match are only valid when kind="tags"'
-export const MATCH_REQUIRES_Q_MESSAGE = 'match requires q'
-export const PARENT_REF_SCOPE_MESSAGE = 'parentRef is only valid when kind="collections"'
+/**
+ * The tag-facet messages are this layer's own wording: they name the
+ * model-facing arguments (`tagScope`), while the domain's counterpart names
+ * the request field it validates (`SCOPE_FACET_KIND_MESSAGE`, `scope`).
+ */
 export const TAG_FACET_SCOPE_MESSAGE =
   'tagScope/itemLevel/itemQuery are only valid when kind="tags"'
 export const TAG_COLLECTION_SCOPE_MESSAGE = 'tagCollection requires tagScope="collection"'

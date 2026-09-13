@@ -8,8 +8,9 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ZOTERO_INVALID_ARGUMENT, ZOTERO_INVALID_REF } from '../../src/errors.js'
+import { attachmentTargetKindMessage } from '../../src/local/detail.js'
 import { type LocalApiProvider } from '../../src/local/provider.js'
-import { parseRef } from '../../src/refs.js'
+import { expectedKindRefMessage, parseRef } from '../../src/refs.js'
 import type { ZoteroChildrenRequest } from '../../src/types.js'
 import {
   setupProvider,
@@ -155,7 +156,7 @@ describe('children', () => {
     await zoteroError(
       provider.children(childrenRequest('zotero://user/0/attachment/ABCD1234')),
       ZOTERO_INVALID_ARGUMENT,
-      'not an attachment',
+      attachmentTargetKindMessage('journalArticle'),
     )
   })
 
@@ -163,7 +164,7 @@ describe('children', () => {
     await zoteroError(
       provider.children(childrenRequest('zotero://user/0/annotation/ANNO1111')),
       ZOTERO_INVALID_REF,
-      'Expected a item or attachment reference',
+      expectedKindRefMessage(['item', 'attachment'], 'annotation'),
     )
     expectRequestCount(mock, 0)
   })

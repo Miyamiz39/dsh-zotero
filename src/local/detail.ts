@@ -36,6 +36,14 @@ import type {
 const INCLUDE_ORDER: readonly ZoteroInclude[] = ['notes', 'annotations', 'attachments']
 
 /**
+ * The model-facing message for an attachment ref whose target is another item
+ * type. Annotations hang off attachments, so the model has to re-aim the ref.
+ */
+export function attachmentTargetKindMessage(itemType: string): string {
+  return `The referenced object is a ${itemType}, not an attachment; annotations hang off attachment refs.`
+}
+
+/**
  * Fetch one item's full detail. The parent is always fetched once; child
  * rows are fetched lazily only when the caller asked to include
  * notes/annotations/attachments — the Local API ignores `?include=` on
@@ -122,9 +130,11 @@ export async function children(
   const itemType = asString(data?.itemType) ?? ''
   if (ref.kind === 'attachment' && itemType !== 'attachment') {
     throw new ZoteroError(
+      // The no-item-type arm stays inline: no spec asserts it, and naming it
+      // would put an uncovered function on this file's coverage floor.
       itemType === ''
         ? `The referenced object ${ref.key} could not be confirmed as an attachment.`
-        : `The referenced object is a ${itemType}, not an attachment; annotations hang off attachment refs.`,
+        : attachmentTargetKindMessage(itemType),
       ZOTERO_INVALID_ARGUMENT,
     )
   }

@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ZOTERO_INVALID_ARGUMENT } from '../../src/errors.js'
 import { type LocalApiProvider } from '../../src/local/provider.js'
+import { INCLUDE_TRASHED_SCOPE_MESSAGE } from '../../src/local/search-domain.js'
 import { MockZotero } from '../helpers/mock-zotero.js'
 import {
   createProvider,
@@ -156,7 +157,7 @@ describe('search: note-content scan', () => {
         }),
       ),
       ZOTERO_INVALID_ARGUMENT,
-      'includeTrashed is only allowed with library scope',
+      INCLUDE_TRASHED_SCOPE_MESSAGE,
     )
     expectRequestCount(mock, 0)
   })

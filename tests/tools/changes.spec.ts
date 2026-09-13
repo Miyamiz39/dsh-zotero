@@ -6,6 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { cursorLibraryMismatchMessage } from '../../src/local/changes-domain.js'
 import {
   BASELINE_CURSOR_REUSE,
   baselineCursorMessage,
@@ -131,7 +132,9 @@ describe('zotero_changes tool', () => {
     })
     expect(crossLibrary.isError).toBe(true)
     if (!crossLibrary.isError) throw new Error('unreachable')
-    expect((crossLibrary.content[0] as { text: string }).text).toContain('belongs to user/0')
+    expect((crossLibrary.content[0] as { text: string }).text).toContain(
+      cursorLibraryMismatchMessage('user/0', 'group/42'),
+    )
     // The schema owns the shape; the constraints it cannot express fail here.
     for (const since of [
       { ...cursor, serverId: '  ' },

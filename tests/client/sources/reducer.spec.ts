@@ -1,21 +1,18 @@
 /**
  * The session source reducer's item-assembly rules: search episode folding,
  * the stable union of search rows and directly referenced items, the
- * provenance verdict per instance, attachment resolution and hint precedence,
- * and the degradation of unusable input. The reducer's per-call output rules
- * (retrieve evidence, export artifacts, operation counters) live in
- * `reducer-outputs.spec.ts`.
+ * provenance verdict per instance, and the degradation of unusable input. The
+ * reducer's per-call output rules live in `reducer-evidence.spec.ts` (the
+ * evidence a retrieve folds in) and `reducer-outputs.spec.ts` (export
+ * artifacts, attachment resolution and hint precedence, operation counters).
  * @module tests/client/sources/reducer
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ToolResultNode } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { settled, running } from '../helpers/blocks.ts'
 import { buildSourceWorkspace } from '../../../src/client/sources/reducer.ts'
 import type { SourceScope } from '../../../src/client/sources/model.ts'
-
-const REF = (key: string, serverId?: string): string =>
-  `zotero://user/0/item/${key}${serverId === undefined ? '' : `?server=${serverId}`}`
+import { GET_META, REF, block } from './reducer-fixtures.ts'
 
 /** A search projection with one row per ref. */
 function searchMetaOf(
@@ -37,16 +34,6 @@ function searchMetaOf(
       itemType: 'journalArticle',
     })),
   }
-}
-
-function block(
-  callId: string,
-  seq: number,
-  name: string,
-  args: Record<string, unknown>,
-  extra: Partial<ToolResultNode> = {},
-): ToolResultNode {
-  return settled({ callId, seq, call: { name, argsRaw: JSON.stringify(args) }, ...extra })
 }
 
 /**
@@ -79,16 +66,6 @@ function provenanceOf(
     includeTrashed: false,
     ...overrides,
   }
-}
-
-const GET_META = {
-  title: 'Attention Is All You Need',
-  creators: 'Vaswani',
-  year: 2017,
-  venue: 'NeurIPS',
-  itemType: 'journalArticle',
-  notesPreview: [],
-  annotationsPreview: [],
 }
 
 describe('buildSourceWorkspace', () => {
@@ -689,164 +666,6 @@ describe('buildSourceWorkspace', () => {
         'unknown',
       )
       expect(buildSourceWorkspace(blocks, {}).sources[0]!.provenance).toBe('unknown')
-    })
-  })
-
-  describe('attachment resolution and hint precedence', () => {
-    it('resolves an attachment location only from a successful call', () => {
-      const workspace = buildSourceWorkspace([
-        block(
-          'a1',
-          1,
-          'zotero_attachment',
-          { ref: REF('A1') },
-          {
-            meta: {
-              kind: 'file',
-              title: 'a.pdf',
-              contentType: 'application/pdf',
-              ref: 'zotero://user/0/attachment/WXYZ6789',
-              path: '/tmp/a.pdf',
-            },
-          },
-        ),
-      ])
-      expect(workspace.sources[0]!.facts.attachmentResolved).toBe(true)
-      expect(workspace.sources[0]!.attachment).toEqual({
-        ref: 'zotero://user/0/attachment/WXYZ6789',
-        kind: 'file',
-        contentType: 'application/pdf',
-        title: 'a.pdf',
-        location: '/tmp/a.pdf',
-      })
-    })
-
-    it('adopts the attachment selection a get reports', () => {
-      const workspace = buildSourceWorkspace([
-        block(
-          'g1',
-          1,
-          'zotero_get',
-          { ref: REF('A1') },
-          {
-            meta: {
-              title: 'T',
-              bestAttachment: {
-                ref: 'zotero://user/0/attachment/WXYZ6789',
-                contentType: 'application/pdf',
-              },
-            },
-          },
-        ),
-      ])
-      expect(workspace.sources[0]!.bestAttachment).toEqual({
-        ref: 'zotero://user/0/attachment/WXYZ6789',
-        contentType: 'application/pdf',
-      })
-    })
-
-    it('ignores an attachment without meta or without a usable arm', () => {
-      const workspace = buildSourceWorkspace([
-        block('a1', 1, 'zotero_attachment', { ref: REF('A1') }, {}),
-        block('a2', 2, 'zotero_attachment', { ref: REF('A2') }, { meta: { kind: 'other' } }),
-      ])
-      expect(workspace.sources).toHaveLength(2)
-      expect(workspace.sources.every((item) => item.facts.attachmentResolved === false)).toBe(true)
-    })
-
-    it('resolves a degraded attachment without a title, location, or ref', () => {
-      const workspace = buildSourceWorkspace([
-        block(
-          'a1',
-          1,
-          'zotero_attachment',
-          { ref: REF('A1') },
-          { meta: { kind: 'url', contentType: 'text/html' } },
-        ),
-      ])
-      expect(workspace.sources[0]!.facts.attachmentResolved).toBe(true)
-      expect(workspace.sources[0]!.attachment).toEqual({
-        kind: 'url',
-        contentType: 'text/html',
-        title: '',
-        location: '',
-      })
-    })
-
-    it('keeps the first attachment hint a search surfaced', () => {
-      const searchRowMeta = (attachmentRef: string) => ({
-        returned: 1,
-        total: 1,
-        nextOffset: null,
-        displayed: 1,
-        omitted: 0,
-        noteMatches: null,
-        items: [
-          {
-            ref: REF('A1'),
-            title: 'T',
-            creatorSummary: 'C',
-            year: 2020,
-            itemType: 'journalArticle',
-            bestAttachmentRef: attachmentRef,
-          },
-        ],
-      })
-      const workspace = buildSourceWorkspace([
-        block(
-          's1',
-          1,
-          'zotero_search',
-          { query: 'attention' },
-          { meta: searchRowMeta('zotero://user/0/attachment/WXYZ6789') },
-        ),
-        block(
-          's2',
-          2,
-          'zotero_search',
-          { query: 'attention', offset: 1 },
-          { meta: searchRowMeta('zotero://user/0/attachment/OTHER99') },
-        ),
-      ])
-      expect(workspace.sources[0]!.bestAttachment).toEqual({
-        ref: 'zotero://user/0/attachment/WXYZ6789',
-      })
-    })
-
-    it('keeps the content type of the first attachment hint a search surfaced', () => {
-      const workspace = buildSourceWorkspace([
-        block(
-          's1',
-          1,
-          'zotero_search',
-          { query: 'attention' },
-          {
-            meta: {
-              returned: 1,
-              total: 1,
-              nextOffset: null,
-              displayed: 1,
-              omitted: 0,
-              noteMatches: null,
-              items: [
-                {
-                  ref: REF('A1'),
-                  title: 'T',
-                  creatorSummary: 'C',
-                  year: 2020,
-                  itemType: 'journalArticle',
-                  bestAttachmentRef: 'zotero://user/0/attachment/WXYZ6789',
-                  bestAttachmentType: 'application/pdf',
-                },
-              ],
-            },
-          },
-        ),
-      ])
-      expect(workspace.sources[0]!.bestAttachment).toEqual({
-        ref: 'zotero://user/0/attachment/WXYZ6789',
-        contentType: 'application/pdf',
-      })
     })
   })
 

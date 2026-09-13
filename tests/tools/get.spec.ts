@@ -6,6 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { expectedKindRefMessage, invalidRefMessage } from '../../src/refs.js'
 import { renderGet } from '../../src/tools/get.js'
 import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { annotationRow, attachment, collectionRow, noteRow } from '../helpers/server/objects.js'
@@ -237,12 +238,14 @@ describe('zotero_get tool', () => {
     const malformed = await runTool('zotero_get', { ref: 'ABCD1234' })
     expect(malformed.isError).toBe(true)
     if (!malformed.isError) throw new Error('unreachable')
-    expect((malformed.content[0] as { text: string }).text).toContain('Invalid Zotero reference')
+    expect((malformed.content[0] as { text: string }).text).toContain(invalidRefMessage('ABCD1234'))
 
     const wrongKind = await runTool('zotero_get', { ref: 'zotero://user/0/collection/COLL1234' })
     expect(wrongKind.isError).toBe(true)
     if (!wrongKind.isError) throw new Error('unreachable')
-    expect((wrongKind.content[0] as { text: string }).text).toContain('Expected a item reference')
+    expect((wrongKind.content[0] as { text: string }).text).toContain(
+      expectedKindRefMessage(['item'], 'collection'),
+    )
 
     expect(mock.requests).toEqual([])
   })

@@ -43,6 +43,13 @@ export function encodeExcludeTag(tag: string): string {
   return `-${encodeLiteralTag(tag)}`
 }
 
+/**
+ * The model-facing message for `includeTrashed` outside a library scope. The
+ * tool layer states the same rule for its own argument, but renders it without
+ * the full stop, so the two are separate constants rather than one shared one.
+ */
+export const INCLUDE_TRASHED_SCOPE_MESSAGE = 'includeTrashed is only allowed with library scope.'
+
 /** Serialize a search request into the Local API's documented query parameters. */
 export function buildSearchParams(request: ZoteroSearchRequest): URLSearchParams {
   const params = new URLSearchParams()
@@ -75,10 +82,7 @@ export async function runSearch(
   signal?: AbortSignal,
 ): Promise<ZoteroSearchResult> {
   if (request.includeTrashed && request.scope.kind !== 'library') {
-    throw new ZoteroError(
-      'includeTrashed is only allowed with library scope.',
-      ZOTERO_INVALID_ARGUMENT,
-    )
+    throw new ZoteroError(INCLUDE_TRASHED_SCOPE_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
   const scope = await resolveScope(directory, request.scope, request.library, signal)
   const { json, headers } = await deps.client.getJson<unknown>(

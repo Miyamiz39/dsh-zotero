@@ -8,19 +8,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   browseMoreMessage,
-  ITEM_FIELDS_ITEM_TYPE_MESSAGE,
   ITEM_QUERY_MODE_MESSAGE,
-  ITEM_TYPE_SCOPE_MESSAGE,
   ITEM_LEVEL_SCOPE_MESSAGE,
-  libraryNotAllowedMessage,
-  MATCH_REQUIRES_Q_MESSAGE,
-  PARENT_REF_SCOPE_MESSAGE,
-  Q_MATCH_SCOPE_MESSAGE,
   renderBrowse,
   TAG_COLLECTION_SCOPE_MESSAGE,
   TAG_FACET_SCOPE_MESSAGE,
   TAG_SCOPE_COLLECTION_MESSAGE,
 } from '../../src/tools/browse.js'
+import {
+  ITEM_FIELDS_ITEM_TYPE_MESSAGE,
+  ITEM_TYPE_SCOPE_MESSAGE,
+  MATCH_REQUIRES_Q_MESSAGE,
+  PARENT_REF_SCOPE_MESSAGE,
+  Q_MATCH_SCOPE_MESSAGE,
+  libraryNotAllowedMessage,
+} from '../../src/local/browse-domain.js'
 import {
   GROUP_ID_MESSAGE,
   intRangeArgumentMessage,

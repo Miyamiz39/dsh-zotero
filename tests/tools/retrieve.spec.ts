@@ -6,6 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { invalidRefMessage } from '../../src/refs.js'
 import {
   ATTACHMENT_LIMIT_NOTE,
   ATTACHMENT_UNINDEXED_NOTE,
@@ -259,7 +260,7 @@ describe('zotero_retrieve tool', () => {
     const result = await runTool('zotero_retrieve', { ref: 'nope', query: 'x' })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain('Invalid Zotero reference')
+    expect((result.content[0] as { text: string }).text).toContain(invalidRefMessage('nope'))
     expect(mock.requests).toEqual([])
   })
 

@@ -1,8 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
-import { ZoteroHttpClient } from '../../src/http-client.js'
 import {
+  OBJECT_NOT_FOUND_MESSAGE,
+  REDIRECT_REFUSED_MESSAGE,
+  UNPARSEABLE_RESPONSE_MESSAGE,
+  ZoteroHttpClient,
+  apiVersionMismatchMessage,
+  httpStatusMessage,
+  notImplementedRequestMessage,
+  requestTimeoutMessage,
+  responseTooLargeMessage,
+  upgradeZoteroRouteMessage,
+  NEWER_ZOTERO_ROUTE_MESSAGE,
+} from '../../src/http-client.js'
+import { ZOTERO_LOCAL_API_VERSION } from '../../src/constants.js'
+import {
+  API_DISABLED_MESSAGE,
+  NOT_RUNNING_MESSAGE,
+  SERVER_MISMATCH_MESSAGE,
+  TOOL_ABORTED_MESSAGE,
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
   ZOTERO_NOT_FOUND,
@@ -124,7 +141,7 @@ describe('identity protection', () => {
     await expectZoteroError(
       client.getJson('users/0/items'),
       ZOTERO_SERVER_MISMATCH,
-      'database changed',
+      SERVER_MISMATCH_MESSAGE,
     )
     expect(
       mock.requests.filter((request) => request.pathname === '/api/users/0/items'),
@@ -156,7 +173,7 @@ describe('identity protection', () => {
     const error = await expectZoteroError(
       client.getJson('users/0/items'),
       ZOTERO_SERVER_MISMATCH,
-      'database changed',
+      SERVER_MISMATCH_MESSAGE,
     )
     expect(error.cause).toBeInstanceOf(HarnessError)
     expect((error.cause as HarnessError).code).toBe(ZOTERO_UNEXPECTED)
@@ -197,7 +214,7 @@ describe('identity protection', () => {
     // cancellation path instead of racing a delay against it.
     await refreshing.promise
     controller.abort()
-    await expectZoteroError(pending, TOOL_ABORTED, 'aborted')
+    await expectZoteroError(pending, TOOL_ABORTED, TOOL_ABORTED_MESSAGE)
   })
 })
 
@@ -206,7 +223,7 @@ describe('http status translation', () => {
     mock.route('GET', '/api/', (req, res, helpers) =>
       helpers.raw(403, { 'Content-Type': 'text/plain' }, 'Local API is not enabled'),
     )
-    await expectZoteroError(client.getJson(''), ZOTERO_API_DISABLED, 'Settings')
+    await expectZoteroError(client.getJson(''), ZOTERO_API_DISABLED, API_DISABLED_MESSAGE)
   })
 
   it('maps a version mismatch (501) to API_VERSION and names both sides', async () => {
@@ -220,13 +237,12 @@ describe('http status translation', () => {
     const error = await expectZoteroError(
       client.getJson('users/0/items'),
       ZOTERO_API_VERSION,
-      'does not implement local API version 3',
+      apiVersionMismatchMessage('3', '4'),
     )
     // The answering build is newer than this plugin, so the fix is the
     // plugin, not Zotero — the message says which way round it is.
     expect(error.message).toContain('it answers as version 4')
-    expect(error.message).toContain('newer than this plugin line')
-    expect(error.message).toContain('update dsh-zotero')
+    expect(error.message).toContain(NEWER_ZOTERO_ROUTE_MESSAGE)
   })
 
   it('tells an older Zotero to upgrade, and names the version it refused', async () => {
@@ -240,10 +256,10 @@ describe('http status translation', () => {
     const error = await expectZoteroError(
       client.getJson('users/0/items'),
       ZOTERO_API_VERSION,
-      'does not implement local API version 3',
+      apiVersionMismatchMessage('3', '2'),
     )
     expect(error.message).toContain('it answers as version 2')
-    expect(error.message).toContain('Upgrade Zotero')
+    expect(error.message).toContain(upgradeZoteroRouteMessage(ZOTERO_LOCAL_API_VERSION))
   })
 
   it('reads a 501 without a version statement as an unimplemented request', async () => {
@@ -256,10 +272,7 @@ describe('http status translation', () => {
     const error = await expectZoteroError(
       client.getJson('users/0/items'),
       ZOTERO_NOT_IMPLEMENTED,
-      'does not implement the request this plugin made (users/0/items)',
-    )
-    expect(error.message).toContain(
-      'the endpoint or its output format is not available in this build',
+      notImplementedRequestMessage('users/0/items'),
     )
     expect(error.message).not.toContain('Upgrade')
   })
@@ -279,7 +292,7 @@ describe('http status translation', () => {
     await expectZoteroError(
       bounded.getJson('users/0/items'),
       ZOTERO_NOT_IMPLEMENTED,
-      'does not implement the request',
+      notImplementedRequestMessage('users/0/items'),
     )
   })
 
@@ -302,21 +315,33 @@ describe('http status translation', () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
       helpers.raw(404, { 'Content-Type': 'text/plain' }, 'Not found'),
     )
-    await expectZoteroError(client.getJson('users/0/items'), ZOTERO_NOT_FOUND)
+    await expectZoteroError(
+      client.getJson('users/0/items'),
+      ZOTERO_NOT_FOUND,
+      OBJECT_NOT_FOUND_MESSAGE,
+    )
   })
 
   it('maps an unexpected 400 to UNEXPECTED', async () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
       helpers.raw(400, { 'Content-Type': 'text/plain' }, "Invalid 'sort' value"),
     )
-    await expectZoteroError(client.getJson('users/0/items'), ZOTERO_UNEXPECTED, 'HTTP 400')
+    await expectZoteroError(
+      client.getJson('users/0/items'),
+      ZOTERO_UNEXPECTED,
+      httpStatusMessage(400),
+    )
   })
 
   it('refuses to follow redirects, even loopback-issued ones', async () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
       helpers.raw(302, { Location: 'http://example.com/steal' }, ''),
     )
-    await expectZoteroError(client.getJson('users/0/items'), ZOTERO_UNEXPECTED, 'redirect')
+    await expectZoteroError(
+      client.getJson('users/0/items'),
+      ZOTERO_UNEXPECTED,
+      REDIRECT_REFUSED_MESSAGE,
+    )
   })
 })
 
@@ -335,7 +360,7 @@ describe('body handling', () => {
     mock.route('GET', '/api/', (req, res, helpers) =>
       helpers.text('not json', { 'Content-Type': 'application/json' }),
     )
-    await expectZoteroError(client.getJson(''), ZOTERO_UNEXPECTED, 'unparseable')
+    await expectZoteroError(client.getJson(''), ZOTERO_UNEXPECTED, UNPARSEABLE_RESPONSE_MESSAGE)
   })
 
   it('enforces the response byte bound while streaming', async () => {
@@ -345,14 +370,22 @@ describe('body handling', () => {
       maxResponseBytes: 100,
     })
     mock.route('GET', '/api/users/0/items', (req, res, helpers) => helpers.text('x'.repeat(200)))
-    await expectZoteroError(small.getJson('users/0/items'), ZOTERO_RESPONSE_TOO_LARGE, '100-byte')
+    await expectZoteroError(
+      small.getJson('users/0/items'),
+      ZOTERO_RESPONSE_TOO_LARGE,
+      responseTooLargeMessage(100),
+    )
   })
 
   it('maps a null-body 2xx to an unparseable response', async () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
       helpers.raw(204, { 'Content-Type': 'application/json' }, ''),
     )
-    await expectZoteroError(client.getJson('users/0/items'), ZOTERO_UNEXPECTED, 'unparseable')
+    await expectZoteroError(
+      client.getJson('users/0/items'),
+      ZOTERO_UNEXPECTED,
+      UNPARSEABLE_RESPONSE_MESSAGE,
+    )
   })
 
   it('translates a mid-body connection reset into a typed failure', async () => {
@@ -448,7 +481,7 @@ describe('in-flight bound', () => {
     // holding, not on a race between a delay and the slot being taken.
     await route.arrived.when(() => route.pending() >= 1)
     controller.abort()
-    await expectZoteroError(queued, TOOL_ABORTED, 'aborted')
+    await expectZoteroError(queued, TOOL_ABORTED, TOOL_ABORTED_MESSAGE)
     route.release()
     await holding
     // The aborted request never reached the server, and its slot was not lost:
@@ -485,7 +518,7 @@ describe('failure translation', () => {
     const url = mock.baseUrl
     await mock.close()
     const dead = new ZoteroHttpClient({ baseUrl: url, timeoutMs: 5000, maxResponseBytes: 1024 })
-    await expectZoteroError(dead.getJson(''), ZOTERO_NOT_RUNNING, 'Settings')
+    await expectZoteroError(dead.getJson(''), ZOTERO_NOT_RUNNING, NOT_RUNNING_MESSAGE)
   })
 
   it('maps the provider deadline to TIMEOUT while the caller signal stays live', async () => {
@@ -499,7 +532,7 @@ describe('failure translation', () => {
     await expectZoteroError(
       slow.getJson('', undefined, { signal }),
       ZOTERO_TIMEOUT,
-      'did not respond',
+      requestTimeoutMessage(50),
     )
     expect(signal.aborted).toBe(false)
   })
@@ -517,6 +550,6 @@ describe('failure translation', () => {
     // timeout that arrived first.
     await outstanding.promise
     controller.abort()
-    await expectZoteroError(pending, TOOL_ABORTED, 'aborted')
+    await expectZoteroError(pending, TOOL_ABORTED, TOOL_ABORTED_MESSAGE)
   })
 })

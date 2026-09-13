@@ -3,10 +3,18 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import ZoteroService from '../../src/index.js'
 import {
+  NOT_RUNNING_MESSAGE,
   ZOTERO_CAPABILITY_UNAVAILABLE,
   ZOTERO_PROVIDER_UNAVAILABLE,
   ZoteroError,
 } from '../../src/errors.js'
+import {
+  ZOTERO_STATUS_CONNECTED,
+  ZOTERO_STATUS_DISCONNECTED,
+  ZOTERO_STATUS_SERVER_ID_UNREPORTED,
+  ZOTERO_USAGE_MESSAGE,
+  statusLine,
+} from '../../src/command.js'
 import { parseRef } from '../../src/refs.js'
 import {
   CONNECTIVITY_POLICY_SENTENCE,
@@ -95,13 +103,13 @@ describe('/zotero status command', () => {
     const result = (await definition.handler(invocation('status'))) as CommandResult
     expect(result.kind).toBe('success')
     if (result.kind !== 'success') throw new Error('unreachable')
-    expect(result.text).toContain('connected')
-    expect(result.text).toContain('3')
-    expect(result.text).toContain('25')
-    expect(result.text).toContain('sPMHtLD6HHBd')
+    expect(result.text).toContain(ZOTERO_STATUS_CONNECTED)
+    expect(result.text).toContain(statusLine('API version', '3'))
+    expect(result.text).toContain(statusLine('Schema version', '25'))
+    expect(result.text).toContain(statusLine('Server ID', 'sPMHtLD6HHBd'))
     // The build header is the only version fact that names a release, so the
     // command reports it rather than leaving the answering Zotero unnamed.
-    expect(result.text).toContain('Zotero version: 10.0.2-beta.9+c77df79af')
+    expect(result.text).toContain(statusLine('Zotero version', '10.0.2-beta.9+c77df79af'))
   })
 
   it('reports a missing Server-ID and missing headers as a degraded instance without failing', async () => {
@@ -111,13 +119,11 @@ describe('/zotero status command', () => {
     const result = (await definition.handler(invocation('status'))) as CommandResult
     expect(result.kind).toBe('success')
     if (result.kind !== 'success') throw new Error('unreachable')
-    expect(result.text).toContain('connected')
-    expect(result.text).toContain('Zotero version: not reported')
-    expect(result.text).toContain('API version: not reported')
-    expect(result.text).toContain('Schema version: not reported')
-    expect(result.text).toContain(
-      'Server ID: not reported — this build does not identify its database',
-    )
+    expect(result.text).toContain(ZOTERO_STATUS_CONNECTED)
+    expect(result.text).toContain(statusLine('Zotero version', undefined))
+    expect(result.text).toContain(statusLine('API version', undefined))
+    expect(result.text).toContain(statusLine('Schema version', undefined))
+    expect(result.text).toContain(ZOTERO_STATUS_SERVER_ID_UNREPORTED)
   })
 
   it('reports a disconnected Zotero with the actionable diagnosis', async () => {
@@ -129,8 +135,8 @@ describe('/zotero status command', () => {
     const result = (await definition.handler(invocation('status'))) as CommandResult
     expect(result.kind).toBe('success')
     if (result.kind !== 'success') throw new Error('unreachable')
-    expect(result.text).toContain('not connected')
-    expect(result.text).toContain('Settings')
+    expect(result.text).toContain(ZOTERO_STATUS_DISCONNECTED)
+    expect(result.text).toContain(NOT_RUNNING_MESSAGE)
   })
 
   it('rejects unknown subcommands with usage text', async () => {
@@ -140,7 +146,7 @@ describe('/zotero status command', () => {
     )
     const definition = lane.stub!.registered[0]!
     const result = (await definition.handler(invocation('open'))) as CommandResult
-    expect(result).toEqual({ kind: 'error', text: 'Usage: /zotero status' })
+    expect(result).toEqual({ kind: 'error', text: ZOTERO_USAGE_MESSAGE })
   })
 })
 

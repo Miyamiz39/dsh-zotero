@@ -10,6 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { cursorLibraryMismatchMessage } from '../../src/local/changes-domain.js'
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import {
   setupProvider,
@@ -534,7 +535,7 @@ describe('changes', () => {
     await zoteroError(
       provider.changes({ library: GROUP_LIBRARY, since: at(42) }),
       'ZOTERO_INVALID_ARGUMENT',
-      'belongs to user/0',
+      cursorLibraryMismatchMessage('user/0', 'group/42'),
     )
     expectRequestCount(mock, 0)
   })

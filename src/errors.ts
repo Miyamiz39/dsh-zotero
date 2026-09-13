@@ -100,6 +100,14 @@ export const NO_FULLTEXT_MESSAGE =
   'You can also use zotero_attachment to access the original file.'
 
 /**
+ * Shown when the caller cancels a tool call. The plugin reports cancellation
+ * as the harness's own `TOOL_ABORTED`, so the wording is the harness's; it is
+ * spelled once here because three transports — the ask gate and both halves of
+ * the HTTP client — have to raise the identical error.
+ */
+export const TOOL_ABORTED_MESSAGE = 'tool call aborted'
+
+/**
  * Shown when Zotero refuses a version range it cannot reach back to. Zotero's
  * own sync client reads a 409 on a versioned read as "the delete log does not
  * go back that far", i.e. a fact about the range rather than a fault.

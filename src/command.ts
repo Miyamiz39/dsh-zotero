@@ -14,19 +14,44 @@ import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import type { ZoteroService } from './service.js'
 import type { ZoteroStatus } from './types.js'
 
+/** The usage line an unknown `/zotero` subcommand is answered with. */
+export const ZOTERO_USAGE_MESSAGE = 'Usage: /zotero status'
+
+/** The status header when the local API answered the probe. */
+export const ZOTERO_STATUS_CONNECTED = 'Zotero local API: connected'
+
+/** The status header when Zotero could not be reached at all. */
+export const ZOTERO_STATUS_DISCONNECTED = 'Zotero local API: not connected'
+
+/** The value a status line reports when the answering build named none. */
+export const ZOTERO_STATUS_NOT_REPORTED = 'not reported'
+
+/**
+ * The Server-ID line for a build that does not identify its database. Refs and
+ * cursors pin to that identity, so its absence is a fact about what this
+ * Zotero can support rather than a missing detail.
+ */
+export const ZOTERO_STATUS_SERVER_ID_UNREPORTED =
+  'Server ID: not reported — this build does not identify its database, so refs and cursors cannot be pinned to it'
+
+/** One `Label: value` status line, degraded to {@link ZOTERO_STATUS_NOT_REPORTED}. */
+export function statusLine(label: string, value: string | undefined): string {
+  return `${label}: ${value ?? ZOTERO_STATUS_NOT_REPORTED}`
+}
+
 /** Render a status record for the command's user-facing text. */
 function formatStatus(status: ZoteroStatus): string {
   if (!status.connected) {
-    return `Zotero local API: not connected\n${status.diagnosis}`
+    return `${ZOTERO_STATUS_DISCONNECTED}\n${status.diagnosis}`
   }
   return [
-    'Zotero local API: connected',
-    `Zotero version: ${status.zoteroVersion ?? 'not reported'}`,
-    `API version: ${status.apiVersion ?? 'not reported'}`,
-    `Schema version: ${status.schemaVersion ?? 'not reported'}`,
+    ZOTERO_STATUS_CONNECTED,
+    statusLine('Zotero version', status.zoteroVersion),
+    statusLine('API version', status.apiVersion),
+    statusLine('Schema version', status.schemaVersion),
     status.serverId === undefined
-      ? 'Server ID: not reported — this build does not identify its database, so refs and cursors cannot be pinned to it'
-      : `Server ID: ${status.serverId}`,
+      ? ZOTERO_STATUS_SERVER_ID_UNREPORTED
+      : statusLine('Server ID', status.serverId),
   ].join('\n')
 }
 
@@ -46,7 +71,7 @@ export function registerStatusCommand(ctx: Context, service: ZoteroService): voi
       handler: async (invocation) => {
         const arg = invocation.rawInput.trim()
         if (arg !== '' && arg !== 'status') {
-          return { kind: 'error', text: 'Usage: /zotero status' }
+          return { kind: 'error', text: ZOTERO_USAGE_MESSAGE }
         }
         const status = await service.status(invocation.signal)
         return { kind: 'success', text: formatStatus(status) }

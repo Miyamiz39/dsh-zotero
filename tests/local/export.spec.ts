@@ -15,7 +15,8 @@ import {
 } from '../../src/errors.js'
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import type { LocalApiLimits } from '../../src/local/limits.js'
-import { parseRef } from '../../src/refs.js'
+import { ITEM_WITHOUT_KEY_MESSAGE } from '../../src/normalize.js'
+import { expectedKindRefMessage, parseRef } from '../../src/refs.js'
 import {
   createProvider,
   exportRequest,
@@ -291,7 +292,7 @@ describe('export', () => {
     await zoteroError(
       provider.export(exportRequest({ refs: [parseRef(attachmentRef())] })),
       'ZOTERO_INVALID_REF',
-      'Expected a item reference',
+      expectedKindRefMessage(['item'], 'attachment'),
     )
     await zoteroError(
       provider.export(
@@ -623,11 +624,7 @@ describe('export tolerances', () => {
 
   it('fails loud on a citation row without a valid key', async () => {
     serveJson(mock, `${apiPath()}/items`, [{ citation: 'x' }])
-    await zoteroError(
-      provider.export(exportRequest()),
-      ZOTERO_UNEXPECTED,
-      'without a valid object key',
-    )
+    await zoteroError(provider.export(exportRequest()), ZOTERO_UNEXPECTED, ITEM_WITHOUT_KEY_MESSAGE)
   })
 
   it('tolerates rows without a citation string', async () => {

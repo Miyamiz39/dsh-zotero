@@ -26,6 +26,50 @@ import { formatRef, libraryPrefix, refForLibrary, requireSupportedLocalRef } fro
 import type { LocalApiLimits } from './limits.js'
 import type { SupportedLocalLibrary, ZoteroAttachmentLocation, ZoteroObjectRef } from '../types.js'
 
+/** Shown when a reported file location cannot be expressed as a local path. */
+export const NOT_A_LOCAL_PATH_MESSAGE =
+  'Zotero reported an attachment file location that is not a usable local path.'
+
+/** The model-facing message for a location whose protocol the caller cannot open. */
+export function unsupportedAttachmentProtocolMessage(
+  protocol: string,
+  allowedProtocols: readonly string[],
+): string {
+  return `Zotero reported an attachment location with unsupported protocol ${protocol}; only ${allowedProtocols
+    .map((allowed) => allowed.slice(0, -1))
+    .join(', ')} locations are usable.`
+}
+
+/** The model-facing message for a linked-URL attachment Zotero left without a URL. */
+export function missingLinkedUrlMessage(key: string): string {
+  return `Attachment ${key} is linked to a URL but Zotero reported none.`
+}
+
+/** The model-facing message for a linked-URL attachment whose URL is not a web location. */
+export function notAWebLocationMessage(key: string): string {
+  return `Attachment ${key} is linked to a URL that is not a usable web location.`
+}
+
+/** The model-facing message for a file attachment whose reported location is unusable. */
+export function noUsableFileLocationMessage(key: string): string {
+  return `Zotero reported no usable file location for attachment ${key}.`
+}
+
+/** The model-facing message for an attachment whose file is gone from disk. */
+export function missingAttachmentFileMessage(path: string): string {
+  return `The attachment file is missing from disk: ${path}`
+}
+
+/** The model-facing message for a target that is a different item type than the ref claims. */
+export function attachmentTypeMessage(itemType: string): string {
+  return `The referenced object is a ${itemType}, not an attachment.`
+}
+
+/** The model-facing message for an item ref with no attachment of any kind to resolve. */
+export function noAttachmentToResolveMessage(key: string): string {
+  return `Item ${key} has no attachment to resolve.`
+}
+
 /**
  * Parse a location the Local API reported for an attachment and require one
  * of the allowed protocols. Malformed text, relative paths, and exotic
@@ -47,9 +91,7 @@ function parseAttachmentLocation(
   }
   if (!allowedProtocols.includes(target.protocol)) {
     throw new ZoteroError(
-      `Zotero reported an attachment location with unsupported protocol ${target.protocol}; only ${allowedProtocols
-        .map((protocol) => protocol.slice(0, -1))
-        .join(', ')} locations are usable.`,
+      unsupportedAttachmentProtocolMessage(target.protocol, allowedProtocols),
       ZOTERO_NO_ATTACHMENT,
     )
   }
@@ -81,10 +123,7 @@ export async function getAttachmentLocation(
   const data = asRecord(asRecord(item.json)?.data)
   const itemType = asString(data?.itemType)
   if (itemType !== undefined && itemType !== 'attachment') {
-    throw new ZoteroError(
-      `The referenced object is a ${itemType}, not an attachment.`,
-      ZOTERO_NO_ATTACHMENT,
-    )
+    throw new ZoteroError(attachmentTypeMessage(itemType), ZOTERO_NO_ATTACHMENT)
   }
   const attachment = normalizeAttachmentRecord(item.json)
   const serverId = item.headers.get('zotero-server-id') ?? local.serverId
@@ -95,15 +134,12 @@ export async function getAttachmentLocation(
   const contentType = attachment.contentType
   if (attachment.linkMode === 'linked_url') {
     if (attachment.url === undefined || attachment.url === '') {
-      throw new ZoteroError(
-        `Attachment ${attachmentKey} is linked to a URL but Zotero reported none.`,
-        ZOTERO_NO_ATTACHMENT,
-      )
+      throw new ZoteroError(missingLinkedUrlMessage(attachmentKey), ZOTERO_NO_ATTACHMENT)
     }
     const target = parseAttachmentLocation(
       attachment.url,
       ['http:', 'https:'],
-      `Attachment ${attachmentKey} is linked to a URL that is not a usable web location.`,
+      notAWebLocationMessage(attachmentKey),
     )
     return { ref: formattedRef, title, contentType, kind: 'url', url: target.toString() }
   }
@@ -114,28 +150,24 @@ export async function getAttachmentLocation(
   const target = parseAttachmentLocation(
     file.body.trim(),
     ['file:', 'http:', 'https:'],
-    `Zotero reported no usable file location for attachment ${attachmentKey}.`,
+    noUsableFileLocationMessage(attachmentKey),
   )
   if (target.protocol === 'file:') {
     let path: string
     try {
       path = fileURLToPath(target)
     } catch (error) {
-      throw new ZoteroError(
-        `Zotero reported an attachment file location that is not a usable local path.`,
-        ZOTERO_NO_ATTACHMENT,
-        { cause: error },
-      )
+      throw new ZoteroError(NOT_A_LOCAL_PATH_MESSAGE, ZOTERO_NO_ATTACHMENT, { cause: error })
     }
     try {
       await access(path)
     } catch (error) {
       if (errnoCodeOf(error) === 'ENOENT') {
-        throw new ZoteroError(
-          `The attachment file is missing from disk: ${path}`,
-          ZOTERO_FILE_MISSING,
-        )
+        throw new ZoteroError(missingAttachmentFileMessage(path), ZOTERO_FILE_MISSING)
       }
+      // Not a named constant: no spec asserts this message, and extracting it
+      // would add an uncovered function to this file's coverage floor. Same
+      // rule that keeps `since.serverId must be…` inline in changes.ts.
       throw new ZoteroError(`The attachment file cannot be accessed: ${path}`, ZOTERO_UNEXPECTED, {
         cause: error,
       })
@@ -174,7 +206,7 @@ async function resolveAttachmentKey(
   )
   const pdf = selectAttachments(Array.isArray(children.json) ? children.json : [], 'pdf')[0]
   if (pdf === undefined) {
-    throw new ZoteroError(`Item ${ref.key} has no attachment to resolve.`, ZOTERO_NO_ATTACHMENT)
+    throw new ZoteroError(noAttachmentToResolveMessage(ref.key), ZOTERO_NO_ATTACHMENT)
   }
   return pdf.key
 }
