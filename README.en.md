@@ -78,20 +78,23 @@ The agent calls tools step by step during a conversation. Each result becomes co
 
 ```text
 User: Find papers about Risk
-Agent → zotero_search(query: "Risk", itemType: "journalArticle")
+Agent → zotero_search(query: "Risk", itemTypes: ["journalArticle"])
        5 matches; user picks the first 3
 
 User: What does the first one's abstract say?
-Agent → zotero_get(ref: 1, fields: ["abstractNote"])
-       Returns the full abstract
+Agent → zotero_get(ref: "zotero://user/0/item/ABCD1234")
+       Returns the full abstract (the standard model carries it)
 
 User: Find the methodology discussion in this paper
-Agent → zotero_retrieve(query: "methodology", sources: ["fulltext", "notes"])
+Agent → zotero_retrieve(ref: "zotero://user/0/item/ABCD1234", query: "methodology",
+                        sources: ["fulltext", "note"])
        Returns relevant passages with page numbers
 
 User: Export all three as BibTeX
-Agent → zotero_export(refs: [1,2,3], format: "bibtex")
-       Generates BibTeX entries, ready to copy or download
+Agent → zotero_export(refs: ["zotero://user/0/item/ABCD1234",
+                             "zotero://user/0/item/EFGH5678",
+                             "zotero://user/0/item/IJKL9012"], format: "bibtex")
+       Generates BibTeX entries; the UI can download them, the model reads the same text
 ```
 
 More examples in [Features](docs/features.md).
@@ -101,7 +104,7 @@ More examples in [Features](docs/features.md).
 - **Read-only library**: all operations are reads; items, notes, tags, and collections are unchanged
 - **Loopback only**: network requests go only to `127.0.0.1:23119`
 - **Evidence ranking is term-based**: BM25 ranks passages by query-term frequency match
-- **Exports are static text**: returned as text, ready to copy into your target document
+- **Exports are static text**: the tool returns text, and that is what the model reads; the Zotero panel offers one-click copy or file download (`.bib`, `.ris`, `.json`), so nothing has to be retyped
 - **Full-text evidence depends on Zotero's index**: unindexed PDFs yield no full-text passages
 - **Attachment depth depends on the harness**: `zotero_attachment` returns the file location; reading the PDF further needs a matching host capability
 

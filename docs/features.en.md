@@ -85,7 +85,7 @@ To open a `zotero://` deep link and view the item in Zotero, use the ref format 
 
 Optional `style` and `locale` parameters set the citation style. In citation mode, refs lists exceeding Zotero's 50-key limit are batched automatically.
 
-> **Note:** Exports are returned as text — copy them into your target document manually.
+> **Note:** the tool returns exports as text; the panel offers copy and file download of the same content.
 
 ## Session Sources panel
 
@@ -119,6 +119,6 @@ Configurable items include: API address, search result limits, evidence passage 
 
 - **Read-only:** dsh-zotero accesses the library in read-only mode.
 - **Ranking:** Evidence uses BM25 (term frequency), ranking by query-word match against passages.
-- **Exports are text:** Citations and bibliographies are returned as text, ready to copy into your target document.
+- **Exports are text:** citations and bibliographies are returned as text; the panel can copy them or download them as a file.
 - **Sources panel is a snapshot:** The Sources panel shows items referenced in this session, independent per session.
 - **Full-text depends on index:** `everything` mode and `fulltext` evidence sources depend on Zotero's full-text index; incomplete indexes may omit results.

@@ -78,20 +78,23 @@ Agent 在对话中根据用户需求逐步调用工具，每次调用的结果�
 
 ```text
 用户：帮我找 Risk 相关的论文
-Agent → zotero_search(query: "Risk", itemType: "journalArticle")
+Agent → zotero_search(query: "Risk", itemTypes: ["journalArticle"])
        5 篇匹配结果，用户选择前 3 篇
 
 用户：第一篇的摘要说了什么？
-Agent → zotero_get(ref: 1, fields: ["abstractNote"])
-       返回摘要全文
+Agent → zotero_get(ref: "zotero://user/0/item/ABCD1234")
+       返回摘要全文（标准模型已含 abstract）
 
 用户：这篇里关于方法论的讨论，帮我找出来
-Agent → zotero_retrieve(query: "methodology", sources: ["fulltext", "notes"])
+Agent → zotero_retrieve(ref: "zotero://user/0/item/ABCD1234", query: "methodology",
+                        sources: ["fulltext", "note"])
        返回相关段落，带页码和来源
 
 用户：把这三篇导出为 BibTeX
-Agent → zotero_export(refs: [1,2,3], format: "bibtex")
-       生成 BibTeX 条目，可复制或下载
+Agent → zotero_export(refs: ["zotero://user/0/item/ABCD1234",
+                             "zotero://user/0/item/EFGH5678",
+                             "zotero://user/0/item/IJKL9012"], format: "bibtex")
+       生成 BibTeX 条目；界面可下载，模型读到同样的文本
 ```
 
 更多示例见 [功能概览](docs/features.md)。
@@ -101,7 +104,7 @@ Agent → zotero_export(refs: [1,2,3], format: "bibtex")
 - **只读文献库**：所有操作均为读取，不修改条目、笔记、标签或分类
 - **只访问本机**：网络请求仅发往 `127.0.0.1:23119`
 - **证据排序是词项相关性**：基于 BM25，按查询词与 passage 的词频匹配度排序
-- **导出是静态文本**：以文本形式返回，需要手动复制到目标位置
+- **导出是静态文本**：工具以文本形式返回，模型读到的就是它；Zotero 面板可以一键复制或下载文件（`.bib` / `.ris` / `.json` 等），不需要手动誊抄
 - **全文证据依赖 Zotero 索引**：未索引的 PDF 无法提供全文段落
 - **附件深度取决于宿主**：`zotero_attachment` 返回文件位置，继续阅读 PDF 需要宿主具备对应能力
 
