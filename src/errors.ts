@@ -40,6 +40,14 @@ export const ZOTERO_CAPABILITY_UNAVAILABLE = 'ZOTERO_CAPABILITY_UNAVAILABLE'
 export const ZOTERO_PROVIDER_UNAVAILABLE = 'ZOTERO_PROVIDER_UNAVAILABLE'
 /** A response could not be parsed or behaved unexpectedly. */
 export const ZOTERO_UNEXPECTED = 'ZOTERO_UNEXPECTED'
+/** Writing is disabled in the plugin's settings. */
+export const ZOTERO_WRITE_DISABLED = 'ZOTERO_WRITE_DISABLED'
+/** Zotero refused a write for lack of a valid local API key (401), including a declined authorization dialog. */
+export const ZOTERO_WRITE_UNAUTHORIZED = 'ZOTERO_WRITE_UNAUTHORIZED'
+/** The object moved between the read backing the write and the write itself (412). */
+export const ZOTERO_WRITE_CONFLICT = 'ZOTERO_WRITE_CONFLICT'
+/** Zotero is rate-limiting write authorization requests (429 on the authorize endpoint). */
+export const ZOTERO_WRITE_RATE_LIMITED = 'ZOTERO_WRITE_RATE_LIMITED'
 
 const ZOTERO_ERROR_CODES = [
   ZOTERO_NOT_RUNNING,
@@ -61,6 +69,10 @@ const ZOTERO_ERROR_CODES = [
   ZOTERO_CAPABILITY_UNAVAILABLE,
   ZOTERO_PROVIDER_UNAVAILABLE,
   ZOTERO_UNEXPECTED,
+  ZOTERO_WRITE_DISABLED,
+  ZOTERO_WRITE_UNAUTHORIZED,
+  ZOTERO_WRITE_CONFLICT,
+  ZOTERO_WRITE_RATE_LIMITED,
 ] as const
 
 /** Every stable error code a `ZoteroError` may carry. */
@@ -115,6 +127,66 @@ export const TOOL_ABORTED_MESSAGE = 'tool call aborted'
 export const RANGE_UNSUPPORTED_MESSAGE =
   'Zotero does not keep change history back to that version, so it cannot be read. ' +
   'Take a fresh reading and continue from there.'
+
+/** Shown when a write is requested while the plugin's write capability is disabled. */
+export const WRITE_DISABLED_MESSAGE =
+  'Writing to Zotero is disabled in the plugin settings. Ask the user to enable the write capability ' +
+  'in the Zotero settings page, then retry.'
+
+/** Shown when Zotero refuses a write for lack of a valid local API key (401); the plugin is about to re-authorize. */
+export const WRITE_UNAUTHORIZED_MESSAGE =
+  'Zotero rejected the write: no valid local API key was provided (401). The plugin will request ' +
+  'authorization now; if Zotero shows the dialog, approve it, or pick "Always Allow" to store a reusable key.'
+
+/** Shown when a write still fails after a fresh authorization ran. */
+export const WRITE_UNAUTHORIZED_AFTER_AUTH_MESSAGE =
+  'Zotero still rejects writes after a fresh authorization. Confirm the dialog was approved rather than ' +
+  "declined, and that Zotero's local API is enabled; a stored authorization may have been revoked in Zotero."
+
+/** Shown when the user declines the Zotero authorization dialog. */
+export const WRITE_AUTH_DENIED_MESSAGE =
+  'Zotero denied write authorization: the dialog was declined. To write, allow access in the Zotero ' +
+  'dialog, or pick "Always Allow" to store a reusable key.'
+
+/** Shown when the object moved between the read backing a write and the write itself. */
+export const WRITE_CONFLICT_MESSAGE =
+  'The Zotero object changed between the read and the write (412). Run the tool again: it re-reads the ' +
+  'current state and reapplies on top.'
+
+/** Shown when Zotero answers a write with 428: the plugin always sends both preconditions on writes. */
+export const WRITE_PRECONDITION_REFUSED_MESSAGE =
+  'Zotero required a precondition the plugin did not send (428). The plugin always sends the instance id ' +
+  'and a version precondition on writes, so this points at a protocol change: update dsh-zotero.'
+
+/** Shown when Zotero answers a write batch with 413: the plugin caps batches at the protocol limit. */
+export const WRITE_BATCH_REFUSED_MESSAGE =
+  'Zotero refused the write batch as too large (413). The plugin caps batches at 50 objects, so this ' +
+  'points at a protocol change: update dsh-zotero.'
+
+/** Shown when a write response lacks the library-version header Zotero documents on writes. */
+export const WRITE_LIBRARY_VERSION_MISSING_MESSAGE =
+  'Zotero applied the write but did not report the library version it advanced to; the response does not ' +
+  'match the documented write shape.'
+
+/** Shown when the authorization response does not carry the documented key grant. */
+export const WRITE_AUTH_SHAPE_MESSAGE =
+  'Zotero answered the authorization request without a key grant; the response does not match the ' +
+  'documented authorize shape.'
+
+/** Shown when a write is attempted before any read established the Zotero instance id. */
+export const WRITE_IDENTITY_MISSING_MESSAGE =
+  'A write was attempted before any read established the Zotero instance id.'
+
+/** Shown when Zotero answers a write with an outcome bucket that does not match the documented shape. */
+export function writeBatchShapeMessage(bucket: string): string {
+  return `Zotero answered the write with a malformed "${bucket}" bucket; the response does not match the documented write shape.`
+}
+
+/** Shown when Zotero rate-limits write authorizations; `waitSeconds` rides Retry-After when sent. */
+export function writeRateLimitedMessage(waitSeconds: number | undefined): string {
+  const wait = waitSeconds === undefined ? 'about a minute' : `${waitSeconds} s`
+  return `Zotero is rate-limiting write authorization requests (429). Wait ${wait} and try again.`
+}
 
 const UNREACHABLE_CODES = new Set([
   'ECONNREFUSED',

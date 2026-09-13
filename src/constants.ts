@@ -100,6 +100,30 @@ export const ZOTERO_SCOPE_LISTING_TTL_MS = 30_000
 export const ZOTERO_MAX_INFLIGHT_REQUESTS = 8
 
 /**
+ * The write transport keeps exactly one request in flight. Zotero stamps the
+ * library version per committed object, and the plugin's tag/collection
+ * updates are read-modify-write cycles — an overlapping write could interleave
+ * with another call's read and make both sides lose their version
+ * preconditions. Serialization is the point, not a tuning knob.
+ */
+export const ZOTERO_MAX_WRITE_INFLIGHT_REQUESTS = 1
+
+/**
+ * The Local API's hard cap on objects per write batch (`MAX_WRITE_OBJECTS`,
+ * `server_localAPI.js:95` at Zotero 10.0.2). The write domain refuses a
+ * longer batch before the network, and the tool schemas cap `maxItems` at the
+ * same number, so a 413 from Zotero can only mean protocol drift.
+ */
+export const ZOTERO_WRITE_OBJECT_BATCH = 50
+
+/**
+ * The write-response header carrying the library version a write advanced
+ * to (`Last-Modified-Version`). Zotero stamps written objects with that same
+ * library version, so it doubles as the written object's version.
+ */
+export const ZOTERO_LIBRARY_VERSION_HEADER = 'last-modified-version'
+
+/**
  * How many attachments one `zotero_retrieve` call may rank full text from.
  * Each member costs a metadata read and a full-text read, and all of their
  * text enters one ranking — a bound on the call's own work, not on what a

@@ -17,6 +17,8 @@ export interface RecordedRequest {
   readonly pathname: string
   readonly search: URLSearchParams
   readonly headers: Record<string, string | string[] | undefined>
+  /** The full request body, decoded as UTF-8; empty when none was sent. */
+  readonly body: string
 }
 
 /** Response-writing helpers handed to route handlers. */
@@ -37,6 +39,13 @@ export type RouteHandler = (
   helpers: ResponseHelpers,
   search: URLSearchParams,
 ) => void | Promise<void>
+
+/** Buffer one request body to UTF-8; test bodies are small by construction. */
+async function readRequestBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
+  return Buffer.concat(chunks).toString('utf8')
+}
 
 interface Route {
   readonly method: string
@@ -90,6 +99,7 @@ export class MockZotero {
       pathname: url.pathname,
       search: url.searchParams,
       headers: req.headers,
+      body: await readRequestBody(req),
     })
     const helpers: ResponseHelpers = {
       json: (body, headers) => {

@@ -132,12 +132,14 @@ export function notImplementedRequestMessage(path: string): string {
  * provider's own deadline win over transport heuristics; the deadline is
  * classified by its stamped reason rather than by engine error names, and
  * the remaining network errors carry the unreachable-instance diagnosis.
+ * Shared with the write transport (`write-http.ts`), which adds the
+ * write-specific status translations on top of this base.
  * @param error - the rejection to translate.
  * @param signal - the fused deadline signal; its reason identifies the timeout.
  * @param callerSignal - the caller's own signal; its abort always wins.
  * @param timeoutMs - the deadline the timeout message reports.
  */
-function translateFetchError(
+export function translateFetchError(
   error: unknown,
   signal: AbortSignal,
   callerSignal: AbortSignal | undefined,
@@ -238,9 +240,10 @@ function notImplementedError(response: Response, detail: string, path: string): 
 /**
  * Read a response body as text, enforcing the byte bound while streaming.
  * The body is never buffered past the bound, so oversized responses fail
- * before their full size reaches memory.
+ * before their full size reaches memory. Shared with the write transport,
+ * which applies the same bound to every write response.
  */
-async function readBody(response: Response, maxResponseBytes: number): Promise<string> {
+export async function readBody(response: Response, maxResponseBytes: number): Promise<string> {
   const reader = response.body?.getReader()
   if (reader === undefined) return ''
   const parts: string[] = []
@@ -260,6 +263,41 @@ async function readBody(response: Response, maxResponseBytes: number): Promise<s
   // large bodies (the bound above is 16 MiB).
   return parts.join('') + decoder.decode()
 }
+
+/**
+ * Read what a failure response states, under the response byte bound; shared
+ * with the write transport. Caller cancellation and the deadline still win
+ * over the statement: the request did reach Zotero, but an aborted read is
+ * the caller's failure, not a fact about the refusal. Any other read failure
+ * leaves the statement unavailable — the status itself is still the finding.
+ */
+export async function readFailureStatement(
+  response: Response,
+  maxResponseBytes: number,
+  signal: AbortSignal,
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): Promise<string> {
+  try {
+    return await readBody(response, maxResponseBytes)
+  } catch (error) {
+    if (callerSignal?.aborted === true || timeoutOf(signal, ZOTERO_TIMEOUT) !== undefined) {
+      translateFetchError(error, signal, callerSignal, timeoutMs)
+    }
+    return ''
+  }
+}
+
+/**
+ * Zotero's own statement that a write's instance id did not match
+ * (`Zotero-Server-ID does not match this server`, `server_localAPI.js:635`
+ * at 10.0.2). Zotero shares the 412 status between this identity refusal and
+ * version preconditions failing; the statement, not the status, tells them
+ * apart. The write transport matches this exact substring and answers
+ * everything else with the version-conflict diagnosis, which is the common
+ * case for keyed writes.
+ */
+export const SERVER_ID_MISMATCH_STATEMENT = 'does not match this server'
 
 export class ZoteroHttpClient {
   private currentServerId: string | undefined
@@ -284,26 +322,24 @@ export class ZoteroHttpClient {
   }
 
   /**
-   * Read a failure's own statement (a 501 body) under the byte bound.
+   * Read what a failure's own statement (a 501 body) under the byte bound.
    * Caller cancellation and the deadline still win over the statement: the
    * request did reach Zotero, but an aborted read is the caller's failure,
    * not a fact about the refusal. Any other read failure leaves the
    * statement unavailable — the status itself is still the finding.
    */
-  private async readStatement(
+  private readStatement = async (
     response: Response,
     signal: AbortSignal,
     callerSignal: AbortSignal | undefined,
-  ): Promise<string> {
-    try {
-      return await readBody(response, this.options.maxResponseBytes)
-    } catch (error) {
-      if (callerSignal?.aborted === true || timeoutOf(signal, ZOTERO_TIMEOUT) !== undefined) {
-        translateFetchError(error, signal, callerSignal, this.options.timeoutMs)
-      }
-      return ''
-    }
-  }
+  ): Promise<string> =>
+    readFailureStatement(
+      response,
+      this.options.maxResponseBytes,
+      signal,
+      callerSignal,
+      this.options.timeoutMs,
+    )
 
   /**
    * GET a path relative to the API base (no leading slash; `''` is `/api/`).
