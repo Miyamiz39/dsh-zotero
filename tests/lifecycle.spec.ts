@@ -5,6 +5,7 @@ import {
   type CommandInvocation,
   type CommandResult,
 } from '@deepseek-ai/dsh-commands'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -247,6 +248,28 @@ describe('prompt section', () => {
 })
 
 describe('disposal unwinds registrations', () => {
+  it('lets an in-flight request finish on its own deadline after the plugin is disposed', async () => {
+    // Disposing the plugin does not abort a request that is already out: the
+    // harness cancels a tool call through the caller's own signal, and nothing
+    // unwinds it on unload. What has to hold is that such a request cannot
+    // hang the host — the provider deadline ends it, so a reload leaves no
+    // work waiting forever.
+    const { ctx, zoteroFiber } = await bootContext(true, { timeoutMs: 60 })
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.delayJson({ key: 'ABCD1234', data: {} }, 5000),
+    )
+    const pending = ctx.tools.execute({
+      callId: ToolCallId('lifecycle-in-flight'),
+      name: 'zotero_get',
+      arguments: { ref: 'zotero://user/0/item/ABCD1234' },
+      signal: new AbortController().signal,
+    })
+    await zoteroFiber.dispose()
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result)).toContain('ZOTERO_TIMEOUT')
+  })
+
   it('removes tools, the prompt section, and the command when the plugin fiber is disposed', async () => {
     const { ctx, stub, zoteroFiber } = await bootContext(true)
     expect(ctx.tools.get('zotero_search')).toBeDefined()
