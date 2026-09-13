@@ -176,6 +176,73 @@ describe('retrieve', () => {
     expect(annotation).toBeDefined()
     expect(annotation!.comment).toBe('compare with figure 3')
     expect(annotation!.pageLabel).toBe('7')
+    // The quote carries the term, so it is the field named.
+    expect(annotation!.matchedFields).toEqual(['text'])
+  })
+
+  it('ranks an annotation on its reader comment and names the comment as the match', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT),
+    )
+    const CHILDREN = [
+      {
+        key: 'ANNO2222',
+        data: {
+          itemType: 'annotation',
+          annotationType: 'note',
+          annotationText: '',
+          annotationComment: 'the sampling method looks biased to me',
+          parentItem: 'WXYZ6789',
+        },
+      },
+    ]
+    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
+      helpers.json(CHILDREN),
+    )
+    const result = await provider.retrieve(
+      retrieveRequest({ sources: ['annotation'], query: 'sampling biased', passages: 4 }),
+    )
+    // A comment-only annotation used to be unreachable: the quote is empty and
+    // the comment never entered the ranking.
+    expect(result.evidence).toHaveLength(1)
+    const annotation = result.evidence[0]!
+    expect(annotation.text).toBe('')
+    expect(annotation.comment).toBe('the sampling method looks biased to me')
+    expect(annotation.matchedFields).toEqual(['comment'])
+  })
+
+  it('names both fields when the quote and the comment carry the terms', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT),
+    )
+    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
+      helpers.json([
+        {
+          key: 'ANNO3333',
+          data: {
+            itemType: 'annotation',
+            annotationType: 'highlight',
+            annotationText: 'the sampling strategy',
+            annotationComment: 'sampling here is biased',
+            parentItem: 'WXYZ6789',
+          },
+        },
+      ]),
+    )
+    const result = await provider.retrieve(
+      retrieveRequest({ sources: ['annotation'], query: 'sampling', passages: 4 }),
+    )
+    expect(result.evidence[0]!.matchedFields).toEqual(['text', 'comment'])
+  })
+
+  it('leaves matchedFields off single-field sources', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT),
+    )
+    const result = await provider.retrieve(
+      retrieveRequest({ sources: ['abstract'], query: 'reordering', passages: 1 }),
+    )
+    expect(result.evidence[0]!.matchedFields).toBeUndefined()
   })
 
   it('carries the parent attachment ref on annotation evidence', async () => {

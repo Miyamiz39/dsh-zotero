@@ -1,7 +1,10 @@
 /**
  * The `zotero_retrieve` domain: one item's annotations, notes, abstract, and
  * full-text chunks ranked as a single BM25 passage corpus, with per-passage
- * attachment provenance under the multi-attachment policies.
+ * attachment provenance under the multi-attachment policies. An annotation
+ * ranks on its highlight and the reader's comment together, and reports which
+ * of the two matched; notes, the abstract, and full-text chunks rank on their
+ * own text.
  * @module dsh-zotero/local/retrieve
  */
 
@@ -34,6 +37,7 @@ import type {
   SupportedLocalLibrary,
   ZoteroCoverage,
   ZoteroEvidence,
+  ZoteroEvidenceField,
   ZoteroEvidenceSource,
   ZoteroFulltextPayload,
   ZoteroObjectRef,
@@ -169,6 +173,8 @@ export async function retrieve(
     comment?: string
     pageLabel?: string
     attachmentRef?: string
+    /** The text ranking scores, when it differs from the text returned. */
+    rankText?: string
   }[] = []
   if (wantsFulltext && policy === 'best') {
     let attachmentKey = bestFulltextKey
@@ -397,6 +403,14 @@ export async function retrieve(
         ...(annotation.comment !== undefined ? { comment: annotation.comment } : {}),
         ...(annotation.pageLabel !== undefined ? { pageLabel: annotation.pageLabel } : {}),
         ...(annotation.parentRef === undefined ? {} : { attachmentRef: annotation.parentRef }),
+        // A reader's comment is part of what the annotation says about the
+        // paper — "the method looks biased here" is a finding in its own
+        // right, and a highlight whose words say nothing about it must still
+        // be findable by the comment's terms. Both fields rank; the evidence
+        // keeps them apart and names the one that matched.
+        ...(annotation.comment === undefined
+          ? {}
+          : { rankText: `${annotation.text}\n${annotation.comment}` }),
       })
     }
   }
@@ -447,13 +461,14 @@ export async function retrieve(
 
   const ranked = rankChunks(
     request.query,
-    passages.map((passage, index) => ({ text: passage.text, index })),
+    passages.map((passage, index) => ({ text: passage.rankText ?? passage.text, index })),
   )
   // Zero-score passages share nothing with the query; returning them as
   // "evidence" would present arbitrary excerpts as matches. A query with no
   // token overlap therefore yields an empty evidence array, which the
   // contract reads as "no match", not "no content".
   const matched = ranked.filter((entry) => entry.score > 0)
+  const queryTerms = new Set(tokenize(request.query))
   const evidence: ZoteroEvidence[] = []
   let used = 0
   let truncated = matched.length > request.passages || fulltextWasCut || abstractWasCut
@@ -464,6 +479,7 @@ export async function retrieve(
       break
     }
     used += passage.text.length
+    const matchedFields = matchedFieldsOf(queryTerms, passage)
     evidence.push({
       source: passage.source,
       sourceRef: passage.sourceRef,
@@ -473,6 +489,7 @@ export async function retrieve(
       ...(passage.comment !== undefined ? { comment: passage.comment } : {}),
       ...(passage.pageLabel !== undefined ? { pageLabel: passage.pageLabel } : {}),
       ...(passage.attachmentRef !== undefined ? { attachmentRef: passage.attachmentRef } : {}),
+      ...(matchedFields !== undefined ? { matchedFields } : {}),
     })
   }
   // A stable report order keeps the contract predictable: the sources the
@@ -489,6 +506,31 @@ export async function retrieve(
     truncated,
     sourcesSkipped,
   }
+}
+
+/**
+ * Which of a passage's ranked fields carry query terms. An annotation is the
+ * only two-field source — the highlight a reader selected and the comment
+ * they wrote — and the comment is the reader's own view rather than the
+ * paper's, so the evidence names the field that matched. A ranked passage
+ * always matched somewhere (`score > 0` means a query term sits in its
+ * text-or-comment token stream, and a single field's tokens are a subset of
+ * that stream), so the returned list is never empty.
+ */
+function matchedFieldsOf(
+  queryTerms: ReadonlySet<string>,
+  passage: { readonly text: string; readonly comment?: string },
+): ZoteroEvidenceField[] | undefined {
+  if (passage.comment === undefined) return undefined
+  const fields: ZoteroEvidenceField[] = []
+  if (carriesQueryTerm(queryTerms, passage.text)) fields.push('text')
+  if (carriesQueryTerm(queryTerms, passage.comment)) fields.push('comment')
+  return fields
+}
+
+/** Whether any query term appears in a field's own tokens. */
+function carriesQueryTerm(queryTerms: ReadonlySet<string>, text: string): boolean {
+  return tokenize(text).some((term) => queryTerms.has(term))
 }
 
 async function fetchFulltext(

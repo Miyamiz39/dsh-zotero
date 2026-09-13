@@ -1168,6 +1168,7 @@ describe('zotero_retrieve render', () => {
           text: 'insight',
           comment: 'double-check',
           pageLabel: '7',
+          matchedFields: ['text', 'comment'],
         },
       ],
       truncated: false,
@@ -1175,6 +1176,26 @@ describe('zotero_retrieve render', () => {
     } as never)
     expect(text).toContain('[annotation (page 7)] zotero://user/0/item/ANNO1111')
     expect(text).toContain('Comment: double-check')
+    expect(text).toContain('Matched in: quoted text and the reader\u2019s comment')
+  })
+
+  it('tells the model when only the annotator\u2019s comment matched', () => {
+    const text = render({
+      ref: 'zotero://user/0/item/ABCD1234',
+      evidence: [
+        {
+          source: 'annotation',
+          sourceRef: 'zotero://user/0/item/ANNO2222',
+          text: '',
+          comment: 'the sampling method looks biased',
+          matchedFields: ['comment'],
+        },
+      ],
+      truncated: false,
+      sourcesSkipped: [],
+    } as never)
+    expect(text).toContain('Matched in: the reader\u2019s comment')
+    expect(text).toContain('those are the annotator\u2019s words, not the paper\u2019s own text')
   })
 
   it('renders chunk locators and skipped sources', () => {

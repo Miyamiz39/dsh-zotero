@@ -30,7 +30,12 @@ import {
   REF_ARG_HINT,
 } from './validate.js'
 import type { ZoteroService } from '../service.js'
-import type { ZoteroEvidenceSource, ZoteroObjectRef, ZoteroRetrieveRequest } from '../types.js'
+import type {
+  ZoteroEvidenceField,
+  ZoteroEvidenceSource,
+  ZoteroObjectRef,
+  ZoteroRetrieveRequest,
+} from '../types.js'
 
 const ALL_SOURCES: ZoteroEvidenceSource[] = ['annotation', 'note', 'abstract', 'fulltext']
 
@@ -92,6 +97,7 @@ const EVIDENCE_RECORD = {
     comment: { type: 'string' },
     pageLabel: { type: 'string' },
     attachmentRef: { type: 'string' },
+    matchedFields: { type: 'array', items: { type: 'string', enum: ['text', 'comment'] } },
   },
 } as const
 
@@ -179,6 +185,26 @@ function buildRequest(args: RetrieveArgs, config: ResolvedConfig): ZoteroRetriev
   }
 }
 
+/**
+ * How the render names each field a passage can match in. The comment label
+ * spells out whose words they are: a hit found only there is the annotator's
+ * view of the paper, which the model must not attribute to the paper.
+ */
+const MATCH_FIELD_LABELS = {
+  text: 'quoted text',
+  comment: 'the reader\u2019s comment',
+} as const satisfies Record<ZoteroEvidenceField, string>
+
+/** The one-line account of which fields carried the query terms. */
+function matchLine(fields: readonly ZoteroEvidenceField[]): string {
+  const where = fields.map((field) => MATCH_FIELD_LABELS[field]).join(' and ')
+  const onlyComment =
+    fields.includes('comment') && !fields.includes('text')
+      ? ' — those are the annotator\u2019s words, not the paper\u2019s own text'
+      : ''
+  return `Matched in: ${where}${onlyComment}`
+}
+
 export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): ContentBlock[] {
   const lines = [
     `Evidence for ${value.ref} (${value.evidence.length} passage${value.evidence.length === 1 ? '' : 's'})`,
@@ -214,6 +240,9 @@ export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): Cont
         : `, chunk ${entry.chunkIndex + 1}/${entry.chunkCount}`
     const comment = entry.comment === undefined ? '' : `\nComment: ${entry.comment}`
     lines.push(`\n[${page}${chunk}] ${entry.sourceRef}\n${entry.text}${comment}`)
+    if (entry.matchedFields !== undefined) {
+      lines.push(matchLine(entry.matchedFields))
+    }
   })
   if (value.sourcesSkipped.length > 0) {
     lines.push(`\nSkipped unavailable sources: ${value.sourcesSkipped.join(', ')}`)
@@ -254,8 +283,9 @@ export function registerRetrieveTool(ctx: Context, service: ZoteroService): void
       description: [
         'Gather evidence passages for one Zotero item and rank them against a query.',
         "Sources: annotations (with Zotero's own page labels), notes, the abstract, and BM25-ranked full-text chunks.",
+        "An annotation ranks on its highlight and its reader comment together, and matchedFields names which of the two carried the query terms — a hit found only in the comment is the annotator's view, not the paper's text.",
         'A note item contributes its own body; child notes contribute every chunk of their full text (chunkIndex/chunkCount locate each passage).',
-        "attachmentPolicy picks the fulltext sources: best (default, Zotero's chosen PDF), allIndexed (every PDF child — use when a work has several files), or specified via attachmentRefs.",
+        "attachmentPolicy picks the fulltext sources: best (default, Zotero's chosen PDF), allIndexed (every PDF child — use when a work has several files), or specified via attachmentRefs — and a specified attachment must provably be this item's own child.",
         'Unavailable sources are skipped and listed in sourcesSkipped instead of failing the call.',
         'Results are capped by passage count and character budget; a truncated flag signals omitted evidence.',
       ].join(' '),

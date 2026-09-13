@@ -306,6 +306,13 @@ export interface ZoteroRetrieveRequest {
   attachmentRefs?: ZoteroObjectRef[]
 }
 
+/**
+ * A ranked field of an evidence passage. Only an annotation has two: the
+ * highlight a reader selected (`text`) and the comment they wrote on it
+ * (`comment`).
+ */
+export type ZoteroEvidenceField = 'text' | 'comment'
+
 /** One bounded evidence passage. Fulltext passages never carry page locators. */
 export interface ZoteroEvidence {
   source: ZoteroEvidenceSource
@@ -319,6 +326,13 @@ export interface ZoteroEvidence {
   pageLabel?: string
   /** The annotation passage's parent attachment ref; absent for other sources. */
   attachmentRef?: string
+  /**
+   * The passage's fields that carry matched query terms, so a match found in
+   * the annotator's own comment is never read as the paper saying it. Present
+   * only for the two-field source (an annotation carrying a comment); absence
+   * means the passage's single text field carried the match.
+   */
+  matchedFields?: ZoteroEvidenceField[]
 }
 
 /** Full-text indexing coverage as reported by Zotero; `complete` is derived. */
