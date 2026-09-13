@@ -2,7 +2,7 @@
 
 # dsh-zotero 工具参考
 
-dsh-zotero 注册 8 个工具，通过本地 Zotero HTTP API 操作用户的文献库。所有 ref 均为 `zotero://user/0/item/<KEY>`（个人库）或 `zotero://group/<ID>/item/<KEY>`（群组库）格式的稳定标识符，个人库恒为 `user/0` canonical。
+dsh-zotero 注册 11 个工具（写入三工具需在设置中开启 `writeEnabled`，默认关闭），通过本地 Zotero HTTP API 操作用户的文献库。所有 ref 均为 `zotero://user/0/item/<KEY>`（个人库）或 `zotero://group/<ID>/item/<KEY>`（群组库）格式的稳定标识符，个人库恒为 `user/0` canonical。
 
 ---
 
@@ -263,25 +263,109 @@ zotero_changes(since={serverId: "<from cursor>", library: {type: "user", id: 0},
 
 ---
 
+---
+
+## zotero_create_note
+
+创建研究笔记：独立笔记，或挂到某条目下的子笔记，创建时可同时带标签、合集与来源关系。markdown 由插件转换为 Zotero 笔记 HTML——白名单语法（段落、一至四级标题、粗斜体、行内与围栏代码、引用、一层列表、带 `---` 分隔行的管道表格、仅 `https://`/`http://`/`zotero://` 链接），**语法之外的任何内容一律转义为字面文本，原始 HTML 不透传**。Zotero 服务端对写入不做格式转换，markdown 原样存入就会显示为原始标记（社区集成踩过的坑），所以转换发生在插件侧。子笔记继承父条目的合集，只有独立笔记可携带 `collections`。来源以 `dc:relation` 关系记录（Zotero 的"关联条目"），创建后从批量写响应的 `successful` 桶读回保存态，无需再发 GET。每次写入先展示计划卡片等待批准；Zotero 10 首次写入还会弹它自己的授权对话框（允许 / 总是允许 / 拒绝，默认拒绝）。
+
+### 参数
+
+| 参数          | 类型     | 默认值 | 说明                                                    |
+| ------------- | -------- | ------ | ------------------------------------------------------- |
+| `markdown`    | string   | —      | 笔记正文（markdown，上限 65536 字符）                   |
+| `parentItem`  | string   | —      | 父条目 ref；省略为独立笔记                              |
+| `collections` | string[] | —      | 合集 ref 或精确名称；仅独立笔记，子笔记传此参数直接报错 |
+| `tags`        | string[] | —      | 创建时应用的标签                                        |
+| `sourceRefs`  | string[] | —      | 来源条目 ref，记为 `dc:relation` 关系并回显             |
+
+### 输出
+
+`{kind: "applied", ref, key, version, parentItem?, collections, tags, sourceRefs, libraryVersion, serverId?}`；`kind: "declined"` 表示用户在计划卡片上未批准——未写入任何内容，这是正常结果而非错误，不要重试。
+
+### 示例
+
+```
+zotero_create_note(markdown="**方法**：见第 2 节。", parentItem="zotero://user/0/item/ABCD1234", tags=["综述"], sourceRefs=["zotero://user/0/item/EFGH5678"])
+```
+
+---
+
+## zotero_add_tags
+
+给一个条目加标签。Zotero 的 PATCH 对数组是整体替换而非合并，所以工具内部读-合并-写：先读条目现有标签与版本，把新增项并入（既有标签及其彩色/自动类型原样保留）后以 `If-Unmodified-Since-Version` 前置提交；所请求标签全部已存在时**不发任何写请求**，直接返回 `unchanged: true`。版本前置失败（对象在读取后被改动）报 `ZOTERO_WRITE_CONFLICT`——重跑一次工具即可，它会重新读取并在其上合并。每次写入先展示计划卡片。
+
+### 参数
+
+| 参数   | 类型     | 默认值 | 说明                                    |
+| ------ | -------- | ------ | --------------------------------------- |
+| `ref`  | string   | —      | 要打标签的条目 ref                      |
+| `tags` | string[] | —      | 要新增的标签（≥1 个，≤50 个；自动去重） |
+
+### 输出
+
+`{kind: "applied", ref, version, tags, added, unchanged, libraryVersion?, serverId?}`。`tags` 是合并后的完整列表，`added` 是本次真正新增的部分。
+
+### 示例
+
+```
+zotero_add_tags(ref="zotero://user/0/item/ABCD1234", tags=["综述", "待读"])
+```
+
+---
+
+## zotero_add_to_collection
+
+把一个条目加入合集（ref 或精确名称）。合集先解析（名称走缓存的合集清单，未知名称在**任何读写发生前**报 `ZOTERO_NOT_FOUND`），随后与标签相同的读-合并-写：条目已有合集原样保留，合并后带版本前置提交；条目已是成员时 `added: false` 且不写。
+
+### 参数
+
+| 参数         | 类型   | 默认值 | 说明                                                     |
+| ------------ | ------ | ------ | -------------------------------------------------------- |
+| `ref`        | string | —      | 要加入合集的条目 ref                                     |
+| `collection` | string | —      | 合集 ref（`zotero://user/0/collection/<KEY>`）或精确名称 |
+
+### 输出
+
+`{kind: "applied", ref, version, collections, added, libraryVersion?, serverId?}`。`collections` 是加入后的完整合集列表。
+
+### 示例
+
+```
+zotero_add_to_collection(ref="zotero://user/0/item/ABCD1234", collection="方法论")
+```
+
+---
+
+## 写入边界
+
+三个写入工具只在设置的 `writeEnabled` 打开时注册，且都只写 `zotero://user/0/`（个人库）。每次写入前有 dsh 侧的计划卡片批准（`writeConfirm`），Zotero 10 自己的授权弹窗与本地 API key 是其下的硬边界：写请求必须携带实例 id（缺失 428、不匹配 412）与本地签发的 key（`/api/local/authorize`，弹窗可选"总是允许"持久化到宿主凭据库，单次 key 首次鉴权即被服务端消费——写失败也照样烧掉，所以 401 后自动重新授权并同批重放一次）。没有自动重试；`ZOTERO_WRITE_CONFLICT` 之外的写失败都应先理解再行动。写入会推进库版本，`zotero_changes` 会看到这批变更。
+
+---
+
 ## 错误码
 
-| 错误码                          | 说明                                                                       |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| `ZOTERO_NOT_RUNNING`            | Zotero 未运行或本地 API 不可达                                             |
-| `ZOTERO_API_DISABLED`           | Zotero 运行中但本地 API 被禁用（403）                                      |
-| `ZOTERO_API_VERSION`            | Zotero API 版本不受支持                                                    |
-| `ZOTERO_NOT_IMPLEMENTED`        | 本地 API 明确拒绝该请求（501）且非版本问题：端点或输出格式在本构建中不可用 |
-| `ZOTERO_SERVER_MISMATCH`        | ref 来自不同的 Zotero 实例                                                 |
-| `ZOTERO_NOT_FOUND`              | 引用的条目、集合或保存搜索不存在                                           |
-| `ZOTERO_NO_ATTACHMENT`          | 条目没有指定类型的附件                                                     |
-| `ZOTERO_NO_FULLTEXT`            | 附件没有全文索引                                                           |
-| `ZOTERO_FILE_MISSING`           | Zotero 报告的本地文件在磁盘上不存在                                        |
-| `ZOTERO_INVALID_REF`            | ref 字符串不符合 `zotero://` 语法或引用了不支持的库                        |
-| `ZOTERO_INVALID_ARGUMENT`       | 参数违反了 schema 无法表达的领域约束                                       |
-| `ZOTERO_SCOPE_AMBIGUOUS`        | 集合或保存搜索名称匹配到多个对象                                           |
-| `ZOTERO_TIMEOUT`                | 提供方自身超时                                                             |
-| `ZOTERO_RESPONSE_TOO_LARGE`     | 响应流式传输超出资源限制                                                   |
-| `ZOTERO_OUTPUT_TOO_LARGE`       | 导出输出超过提供方硬上限                                                   |
-| `ZOTERO_CAPABILITY_UNAVAILABLE` | 提供方未声明所需能力                                                       |
-| `ZOTERO_PROVIDER_UNAVAILABLE`   | 配置的提供方未注册，或声明了能力却未实现对应方法                           |
-| `ZOTERO_UNEXPECTED`             | 响应无法解析或行为异常                                                     |
+| 错误码                          | 说明                                                                                     |
+| ------------------------------- | ---------------------------------------------------------------------------------------- |
+| `ZOTERO_WRITE_DISABLED`         | 插件设置未启用写入                                                                       |
+| `ZOTERO_WRITE_UNAUTHORIZED`     | Zotero 拒绝写入授权：key 缺失或失效（401）、用户在授权弹窗拒绝，或没有可用的计划批准通道 |
+| `ZOTERO_WRITE_CONFLICT`         | 写入的版本前置失败（412）：对象在读取后被修改，重跑工具即可                              |
+| `ZOTERO_WRITE_RATE_LIMITED`     | Zotero 对写入授权请求限速（429，含 Retry-After）                                         |
+| `ZOTERO_NOT_RUNNING`            | Zotero 未运行或本地 API 不可达                                                           |
+| `ZOTERO_API_DISABLED`           | Zotero 运行中但本地 API 被禁用（403）                                                    |
+| `ZOTERO_API_VERSION`            | Zotero API 版本不受支持                                                                  |
+| `ZOTERO_NOT_IMPLEMENTED`        | 本地 API 明确拒绝该请求（501）且非版本问题：端点或输出格式在本构建中不可用               |
+| `ZOTERO_SERVER_MISMATCH`        | ref 来自不同的 Zotero 实例                                                               |
+| `ZOTERO_NOT_FOUND`              | 引用的条目、集合或保存搜索不存在                                                         |
+| `ZOTERO_NO_ATTACHMENT`          | 条目没有指定类型的附件                                                                   |
+| `ZOTERO_NO_FULLTEXT`            | 附件没有全文索引                                                                         |
+| `ZOTERO_FILE_MISSING`           | Zotero 报告的本地文件在磁盘上不存在                                                      |
+| `ZOTERO_INVALID_REF`            | ref 字符串不符合 `zotero://` 语法或引用了不支持的库                                      |
+| `ZOTERO_INVALID_ARGUMENT`       | 参数违反了 schema 无法表达的领域约束                                                     |
+| `ZOTERO_SCOPE_AMBIGUOUS`        | 集合或保存搜索名称匹配到多个对象                                                         |
+| `ZOTERO_TIMEOUT`                | 提供方自身超时                                                                           |
+| `ZOTERO_RESPONSE_TOO_LARGE`     | 响应流式传输超出资源限制                                                                 |
+| `ZOTERO_OUTPUT_TOO_LARGE`       | 导出输出超过提供方硬上限                                                                 |
+| `ZOTERO_CAPABILITY_UNAVAILABLE` | 提供方未声明所需能力                                                                     |
+| `ZOTERO_PROVIDER_UNAVAILABLE`   | 配置的提供方未注册，或声明了能力却未实现对应方法                                         |
+| `ZOTERO_UNEXPECTED`             | 响应无法解析或行为异常                                                                   |

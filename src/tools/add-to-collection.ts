@@ -66,7 +66,11 @@ export function addToCollectionPlan(args: AddToCollectionArgs): string {
   ].join('\n')
 }
 
-function renderAddToCollection(
+function buildRequest(args: AddToCollectionArgs): ZoteroCollectionAddRequest {
+  return { item: parseSupportedRef(args.ref, ['item']), collection: args.collection }
+}
+
+export function renderAddToCollection(
   _args: AddToCollectionArgs,
   value: AddToCollectionOutput,
 ): ContentBlock[] {
@@ -133,14 +137,12 @@ export function registerAddToCollectionTool(ctx: Context, service: ZoteroService
       }),
       presentResult: presentAddToCollectionResult,
       async execute(args, exec) {
+        const request = buildRequest(args)
         if (service.config.writeConfirm) {
           const approved = await askPlanApproval(ctx, exec, addToCollectionPlan(args))
           if (!approved) return { kind: 'declined' } as const
         }
-        return await service.addToCollection(
-          { item: parseSupportedRef(args.ref, ['item']), collection: args.collection },
-          exec.signal,
-        )
+        return await service.addToCollection(request, exec.signal)
       },
     }),
   )

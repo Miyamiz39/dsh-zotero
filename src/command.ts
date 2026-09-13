@@ -56,11 +56,7 @@ function formatStatus(status: ZoteroStatus): string {
       ? undefined
       : statusLine(
           'Write',
-          status.write.enabled
-            ? status.write.authorized
-              ? 'enabled (key stored)'
-              : 'enabled (not authorized)'
-            : 'disabled',
+          status.write.authorized ? 'enabled (key stored)' : 'enabled (no key yet)',
         ),
   ].join('\n')
 }

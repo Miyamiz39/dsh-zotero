@@ -55,7 +55,7 @@ function batchBody(): Record<string, unknown> {
 }
 
 /** Write-response headers carrying the identity and the library version. */
-function batchResponseHeaders(): Record<string, string> {
+function batchResponseHeaders(version = 42): Record<string, string> {
   return { 'Zotero-Server-ID': SERVER_ID, 'Last-Modified-Version': '12' }
 }
 
@@ -443,6 +443,40 @@ describe('cancellation and bounds', () => {
     await sync.when(() => mock.requests.length === 1)
     controller.abort()
     await expectZoteroError(pending, TOOL_ABORTED, TOOL_ABORTED_MESSAGE)
+  })
+
+  it('translates a queued abort into the same cancellation error', async () => {
+    const firstAbort = new AbortController()
+    const secondAbort = new AbortController()
+    const sync = progress()
+    mock.route('POST', '/api/users/0/items', (_req, res, helpers) => {
+      sync.notify()
+      helpers.delayJson(batchBody(), 2000)
+    })
+    const first = client.batch('users/0/items', [{ itemType: 'note' }], {
+      ...writeOptions(),
+      signal: firstAbort.signal,
+    })
+    await sync.when(() => mock.requests.length === 1)
+    const second = client.batch('users/0/items', [{ itemType: 'note' }], {
+      ...writeOptions(),
+      signal: secondAbort.signal,
+    })
+    secondAbort.abort()
+    await expectZoteroError(second, TOOL_ABORTED, TOOL_ABORTED_MESSAGE)
+    firstAbort.abort()
+    await expectZoteroError(first, TOOL_ABORTED, TOOL_ABORTED_MESSAGE)
+  })
+
+  it('refuses a batch body that is not a JSON record', async () => {
+    mock.route('POST', '/api/users/0/items', (_req, res, helpers) =>
+      helpers.raw(200, batchResponseHeaders(42), JSON.stringify([1, 2, 3])),
+    )
+    await expectZoteroError(
+      client.batch('users/0/items', [{ itemType: 'note' }], writeOptions()),
+      ZOTERO_UNEXPECTED,
+      UNPARSEABLE_RESPONSE_MESSAGE,
+    )
   })
 
   it('enforces the response byte bound on write responses', async () => {

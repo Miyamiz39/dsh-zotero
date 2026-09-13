@@ -161,7 +161,12 @@ describe('documented tool calls match the tool schemas', () => {
     ctx = new Context()
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRuntime, {})
-    await ctx.plugin(ZoteroService, { baseUrl: 'http://127.0.0.1:23119/api' })
+    await ctx.plugin(ZoteroService, {
+      baseUrl: 'http://127.0.0.1:23119/api',
+      // The write tools document real examples; the gate validates them
+      // against the same schemas, so the flag has to be on here.
+      writeEnabled: true,
+    })
     for (const file of DOC_FILES) examples.push(...examplesIn(file))
   })
 

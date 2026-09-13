@@ -236,6 +236,30 @@ describe('zotero_add_tags and zotero_add_to_collection', () => {
     expect(result.value).toMatchObject({ kind: 'applied', added: true, version: 12 })
   })
 
+  it('returns declined for add_tags and add_to_collection without writing', async () => {
+    const lane = await bootLane({ writeEnabled: true })
+    ScriptedQuestions.script.push(['Cancel', 'Cancel'])
+    serveWrites(lane.mock)
+    serveItem(lane.mock, { tags: [] })
+    const tagsResult = expectValue(
+      await lane.runTool('zotero_add_tags', {
+        ref: `zotero://user/0/item/${ITEM_KEY}`,
+        tags: ['new'],
+      }),
+      'zotero_add_tags',
+    )
+    expect(tagsResult.value).toEqual({ kind: 'declined' })
+    const collectionResult = expectValue(
+      await lane.runTool('zotero_add_to_collection', {
+        ref: `zotero://user/0/item/${ITEM_KEY}`,
+        collection: '方法论',
+      }),
+      'zotero_add_to_collection',
+    )
+    expect(collectionResult.value).toEqual({ kind: 'declined' })
+    expect(lane.mock.requests.some((request) => request.method === 'PATCH')).toBe(false)
+  })
+
   it('refuses over-limit tags before any plan or network', async () => {
     const lane = await bootLane({ writeEnabled: true })
     serveWrites(lane.mock)

@@ -106,6 +106,18 @@ describe('lists', () => {
     )
   })
 
+  it('renders an ordered nested list and an indented item after trailing text', () => {
+    expect(markdownToNoteHtml('- outer\n  text\n  1. inner\n  2. inner 2')).toBe(
+      '<ul><li>outer text<ol><li>inner</li><li>inner 2</li></ol></li></ul>',
+    )
+  })
+
+  it('treats an indented list item after trailing text as literal continuation', () => {
+    expect(markdownToNoteHtml('- outer\n  - inner\n  tail text\n  - inner2')).toBe(
+      '<ul><li>outer<ul><li>inner</li></ul><p>tail text - inner2</p></li></ul>',
+    )
+  })
+
   it('keeps list-item formatting working', () => {
     expect(markdownToNoteHtml('1. `code` and **bold**\n2. [a](https://b.io)')).toBe(
       '<ol><li><code>code</code> and <strong>bold</strong></li><li><a href="https://b.io">a</a></li></ol>',

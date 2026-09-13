@@ -240,6 +240,18 @@ describe('hasGrant (status fact)', () => {
     expect(await writer.hasGrant(OTHER_SERVER_ID)).toBe(false)
   })
 
+  it('reports no grant for a stored record without a usable key', async () => {
+    credentials.records.set(String(WRITE_KEY_RECORD), {
+      kind: 'grant',
+      payload: { serverId: SERVER_ID },
+    })
+    const writer = authorizer()
+    expect(await writer.hasGrant(SERVER_ID)).toBe(false)
+    authorizeOnce(true)
+    await expect(writer.keyFor(SERVER_ID)).resolves.toMatchObject({ key: ISSUED_KEY })
+    expect(authorizeCalls).toBe(1)
+  })
+
   it('reports no grant without a credentials seam or an in-process key', async () => {
     const authorizer = authorizerWithoutSeam()
     expect(await authorizer.hasGrant(SERVER_ID)).toBe(false)

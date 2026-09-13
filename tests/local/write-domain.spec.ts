@@ -15,12 +15,14 @@ import type { LocalApiLimits } from '../../src/local/limits.js'
 import { parseRef } from '../../src/refs.js'
 import {
   WRITE_CHILD_COLLECTIONS_MESSAGE,
+  WRITE_VERSION_MISSING_MESSAGE,
   WRITE_CONFLICT_MESSAGE,
   WRITE_UNAUTHORIZED_AFTER_AUTH_MESSAGE,
   writeObjectRefusedMessage,
   ZOTERO_CAPABILITY_UNAVAILABLE,
   ZOTERO_INVALID_ARGUMENT,
   ZOTERO_NOT_FOUND,
+  ZOTERO_UNEXPECTED,
   ZOTERO_WRITE_CONFLICT,
   ZOTERO_WRITE_UNAUTHORIZED,
 } from '../../src/errors.js'
@@ -364,6 +366,43 @@ describe('updateTags', () => {
     expect(result.libraryVersion).toBeUndefined()
     expect(result.added).toEqual([])
     expect(mock.requests.some((request) => request.method === 'PATCH')).toBe(false)
+  })
+
+  it('fails loud when the read backing the write lacks the object version', async () => {
+    mock.route('GET', `/api/users/0/items/${ITEM_KEY}`, (_req, res, helpers) =>
+      helpers.raw(200, { 'Zotero-Server-ID': SERVER_ID }, JSON.stringify([1, 2])),
+    )
+    const { deps } = writeDeps()
+    let thrown: unknown
+    try {
+      await updateTags(deps, { item: ITEM_REF, tags: ['new'] })
+    } catch (error) {
+      thrown = error
+    }
+    expect((thrown as Error).message).toBe(WRITE_VERSION_MISSING_MESSAGE)
+    expect((thrown as { code?: string }).code).toBe(ZOTERO_UNEXPECTED)
+  })
+
+  it('falls back to the requested collections when the saved state omits them', async () => {
+    grantAuthorize()
+    let entry: Record<string, unknown> | undefined
+    mock.route('POST', '/api/users/0/items', (req, res, helpers) => {
+      entry = JSON.parse(mock.requests[mock.requests.length - 1]?.body ?? '[]')[0] as Record<
+        string,
+        unknown
+      >
+      helpers.raw(200, batchHeaders(46), batchBody(NEW_KEY, 46, { itemType: 'note' }))
+    })
+    const { deps, directory } = writeDeps()
+    const result = await createNote(deps, resolveThrough(directory), {
+      markdown: 'x',
+      collections: ['方法论'],
+    })
+    expect(result.kind).toBe('applied')
+    expect(result.collections).toEqual([
+      `zotero://user/0/collection/${COLLECTION_KEY}?server=${SERVER_ID}`,
+    ])
+    expect(entry?.collections).toEqual([COLLECTION_KEY])
   })
 
   it('maps a lost precondition to the re-run guidance', async () => {

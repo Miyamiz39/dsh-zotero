@@ -117,7 +117,7 @@ function buildRequest(args: CreateNoteArgs): ZoteroCreateNoteRequest {
   }
 }
 
-function renderCreateNote(_args: CreateNoteArgs, value: CreateNoteOutput): ContentBlock[] {
+export function renderCreateNote(_args: CreateNoteArgs, value: CreateNoteOutput): ContentBlock[] {
   if (value.kind === 'declined') {
     return [
       {
@@ -181,11 +181,14 @@ export function registerCreateNoteTool(ctx: Context, service: ZoteroService): ()
       }),
       presentResult: presentCreateNoteResult,
       async execute(args, exec) {
+        // Validate before the plan card: a malformed ask should never bother
+        // the user with an approval for a call that cannot run.
+        const request = buildRequest(args)
         if (service.config.writeConfirm) {
           const approved = await askPlanApproval(ctx, exec, createNotePlan(args))
           if (!approved) return { kind: 'declined' } as const
         }
-        return await service.createNote(buildRequest(args), exec.signal)
+        return await service.createNote(request, exec.signal)
       },
     }),
   )

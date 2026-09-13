@@ -18,7 +18,7 @@ import {
   type ToolResultView,
 } from '@deepseek-ai/dsh-tools'
 import { ZOTERO_WRITE_LIST_MAX_ITEMS } from '../constants.js'
-import { writeListTooLongMessage } from '../errors.js'
+import { writeListEmptyMessage, writeListTooLongMessage } from '../errors.js'
 import { metaRecordOf } from './present.js'
 import { invalid, parseSupportedRef, REF_ARG_HINT } from './validate.js'
 import { askPlanApproval } from './write-approval.js'
@@ -71,13 +71,14 @@ export function addTagsPlan(args: AddTagsArgs): string {
 }
 
 function buildRequest(args: AddTagsArgs): ZoteroTagUpdateRequest {
+  if (args.tags.length === 0) invalid(writeListEmptyMessage('tags'))
   if (args.tags.length > ZOTERO_WRITE_LIST_MAX_ITEMS) {
     invalid(writeListTooLongMessage('tags', ZOTERO_WRITE_LIST_MAX_ITEMS))
   }
   return { item: parseSupportedRef(args.ref, ['item']), tags: args.tags }
 }
 
-function renderAddTags(_args: AddTagsArgs, value: AddTagsOutput): ContentBlock[] {
+export function renderAddTags(_args: AddTagsArgs, value: AddTagsOutput): ContentBlock[] {
   if (value.kind === 'declined') {
     return [
       {
@@ -139,11 +140,12 @@ export function registerAddTagsTool(ctx: Context, service: ZoteroService): () =>
       }),
       presentResult: presentAddTagsResult,
       async execute(args, exec) {
+        const request = buildRequest(args)
         if (service.config.writeConfirm) {
           const approved = await askPlanApproval(ctx, exec, addTagsPlan(args))
           if (!approved) return { kind: 'declined' } as const
         }
-        return await service.updateTags(buildRequest(args), exec.signal)
+        return await service.updateTags(request, exec.signal)
       },
     }),
   )

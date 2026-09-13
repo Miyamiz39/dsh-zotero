@@ -2,7 +2,7 @@
 
 # dsh-zotero Tool Reference
 
-dsh-zotero registers 8 tools that operate on the user's library through the local Zotero HTTP API. All refs are stable identifiers in `zotero://user/0/item/<KEY>` (personal) or `zotero://group/<ID>/item/<KEY>` (group) format; personal is always `user/0` canonical.
+dsh-zotero registers 11 tools that operate on the user's library through the local Zotero HTTP API (the three write tools register only while `writeEnabled` is on in the settings; they are off by default). All refs are stable identifiers in `zotero://user/0/item/<KEY>` (personal) or `zotero://group/<ID>/item/<KEY>` (group) format; personal is always `user/0` canonical.
 
 ---
 
@@ -262,10 +262,94 @@ zotero_changes(since={serverId: "<from cursor>", library: {type: "user", id: 0},
 
 ---
 
+---
+
+## zotero_create_note
+
+Create a research note — standalone, or a child note under a parent item — with tags, collections, and source relations applied at creation. The plugin converts the markdown body to Zotero note HTML under a whitelisted grammar (paragraphs, headings to level four, bold/italic, inline and fenced code, quotes, one-level lists, pipe tables with a `---` separator row, links on `https://`/`http://`/`zotero://` only); **anything outside the grammar is escaped to literal text, and raw HTML never passes through**. Zotero's server converts nothing on write — markdown stored verbatim renders as raw markup, the failure mode community integrations hit — which is why the conversion lives in the plugin. Child notes inherit their parent item's collections; only standalone notes take `collections`. Sources are recorded as `dc:relation` links (Zotero's item relations), and the saved state comes back inside the batch's successful bucket, so no follow-up read is needed. Every write first shows a plan card for approval; Zotero 10 additionally shows its own authorization dialog on first use (Allow / Always Allow / Deny, Deny the default).
+
+### Parameters
+
+| Parameter     | Type     | Default | Description                                                                                     |
+| ------------- | -------- | ------- | ----------------------------------------------------------------------------------------------- |
+| `markdown`    | string   | —       | The note body (markdown, 65536-character bound)                                                 |
+| `parentItem`  | string   | —       | Parent item ref; omit for a standalone note                                                     |
+| `collections` | string[] | —       | Collection refs or exact names; standalone notes only — a child note plus this parameter errors |
+| `tags`        | string[] | —       | Tags applied at creation                                                                        |
+| `sourceRefs`  | string[] | —       | Source item refs, recorded as `dc:relation` links and echoed in the result                      |
+
+### Output
+
+`{kind: "applied", ref, key, version, parentItem?, collections, tags, sourceRefs, libraryVersion, serverId?}`; `kind: "declined"` means the user answered the plan card without approving — nothing was written. That is a normal outcome, not an error; do not retry.
+
+### Example
+
+```
+zotero_create_note(markdown="**Methods**: see section 2.", parentItem="zotero://user/0/item/ABCD1234", tags=["review"], sourceRefs=["zotero://user/0/item/EFGH5678"])
+```
+
+---
+
+## zotero_add_tags
+
+Add tags to one item. Zotero's PATCH replaces arrays wholesale instead of merging, so the tool runs read-merge-write internally: it reads the item's tags and version, unions the additions (existing tags keep their colored/automatic types), and submits the merged list under `If-Unmodified-Since-Version`. When every requested tag is already present, **no write is sent at all** — the result reports `unchanged: true`. A lost precondition (the object changed after the read) fails as `ZOTERO_WRITE_CONFLICT`: re-run the tool once, and it re-reads and reapplies. Every write shows a plan card first.
+
+### Parameters
+
+| Parameter | Type     | Default | Description                                        |
+| --------- | -------- | ------- | -------------------------------------------------- |
+| `ref`     | string   | —       | The item ref to tag                                |
+| `tags`    | string[] | —       | Tags to add (at least 1, at most 50; deduplicated) |
+
+### Output
+
+`{kind: "applied", ref, version, tags, added, unchanged, libraryVersion?, serverId?}`. `tags` is the full merged list; `added` is what this call added.
+
+### Example
+
+```
+zotero_add_tags(ref="zotero://user/0/item/ABCD1234", tags=["review", "to-read"])
+```
+
+---
+
+## zotero_add_to_collection
+
+Add one item to a collection, by ref or exact name. The collection resolves first (names go through the cached collections listing; an unknown name fails with `ZOTERO_NOT_FOUND` before any read-modify-write), then the same read-merge-write as tags: the item's existing collections are preserved, the union is submitted under a version precondition, and an already-member item reports `added: false` without writing.
+
+### Parameters
+
+| Parameter    | Type   | Default | Description                                                         |
+| ------------ | ------ | ------- | ------------------------------------------------------------------- |
+| `ref`        | string | —       | The item ref to add                                                 |
+| `collection` | string | —       | A collection ref (`zotero://user/0/collection/<KEY>`) or exact name |
+
+### Output
+
+`{kind: "applied", ref, version, collections, added, libraryVersion?, serverId?}`. `collections` is the full list after the add.
+
+### Example
+
+```
+zotero_add_to_collection(ref="zotero://user/0/item/ABCD1234", collection="Methods")
+```
+
+---
+
+## Write boundaries
+
+The three write tools register only while `writeEnabled` is on in the settings, and they write `zotero://user/0/` (the personal library) only. Every write passes a plan-review card on the dsh side (`writeConfirm`); Zotero 10's own authorization dialog and locally issued API keys are the hard boundary beneath it: writes must carry the instance id (428 without, 412 on mismatch) and a locally issued key (`/api/local/authorize`; an "Always Allow" grant can be stored in the host credentials store bound to the issuing instance, while a one-time key is consumed at authentication time — a failed batch burns it, so a 401 re-authorizes once and replays the same batch). There is no automatic retry; every write failure other than `ZOTERO_WRITE_CONFLICT` deserves a read before another action. Writes advance the library version, and `zotero_changes` sees them.
+
+---
+
 ## Error codes
 
 | Error code                      | Description                                                                                                                           |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `ZOTERO_WRITE_DISABLED`         | Writing is disabled in the plugin settings                                                                                            |
+| `ZOTERO_WRITE_UNAUTHORIZED`     | Zotero refused write authorization: key missing or consumed (401), the dialog was declined, or no plan-approval channel is available  |
+| `ZOTERO_WRITE_CONFLICT`         | The write's version precondition failed (412): the object changed after the read — re-run the tool                                    |
+| `ZOTERO_WRITE_RATE_LIMITED`     | Zotero is rate-limiting write authorization requests (429, with Retry-After)                                                          |
 | `ZOTERO_NOT_RUNNING`            | Zotero not running or local API unreachable                                                                                           |
 | `ZOTERO_API_DISABLED`           | Zotero running but local API disabled (403)                                                                                           |
 | `ZOTERO_API_VERSION`            | Zotero API version not supported                                                                                                      |
