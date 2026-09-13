@@ -166,7 +166,7 @@ zotero_export(refs=["zotero://user/0/item/ABC123", "zotero://user/0/item/DEF456"
 
 发现库结构。所有 `kind` 均 `offset/limit` 分页（默认 `20`，受 `maxBrowseResults` 限制 50），返回 `total/returned/nextOffset`。
 
-分页诚实性对所有分页列表端点统一生效：`zotero_search` 与 `zotero_browse` 的数组型列表读取要求响应携带合法的 `Total-Results` 头，缺失或非法时整个调用以 `ZOTERO_UNEXPECTED` 失败，而不是用响应体长度猜测总数。`zotero_changes` 的 `format=versions` 差异是 key→version 映射，本地 API 在此不返回该头（已对真机验证）：短页即为完整，满页如实标记 `truncated`。
+分页诚实性对所有分页列表端点统一生效：`zotero_search` 与 `zotero_browse` 的数组型列表读取要求响应携带合法的 `Total-Results` 头，缺失或非法时整个调用以 `ZOTERO_UNEXPECTED` 失败，而不是用响应体长度猜测总数。`zotero_changes` 走另一条路：它按资源整批读取（不带 `limit`，本地 API 对无上限请求返回全集），`Total-Results` 存在时用它与 map 键数比对来判定这一批是否读全，缺失时按「无上限请求即全集」信任；列表本身按 `maxChangesResults` 截断，真实条数进 `totals`。
 
 | 参数      | 类型                                                                           | 默认值     | 说明                                                                        |
 | --------- | ------------------------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------- |
@@ -223,17 +223,21 @@ zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
 
 查看库的增量变化。Zotero 10+ 的版本号是本地事务版本——任何编辑、同步或本地写入都会推进它。不带 `since` 调用先取基线（仅当前版本），之后把该版本作为 `since` 传回即得差异。
 
+**游标契约**：`toVersion` 出现即安全——它表示该调用已把报告范围内的变更整批读完，且读取期间库版本没有前进，因此可以直接作为下次 `since`。读不全（该构建给响应加了上限）或读取期间有写入时不返回 `toVersion`（后者另带 `libraryChanged: true`），此时不要从这次结果推进游标。游标只覆盖产生它的那次调用 `include` 的资源种类。
+
+**fulltext 不在默认集合内**：`/fulltext?since=` 过滤的是 `fulltextItems.version`，那是全文索引自己的计数器（`fulltext_<libraryID>`，见 Zotero `fulltext.js`），不是库版本——真机核验（Zotero 10.0.2-beta.9）：`since=0` 与 `since=<库版本>` 返回同一批行，且该端点不返回任何版本头。因此这些行是一份清单而不是库版本上的增量，只有显式点名 `fulltext` 时才读取。
+
 ### 参数
 
-| 参数      | 类型     | 默认值 | 说明                                                                                       |
-| --------- | -------- | ------ | ------------------------------------------------------------------------------------------ |
-| `library` | object   | —      | `{type, id}`，省略默认个人库 `user/0`                                                      |
-| `since`   | integer  | —      | 起始版本；省略取基线                                                                       |
-| `include` | string[] | 全部   | `items` / `collections` / `savedSearches` / `fulltext` / `deleted`（显式空数组报参数错误） |
+| 参数      | 类型     | 默认值           | 说明                                                                                       |
+| --------- | -------- | ---------------- | ------------------------------------------------------------------------------------------ |
+| `library` | object   | —                | `{type, id}`，省略默认个人库 `user/0`                                                      |
+| `since`   | integer  | —                | 起始版本；只在早先结果带有 `toVersion` 时才复用它；省略取基线                              |
+| `include` | string[] | 除 fulltext 现有 | `items` / `collections` / `savedSearches` / `fulltext` / `deleted`（显式空数组报参数错误） |
 
 ### 输出
 
-`{library, serverId?, fromVersion?, toVersion?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, truncated?}`。每种资源按 `maxChangesResults`（默认 50）截断并如实标记 `truncated`；当前构建不支持的资源（如某些版本的 `/deleted`）按缺席降级，不会导致整个调用失败。
+`{library, serverId?, fromVersion?, toVersion?, libraryChanged?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, totals?, unsupported?, truncated?}`。每种资源整批读取，但列出的条目按 `maxChangesResults`（默认 50）截断，`truncated` 表示列表是摘要；`totals` 给出每种资源（含 `deletedItems`/`deletedCollections`/`deletedSavedSearches`）被截断前的真实条数。当前构建不支持的资源（如本机 Zotero 10.0.2-beta.9 就没有 `/deleted` 路由）不会导致整个调用失败，而是列入 `unsupported`——该种类的变化（含删除）不可观测，游标也不覆盖它。
 
 ### 示例
 

@@ -210,8 +210,9 @@ export const en: Record<ZoteroLocaleKey, string> = {
   maxExportRefsHint: 'Refs one zotero_export call accepts at most.',
   maxBrowseResults: 'Browse result cap',
   maxBrowseResultsHint: 'Items one zotero_browse call returns at most.',
-  maxChangesResults: 'Changes result cap',
-  maxChangesResultsHint: 'Entries one zotero_changes call lists per resource at most.',
+  maxChangesResults: 'Changes listing cap',
+  maxChangesResultsHint:
+    'Entries one zotero_changes call lists per resource at most — a display cap; the diff itself always reads the whole range, and totals reports the true counts.',
   defaultStyle: 'Default citation style',
   defaultStyleHint: 'CSL style id for citation and bibliography formats (e.g. apa).',
   defaultLocale: 'Default locale',
@@ -401,8 +402,9 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   maxExportRefsHint: 'zotero_export 单次调用最多接受的 refs 数。',
   maxBrowseResults: '浏览结果上限',
   maxBrowseResultsHint: 'zotero_browse 单次调用最多返回的条目数。',
-  maxChangesResults: '变更结果上限',
-  maxChangesResultsHint: 'zotero_changes 单次调用每种资源最多列出的条目数。',
+  maxChangesResults: '变更列表上限',
+  maxChangesResultsHint:
+    'zotero_changes 单次调用每种资源最多列出的条目数（仅影响呈现）：差异始终整批读取，totals 给出真实条数。',
   defaultStyle: '默认引文样式',
   defaultStyleHint: 'citation/bibliography 格式的 CSL 样式 id（如 apa）。',
   defaultLocale: '默认区域设置',

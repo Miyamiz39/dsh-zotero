@@ -259,9 +259,34 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     expect(Object.keys(baseline.changed)).toHaveLength(0)
     const diff = await provider.changes({ since: baseline.toVersion! })
     expect(diff.fromVersion).toBe(baseline.toVersion!)
-    expect(diff.toVersion).toBeGreaterThanOrEqual(baseline.toVersion!)
+    // The unbounded per-resource read is what lets the live server hand back a
+    // cursor: a diff that verified its whole range reports one, and its totals
+    // match the rows it listed whenever nothing was capped.
+    expect(diff.toVersion).toBeDefined()
+    expect(diff.truncated).toBeUndefined()
+    expect(diff.changed.items?.length ?? 0).toBe(diff.totals?.items ?? 0)
+    // The default diff leaves out the full-text listing: that endpoint filters
+    // on the index's own counter, not the library version (live-verified).
+    expect(diff.changed.fulltextAttachments).toBeUndefined()
     // A same-version diff is empty but well-formed.
     expect(Array.isArray(diff.changed.items)).toBe(true)
+  })
+
+  it('reads a whole-library diff and caps only what it lists', async () => {
+    // The scenario that used to lose data: a window far larger than the
+    // listing cap. The listing is capped, but the read was whole, so the
+    // cursor is still reported and totals carries the true count.
+    const result = await provider.changes({ since: 0, include: new Set(['items']) })
+    const listed = result.changed.items?.length ?? 0
+    const total = result.totals?.items ?? 0
+    console.log(`[integration] full-library diff: ${listed} listed of ${total}`)
+    expect(result.toVersion).toBeDefined()
+    expect(total).toBeGreaterThanOrEqual(listed)
+    expect(listed).toBeLessThanOrEqual(50)
+    if (total > listed) expect(result.truncated).toBe(true)
+    // The newest rows lead, so the capped listing is the useful end of the window.
+    const versions = result.changed.items?.map((entry) => entry.version) ?? []
+    expect([...versions].sort((a, b) => b - a)).toEqual(versions)
   })
 
   it('browses saved searches through the server-side pagination window', async () => {

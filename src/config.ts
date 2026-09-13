@@ -46,7 +46,7 @@ export interface Config {
   maxExportRefs?: number
   /** Upper bound for items a browse call may return */
   maxBrowseResults?: number
-  /** Per-resource listing cap for `zotero_changes` diffs; kept apart from the browse page cap. */
+  /** Display cap for `zotero_changes` listings; the diff itself always reads the whole range. */
   maxChangesResults?: number
   /** CSL style for citation/bibliography formats; must be bundled with Zotero (e.g. `apa`). */
   defaultStyle?: string

@@ -14,7 +14,7 @@ import { useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZoteroSettingsSection } from '../../src/client/ZoteroSettingsSection.tsx'
 import type { ZoteroSettingsSectionProps } from '../../src/client/ZoteroSettingsSection.tsx'
-import { zh, type ZoteroLocaleKey } from '../../src/client/locales.ts'
+import { en, zh, type ZoteroLocaleKey } from '../../src/client/locales.ts'
 import {
   ZoteroCardController,
   type ZoteroCardFace,
@@ -29,16 +29,16 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
   return { Tag: TagStub }
 })
 
-const t = (key: ZoteroLocaleKey): string => zh[key]
+type Dictionary = Record<ZoteroLocaleKey, string>
 
 /** The renderer's binding: a snapshot selector hook over the page's store. */
-function Harness({ face }: { face: ZoteroCardFace }) {
+function Harness({ face, dictionary = zh }: { face: ZoteroCardFace; dictionary?: Dictionary }) {
   const state = useSyncExternalStore(
     face.hooks.zoteroCard.subscribe,
     face.hooks.zoteroCard.getSnapshot,
   )
   const props = {
-    t,
+    t: (key: ZoteroLocaleKey): string => dictionary[key],
     // The shell supplies `close`; the page never uses it, so the fixture omits it.
     useZoteroCard: (selector: (snapshot: ZoteroCardState) => unknown) => selector(state),
     edit: face.edit,
@@ -51,9 +51,9 @@ function Harness({ face }: { face: ZoteroCardFace }) {
 
 let scope: FakeScope
 
-function mount(): void {
+function mount(dictionary: Dictionary = zh): void {
   const controller = new ZoteroCardController(scope)
-  render(<Harness face={controller.inject()} />)
+  render(<Harness face={controller.inject()} dictionary={dictionary} />)
 }
 
 afterEach(() => {
@@ -88,6 +88,22 @@ describe('ZoteroSettingsSection', () => {
     expect(document.querySelectorAll('input')).toHaveLength(22)
     expect(saveButton().disabled).toBe(true)
     expect(discardButton().disabled).toBe(true)
+  })
+
+  it('renders the changes cap with the hint that says it is display-only', () => {
+    scope = fakeScope({ value: { maxChangesResults: 50 } })
+    mount()
+    // The two strings this change reworded, rendered in place by the field:
+    // the cap bounds the listing, not the read.
+    expect(screen.getByLabelText(zh.maxChangesResults)).toBeDefined()
+    expect(screen.getByText(zh.maxChangesResultsHint)).toBeDefined()
+  })
+
+  it('renders the same field from the English dictionary', () => {
+    scope = fakeScope({ value: { maxChangesResults: 50 } })
+    mount(en)
+    expect(screen.getByLabelText(en.maxChangesResults)).toBeDefined()
+    expect(screen.getByText(en.maxChangesResultsHint)).toBeDefined()
   })
 
   it('marks the page as unsaved while a draft is staged', () => {

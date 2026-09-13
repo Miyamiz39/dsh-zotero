@@ -1454,6 +1454,11 @@ describe('zotero_changes tool', () => {
 
   it('diffs from a since version and renders per-resource sections', async () => {
     mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
+      // The pre-read version probe and the items diff share this path.
+      if (search.get('limit') === '1') {
+        helpers.json([], { 'Last-Modified-Version': '50' })
+        return
+      }
       expect(search.get('since')).toBe('42')
       expect(search.get('format')).toBe('versions')
       helpers.json({ ABCD1234: 44 }, { 'Total-Results': '1', 'Last-Modified-Version': '50' })
@@ -1472,14 +1477,75 @@ describe('zotero_changes tool', () => {
       fromVersion?: number
       toVersion?: number
       deleted?: { items?: string[] }
+      totals?: { items?: number; deletedItems?: number; deletedSavedSearches?: number }
     }
     expect(value.fromVersion).toBe(42)
     expect(value.toVersion).toBe(50)
     expect(value.deleted?.items).toEqual(['EEEE0001'])
+    expect(value.totals?.items).toBe(1)
+    expect(value.totals?.deletedItems).toBe(1)
+    expect(value.totals?.deletedSavedSearches).toBe(0)
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('Changes 42 → 50')
     expect(text).toContain('- ABCD1234 (v44)')
+    expect(text).toContain('Items: 1 changed')
     expect(text).toContain('Deleted items: 1')
+  })
+
+  it('diffs a group library through its own prefix', async () => {
+    mock.route('GET', '/api/groups/42/items/top', (req, res, helpers, search) => {
+      if (search.get('limit') === '1') {
+        helpers.json([], { 'Last-Modified-Version': '9' })
+        return
+      }
+      helpers.json({ ABCD1234: 7 }, { 'Total-Results': '1', 'Last-Modified-Version': '9' })
+    })
+    const result = await runTool('zotero_changes', {
+      library: { type: 'group', id: 42 },
+      since: 3,
+      include: ['items'],
+    })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('unreachable')
+    const value = result.value as {
+      library?: { type: string; id: number }
+      toVersion?: number
+    }
+    expect(value.library).toEqual({ type: 'group', id: 42 })
+    expect(value.toVersion).toBe(9)
+  })
+
+  it('diffs the default resource set without the full-text listing', async () => {
+    // The fulltext endpoint answers in the index's own version counter, so a
+    // plain diff must not read it: a 404 there would surface as `unsupported`.
+    mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
+      if (search.get('limit') === '1') {
+        helpers.json([], { 'Last-Modified-Version': '50' })
+        return
+      }
+      helpers.json({ ABCD1234: 44 }, { 'Total-Results': '1', 'Last-Modified-Version': '50' })
+    })
+    for (const path of ['/api/users/0/collections', '/api/users/0/searches']) {
+      mock.route('GET', path, (req, res, helpers) =>
+        helpers.json({}, { 'Total-Results': '0', 'Last-Modified-Version': '50' }),
+      )
+    }
+    mock.route('GET', '/api/users/0/deleted', (req, res, helpers) =>
+      helpers.json({ items: [], collections: [], searches: [] }),
+    )
+    const result = await runTool('zotero_changes', { since: 42 })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('unreachable')
+    const value = result.value as {
+      unsupported?: string[]
+      changed: { fulltextAttachments?: unknown }
+      toVersion?: number
+    }
+    expect(value.changed.fulltextAttachments).toBeUndefined()
+    // Every kind the diff did read was served, so nothing is named unavailable.
+    expect(value.unsupported).toBeUndefined()
+    expect(value.toVersion).toBe(50)
+    expect(mock.requests.some((request) => request.pathname.endsWith('/fulltext'))).toBe(false)
   })
 
   it('rejects an invalid library shape before any request', async () => {
@@ -1502,11 +1568,31 @@ describe('zotero_changes tool', () => {
     expect(mock.requests).toEqual([])
   })
 
-  it('renders bare baselines, truncation markers, and long lists honestly', () => {
+  it('renders digests, withheld cursors, and unserved resources honestly', () => {
     const bare = renderChanges({}, { changed: {} } as never)
     expect((bare[0] as { text: string }).text).toContain('Baseline reading.')
 
-    const truncated = renderChanges({}, {
+    // A capped listing is a digest: the cursor still stands and totals carries
+    // the counts behind the rows that were dropped.
+    const digest = renderChanges({}, {
+      fromVersion: 1,
+      toVersion: 220,
+      changed: {
+        items: Array.from({ length: 50 }, (_, i) => ({
+          key: `KEY${String(i).padStart(4, '0')}`,
+          version: i + 2,
+        })),
+      },
+      totals: { items: 120 },
+      truncated: true,
+    } as never)
+    const digestText = (digest[0] as { text: string }).text
+    expect(digestText).toContain('Changes 1 → 220')
+    expect(digestText).toContain('Items: 120 changed — 50 newest listed')
+    expect(digestText).toContain('… 100 more')
+    expect(digestText).not.toContain('KEY0049')
+
+    const incomplete = renderChanges({}, {
       fromVersion: 1,
       changed: {
         items: Array.from({ length: 25 }, (_, i) => ({
@@ -1519,13 +1605,47 @@ describe('zotero_changes tool', () => {
       },
       truncated: true,
     } as never)
-    const text = (truncated[0] as { text: string }).text
-    expect(text).toContain('Changes 1 → ?')
-    expect(text).toContain('Items: 25+')
+    const text = (incomplete[0] as { text: string }).text
+    expect(text).toContain('version not advanced: the read did not verify the whole range')
+    expect(text).toContain('Items: 25 changed')
     expect(text).toContain('… 5 more')
     expect(text).not.toContain('KEY0024')
     expect(text).toContain('Deleted items: 22')
     expect(text).toContain('… 2 more')
+
+    const moved = renderChanges({}, {
+      fromVersion: 1,
+      libraryChanged: true,
+      changed: { items: [] },
+      unsupported: ['deleted'],
+    } as never)
+    const movedText = (moved[0] as { text: string }).text
+    expect(movedText).toContain('the library changed while this call was reading — re-run')
+    expect(movedText).toContain('Not served by this Zotero build: deleted')
+
+    const cappedDeleted = renderChanges({}, {
+      fromVersion: 1,
+      toVersion: 220,
+      changed: { items: [] },
+      deleted: {
+        items: Array.from({ length: 50 }, (_, i) => `GONE${String(i).padStart(4, '0')}`),
+        collections: [],
+        savedSearches: [],
+      },
+      totals: { deletedItems: 540 },
+      truncated: true,
+    } as never)
+    expect((cappedDeleted[0] as { text: string }).text).toContain('Deleted items: 540 — 50 listed')
+
+    const fulltext = renderChanges({}, {
+      fromVersion: 1,
+      toVersion: 220,
+      changed: { fulltextAttachments: [{ key: 'WXYZ6789', version: 90071 }] },
+      totals: { fulltextAttachments: 1 },
+    } as never)
+    expect((fulltext[0] as { text: string }).text).toContain(
+      'index versions are a counter of their own',
+    )
   })
 })
 
@@ -1883,6 +2003,26 @@ describe('tool presentation', () => {
     ],
     ['zotero_changes', {}, { toVersion: 7 }, 'Zotero changes: baseline at version 7'],
     ['zotero_changes', {}, { fromVersion: 3, toVersion: 7 }, 'Zotero changes: 3 → 7'],
+    [
+      'zotero_changes',
+      {},
+      { changed: { items: [] }, totals: { items: 120, deletedItems: 4 } },
+      'Zotero changes: 124 changed or deleted',
+    ],
+    [
+      'zotero_changes',
+      {},
+      { changed: { items: [] }, totals: { items: 3, bogus: 'x' } },
+      'Zotero changes: 3 changed or deleted',
+    ],
+    // A record without totals (a replay) counts its rows, tolerating a section
+    // that is missing or carries something that is not a row array.
+    [
+      'zotero_changes',
+      {},
+      { changed: { items: [{ key: 'A', version: 2 }], junk: 'x' } },
+      'Zotero changes: 1 changed or deleted',
+    ],
   ])('renders a completed card for %s', (name, args, meta, title) => {
     const result: ToolResult = {
       content: [{ type: 'text', text: 'x' }],

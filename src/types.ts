@@ -564,18 +564,51 @@ export interface ZoteroChangedObject {
   version: number
 }
 
+/**
+ * The true changed-object counts per resource, as the server reported them.
+ * A listing under `changed` / `deleted` may be capped for the model; these are
+ * the totals behind it, and they are also what tells a caller how much of a
+ * capped listing it is not seeing.
+ */
+export interface ZoteroChangesTotals {
+  items?: number
+  collections?: number
+  savedSearches?: number
+  /** Rows the full-text index listed — the index's counter, not the library version. */
+  fulltextAttachments?: number
+  deletedItems?: number
+  deletedCollections?: number
+  deletedSavedSearches?: number
+}
+
 export interface ZoteroChangesResult {
   library: SupportedLocalLibrary
   serverId?: string
   /** The version the diff started from; absent on a baseline reading. */
   fromVersion?: number
-  /** The library's current transaction version (Zotero 10+). */
+  /**
+   * The version the diff read through — present only when this call verified
+   * the whole reported range and the library version did not move while it
+   * read, which is what makes it safe to pass back as `since`. Absent means
+   * the caller must not advance its cursor from this result.
+   */
   toVersion?: number
+  /**
+   * A write landed in the library while this call was reading, so the range
+   * could not be pinned to a version (`toVersion` is withheld). Re-running is
+   * the remedy: the next call either reads a quiet library or reports again.
+   */
+  libraryChanged?: boolean
   changed: {
     items?: ZoteroChangedObject[]
     collections?: ZoteroChangedObject[]
     savedSearches?: ZoteroChangedObject[]
-    /** Attachments whose full-text index changed (`/fulltext?since=`). */
+    /**
+     * Attachments the full-text index mentions (`/fulltext?since=`). That
+     * endpoint filters on the index's own version counter rather than the
+     * library version, so these rows are a listing and not a delta on
+     * `toVersion` — they are read only when a caller names `fulltext`.
+     */
     fulltextAttachments?: ZoteroChangedObject[]
   }
   deleted?: {
@@ -583,7 +616,15 @@ export interface ZoteroChangesResult {
     collections: string[]
     savedSearches: string[]
   }
-  /** True when any resource hit the per-resource listing cap. */
+  /** The uncapped changed counts behind `changed` and `deleted`. */
+  totals?: ZoteroChangesTotals
+  /**
+   * Resource kinds this call included but the Zotero build does not serve
+   * (its endpoint answered 404). They contribute nothing to the diff, and
+   * `toVersion` therefore does not account for them.
+   */
+  unsupported?: ZoteroChangesInclude[]
+  /** True when a listing was capped at the configured display bound. */
   truncated?: boolean
 }
 

@@ -166,7 +166,7 @@ zotero_export(refs=["zotero://user/0/item/ABC123", "zotero://user/0/item/DEF456"
 
 Discover library structure. Every `kind` pages with `offset/limit` (default `20`, capped by `maxBrowseResults` at 50) and returns `total/returned/nextOffset`.
 
-Pagination honesty applies uniformly: `zotero_search` and `zotero_browse` array listings require a valid `Total-Results` header and fail the whole call with `ZOTERO_UNEXPECTED` without it, instead of guessing totals from body length. `zotero_changes` `format=versions` diffs are key→version maps where the local API omits that header (verified against a live build): a short page is complete, a full page is honestly marked `truncated`.
+Pagination honesty applies uniformly: `zotero_search` and `zotero_browse` array listings require a valid `Total-Results` header and fail the whole call with `ZOTERO_UNEXPECTED` without it, instead of guessing totals from body length. `zotero_changes` takes a different route: it reads each resource whole (no `limit` — the local API answers an unbounded request in full) and, when `Total-Results` is present, compares it against the map key count to decide whether that read was whole; without the header it trusts the unbounded request to be complete. The listing itself is capped at `maxChangesResults`, with the true counts in `totals`.
 
 | Parameter | Type                                                                           | Default    | Description                                                 |
 | --------- | ------------------------------------------------------------------------------ | ---------- | ----------------------------------------------------------- |
@@ -222,17 +222,21 @@ zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
 
 See what changed in the library since a version. Zotero 10+ versions are local transaction versions — any edit, sync, or local write advances them. Call without `since` first for a baseline reading (current version only), then pass it back as `since`.
 
+**Cursor contract**: a returned `toVersion` is safe by construction — it means this call read the whole changed set it reports and the library version did not move while it read, so it can be passed back as `since` directly. When the read was not whole (a build that caps the response) or a write landed mid-read (also flagged `libraryChanged: true`), no `toVersion` is returned and the caller must not advance from that result. A version covers only the resource kinds the call that produced it included.
+
+**`fulltext` is not in the default set**: `/fulltext?since=` filters on `fulltextItems.version`, the full-text index's own counter (`fulltext_<libraryID>`, see Zotero's `fulltext.js`), not the library version. Verified against a live Zotero 10.0.2-beta.9: `since=0` and `since=<library version>` return the same rows, and the endpoint sends no version header at all. Those rows are therefore a listing rather than a delta on the library version, so they are read only when `fulltext` is named explicitly.
+
 ### Parameters
 
-| Parameter | Type     | Default | Description                                                                                                       |
-| --------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
-| `library` | object   | —       | `{type, id}`; omitted defaults to personal `user/0`                                                               |
-| `since`   | integer  | —       | Library version to diff from; omitted takes a baseline reading                                                    |
-| `include` | string[] | all     | `items` / `collections` / `savedSearches` / `fulltext` / `deleted` (an explicit empty array is an argument error) |
+| Parameter | Type     | Default          | Description                                                                                                                   |
+| --------- | -------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `library` | object   | —                | `{type, id}`; omitted defaults to personal `user/0`                                                                           |
+| `since`   | integer  | —                | Library version to diff from; reuse it only from an earlier result that carried `toVersion`; omitted takes a baseline reading |
+| `include` | string[] | all but fulltext | `items` / `collections` / `savedSearches` / `fulltext` / `deleted` (an explicit empty array is an argument error)             |
 
 ### Output
 
-`{library, serverId?, fromVersion?, toVersion?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, truncated?}`. Each resource truncates at `maxChangesResults` (default 50) and honestly marks `truncated`; a resource the current build cannot serve (e.g. `/deleted` on some versions) degrades to absence instead of failing the whole read.
+`{library, serverId?, fromVersion?, toVersion?, libraryChanged?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, totals?, unsupported?, truncated?}`. Each resource is read whole, but the rows listed are capped at `maxChangesResults` (default 50) with `truncated` marking the listing as a digest; `totals` reports the true counts per resource (including `deletedItems`/`deletedCollections`/`deletedSavedSearches`) before that cap. A resource the current build cannot serve (e.g. Zotero 10.0.2-beta.9 has no `/deleted` route) does not fail the read: it is listed in `unsupported` — changes of that kind (including removals) are not observable, and the version does not account for them.
 
 ### Example
 
