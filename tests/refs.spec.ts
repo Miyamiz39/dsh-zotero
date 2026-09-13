@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { ZOTERO_INVALID_REF, ZoteroError } from '../src/errors.js'
-import { formatRef, isRefString, parseRef, requireSupportedLocalRef } from '../src/refs.js'
+import {
+  formatRef,
+  isRefString,
+  isSupportedLocalLibrary,
+  libraryPrefix,
+  parseRef,
+  parseZoteroRelationUri,
+  PERSONAL_GROUPS_DISCOVERY,
+  PERSONAL_LIBRARY,
+  refForLibrary,
+  requireSupportedLocalRef,
+} from '../src/refs.js'
 import { ZOTERO_SORT_FIELDS } from '../src/constants.js'
 
 function expectInvalidRef(value: string, messagePart?: string): void {
@@ -102,6 +113,85 @@ describe('formatRef', () => {
       }),
     ).toBe('zotero://user/0/item/ABCD1234?server=S1')
   })
+
+  it('formats a group library with its own prefix', () => {
+    expect(
+      formatRef({
+        library: { type: 'group', id: 5 },
+        kind: 'item',
+        key: 'ABCD1234',
+        serverId: 'S1',
+      }),
+    ).toBe('zotero://group/5/item/ABCD1234?server=S1')
+  })
+})
+
+describe('library identity', () => {
+  it('accepts only the canonical personal library and positive group ids', () => {
+    expect(isSupportedLocalLibrary({ type: 'user', id: 0 })).toBe(true)
+    expect(isSupportedLocalLibrary({ type: 'group', id: 1 })).toBe(true)
+    expect(isSupportedLocalLibrary({ type: 'group', id: 42 })).toBe(true)
+    expect(isSupportedLocalLibrary({ type: 'user', id: 1 })).toBe(false)
+    expect(isSupportedLocalLibrary({ type: 'group', id: 0 })).toBe(false)
+    expect(isSupportedLocalLibrary({ type: 'group', id: -5 })).toBe(false)
+    expect(isSupportedLocalLibrary({ type: 'group', id: 3.5 })).toBe(false)
+    expect(isSupportedLocalLibrary({ type: 'unknown' as unknown as 'user', id: 0 })).toBe(false)
+  })
+
+  it('names the API prefix of each supported library', () => {
+    expect(libraryPrefix({ type: 'user', id: 0 })).toBe('users/0')
+    expect(libraryPrefix({ type: 'group', id: 99 })).toBe('groups/99')
+    expect(PERSONAL_LIBRARY).toEqual({ type: 'user', id: 0 })
+    expect(PERSONAL_GROUPS_DISCOVERY).toBe('users/0/groups')
+  })
+
+  it('builds a ref for a supported library and refuses the rest', () => {
+    expect(refForLibrary({ type: 'user', id: 0 }, 'item', 'ABCD1234')).toEqual({
+      library: { type: 'user', id: 0 },
+      kind: 'item',
+      key: 'ABCD1234',
+      serverId: undefined,
+    })
+    expect(refForLibrary({ type: 'group', id: 42 }, 'collection', 'COLL1234', 'S1')).toEqual({
+      library: { type: 'group', id: 42 },
+      kind: 'collection',
+      key: 'COLL1234',
+      serverId: 'S1',
+    })
+    expect(() => refForLibrary({ type: 'user', id: 0 }, 'item', 'bad')).toThrowError(ZoteroError)
+    expectRejected(
+      () => refForLibrary({ type: 'user', id: 123 }, 'item', 'ABCD1234'),
+      ZOTERO_INVALID_REF,
+    )
+    expectRejected(
+      () => refForLibrary({ type: 'group', id: 0 }, 'item', 'ABCD1234'),
+      ZOTERO_INVALID_REF,
+    )
+  })
+})
+
+describe('parseZoteroRelationUri', () => {
+  it('reads the library and key from every spelling Zotero serves, and nothing else', () => {
+    expect(parseZoteroRelationUri('http://zotero.org/users/0/items/ABCD1234')).toEqual({
+      library: { type: 'user', id: 0 },
+      key: 'ABCD1234',
+    })
+    expect(parseZoteroRelationUri('https://www.zotero.org/groups/1/items/JKLM6543')).toEqual({
+      library: { type: 'group', id: 1 },
+      key: 'JKLM6543',
+    })
+    expect(parseZoteroRelationUri('https://api.zotero.org/users/999/items/ABCD1234?foo')).toEqual({
+      library: { type: 'user', id: 999 },
+      key: 'ABCD1234',
+    })
+    // A foreign host, a non-URL, a malformed key, a non-item kind and a
+    // non-HTTP scheme are all "no relation" rather than a guessed target.
+    expect(parseZoteroRelationUri('https://example.com/users/0/items/ABCD1234')).toBeNull()
+    expect(parseZoteroRelationUri('not a url')).toBeNull()
+    expect(parseZoteroRelationUri('http://zotero.org/users/0/items/badkey')).toBeNull()
+    expect(parseZoteroRelationUri('http://zotero.org/groups/1/collections/ABCD1234')).toBeNull()
+    expect(parseZoteroRelationUri('ftp://zotero.org/users/0/items/ABCD1234')).toBeNull()
+  })
 })
 
 describe('isRefString', () => {
@@ -141,6 +231,18 @@ describe('requireSupportedLocalRef', () => {
           kind: 'item',
           key: 'ABCD1234',
         }),
+      ZOTERO_INVALID_REF,
+    )
+  })
+
+  it('accepts a group library the grammar parsed', () => {
+    const ref = parseRef('zotero://group/5/item/ABCD1234')
+    expect(requireSupportedLocalRef(ref)).toBe(ref)
+  })
+
+  it('refuses a parsed ref whose kind the caller does not accept', () => {
+    expectRejected(
+      () => requireSupportedLocalRef(parseRef('zotero://user/0/collection/COLL1234'), ['item']),
       ZOTERO_INVALID_REF,
     )
   })

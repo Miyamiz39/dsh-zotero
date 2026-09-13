@@ -7,6 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  ZOTERO_INVALID_ARGUMENT,
   ZOTERO_NOT_FOUND,
   ZOTERO_OUTPUT_TOO_LARGE,
   ZOTERO_SERVER_MISMATCH,
@@ -24,6 +25,7 @@ import {
 } from '../helpers/provider-harness.js'
 import { expectRequestCount, zoteroError } from '../helpers/server/assert.js'
 import {
+  GROUP_ID,
   ITEM_KEY,
   SECOND_ITEM_KEY,
   apiPath,
@@ -546,6 +548,25 @@ describe('export', () => {
         }),
       ),
       ZOTERO_SERVER_MISMATCH,
+    )
+    expectRequestCount(mock, 0)
+  })
+
+  it('refuses refs from two libraries of the same instance before any request', async () => {
+    // Two libraries on one instance are not a provenance mismatch — the
+    // question is which library the export is about, and the API takes one.
+    await zoteroError(
+      provider.export(
+        exportRequest({
+          refs: [
+            parseRef(itemRef()),
+            parseRef(refOf('item', ITEM_KEY, { type: 'group', id: GROUP_ID })),
+          ],
+          format: 'bibtex',
+        }),
+      ),
+      ZOTERO_INVALID_ARGUMENT,
+      'same library',
     )
     expectRequestCount(mock, 0)
   })

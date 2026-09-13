@@ -580,6 +580,11 @@ describe('search: note-content scan', () => {
     // was told to include could never surface.
     const scan = mock.requests.find((entry) => entry.search.get('itemType') === 'note')
     expect(scan?.search.get('includeTrashed')).toBe('1')
+    // And the primary listing itself must ask for the trash: a scan that
+    // included it while the listing did not would list items the caller asked
+    // for exactly once, in neither result.
+    const primary = mock.requests.find((entry) => entry.search.get('itemType') === null)
+    expect(primary?.search.get('includeTrashed')).toBe('1')
   })
 
   it('refuses includeTrashed outside a library scope', async () => {

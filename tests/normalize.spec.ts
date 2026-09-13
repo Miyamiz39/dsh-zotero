@@ -16,6 +16,7 @@ import {
   partitionChildren,
   plainNoteText,
   type NormalizeContext,
+  type NormalizeItemDetailInput,
   type ZoteroChildKind,
 } from '../src/normalize.js'
 
@@ -148,6 +149,14 @@ describe('normalizeSearchItem', () => {
     expectUnexpected(() => normalizeSearchItem({ key: 'nope', data: {} }))
     expectUnexpected(() => normalizeSearchItem({ data: { title: 'no key' } }))
     expectUnexpected(() => normalizeSearchItem(null))
+  })
+
+  it('builds a group ref for a hit in a group library', () => {
+    const item = normalizeSearchItem(
+      { key: 'ABCD1234', data: { itemType: 'book', title: 'T' } },
+      { library: { type: 'group', id: 42 }, serverId: 'S1' },
+    )
+    expect(item.ref).toBe('zotero://group/42/item/ABCD1234?server=S1')
   })
 })
 
@@ -884,6 +893,40 @@ describe('normalizeItemDetail', () => {
 })
 
 describe('normalizeItemDetail relations', () => {
+  /**
+   * Fresh bounds for one relation case. Every relation test runs under the
+   * same limits and none of them is the subject, so they are stated once —
+   * built fresh per call rather than shared, so no test can hand the next one
+   * a mutation.
+   */
+  function bounds(): Pick<
+    NormalizeItemDetailInput,
+    | 'include'
+    | 'maxAbstractChars'
+    | 'maxNoteBodyChars'
+    | 'maxNoteChars'
+    | 'maxNoteRecords'
+    | 'maxAnnotationRecords'
+  > {
+    return {
+      include: new Set(),
+      maxAbstractChars: 100,
+      maxNoteBodyChars: 100,
+      maxNoteChars: 100,
+      maxNoteRecords: 10,
+      maxAnnotationRecords: 10,
+    }
+  }
+
+  /** One parent whose only interesting field is its relation map. */
+  function parentWith(relations: unknown, extra: Record<string, unknown> = {}) {
+    return {
+      key: 'ABCD1234',
+      ...extra,
+      data: { itemType: 'journalArticle', title: 'T', relations },
+    }
+  }
+
   function detailWithLibrary(parentLibrary: Record<string, unknown>): {
     targetRef: string | undefined
   } {
@@ -941,14 +984,77 @@ describe('normalizeItemDetail relations', () => {
         },
       },
       library: { type: 'user', id: 0 },
-      include: new Set(),
-      maxAbstractChars: 100,
-      maxNoteBodyChars: 100,
-      maxNoteChars: 100,
-      maxNoteRecords: 10,
-      maxAnnotationRecords: 10,
+      ...bounds(),
     })
     expect(detail.relations).toBeUndefined()
+  })
+
+  it('maps a relation to the group library the item lives in', () => {
+    const detail = normalizeItemDetail({
+      parent: parentWith({ 'dc:relation': ['http://zotero.org/groups/42/items/BBBB1234'] }),
+      library: { type: 'group', id: 42 },
+      serverId: 'S1',
+      ...bounds(),
+    })
+    expect(detail.relations).toEqual([
+      {
+        predicate: 'dc:relation',
+        targetUri: 'http://zotero.org/groups/42/items/BBBB1234',
+        targetRef: 'zotero://group/42/item/BBBB1234?server=S1',
+      },
+    ])
+  })
+
+  it('leaves a relation to another group without a target', () => {
+    const detail = normalizeItemDetail({
+      parent: parentWith({ 'dc:relation': ['http://zotero.org/groups/99/items/BBBB1234'] }),
+      library: { type: 'group', id: 42 },
+      ...bounds(),
+    })
+    expect(detail.relations?.[0]?.targetRef).toBeUndefined()
+    expect(detail.relations?.[0]?.targetUri).toBe('http://zotero.org/groups/99/items/BBBB1234')
+  })
+
+  it('maps a personal relation the item library itself proves', () => {
+    const detail = normalizeItemDetail({
+      parent: parentWith({ 'dc:relation': ['http://zotero.org/users/0/items/BBBB1234'] }),
+      library: { type: 'user', id: 0 },
+      serverId: 'S1',
+      ...bounds(),
+    })
+    expect(detail.relations?.[0]?.targetRef).toBe('zotero://user/0/item/BBBB1234?server=S1')
+  })
+
+  it('keeps a foreign URI and drops the malformed values beside it', () => {
+    const detail = normalizeItemDetail({
+      parent: parentWith({
+        'unknown:pred': [
+          'https://doi.org/10.1234/abc',
+          '',
+          42 as unknown as string,
+          'http://zotero.org/users/0/items/BBBB1234',
+        ],
+      }),
+      library: { type: 'user', id: 0 },
+      ...bounds(),
+    })
+    // Two values survive — the DOI and the Zotero URI; the empty string and
+    // the non-string are dropped rather than turned into a guessed target.
+    expect(detail.relations?.length).toBe(2)
+    expect(detail.relations?.[0]?.predicate).toBe('unknown:pred')
+    expect(detail.relations?.[0]?.targetUri).toBe('https://doi.org/10.1234/abc')
+    expect(detail.relations?.[0]?.targetRef).toBeUndefined()
+  })
+
+  it('treats an empty or unreadable relation map as no relations', () => {
+    for (const relations of [{}, 'bad' as unknown as Record<string, unknown>]) {
+      const detail = normalizeItemDetail({
+        parent: parentWith(relations),
+        library: { type: 'user', id: 0 },
+        ...bounds(),
+      })
+      expect(detail.relations).toBeUndefined()
+    }
   })
 })
 
