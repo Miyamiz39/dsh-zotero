@@ -243,6 +243,8 @@ describe('changes', () => {
         ['ABCD1234', 44],
         ['BBBB1234', 47],
       ]),
+      children: versionMap([['CHLD1234', 46]]),
+      trash: versionMap([['TRSH1234', 45]]),
       version: '50',
     })
     routeVersions('/api/users/0/collections', versionMap([['COLL1234', 45]]), {
@@ -268,6 +270,10 @@ describe('changes', () => {
     expect(result.libraryChanged).toBeUndefined()
     expect(result.changed.items?.map((entry) => entry.key)).toEqual(['BBBB1234', 'ABCD1234'])
     expect(result.changed.items?.[0]).toEqual({ key: 'BBBB1234', version: 47 })
+    // The child object and the trashed item are items too, and neither would
+    // appear in a diff over the top-level listing alone.
+    expect(result.changed.childItems?.map((entry) => entry.key)).toEqual(['CHLD1234'])
+    expect(result.changed.trashedItems?.map((entry) => entry.key)).toEqual(['TRSH1234'])
     expect(result.changed.collections?.map((entry) => entry.key)).toEqual(['COLL1234'])
     expect(result.changed.savedSearches).toEqual([])
     expect(result.changed.fulltextAttachments?.map((entry) => entry.key)).toEqual(['WXYZ6789'])
@@ -279,6 +285,8 @@ describe('changes', () => {
     })
     expect(result.totals).toEqual({
       items: 2,
+      childItems: 1,
+      trashedItems: 1,
       collections: 1,
       savedSearches: 0,
       fulltextAttachments: 1,
@@ -289,6 +297,34 @@ describe('changes', () => {
     })
     expect(result.unobservable).toBeUndefined()
     expect(result.truncated).toBeUndefined()
+  })
+
+  it('reads the item space as three endpoints, the partition the API describes', async () => {
+    routeItems({
+      top: versionMap([['TOPX1234', 44]]),
+      children: versionMap([['NOTE1234', 45]]),
+      trash: versionMap([['TRSH1234', 46]]),
+    })
+    await provider.changes({ since: at(42), include: new Set(['items']) })
+    expect(diffRequests().map((request) => request.pathname)).toEqual([
+      '/api/users/0/items',
+      '/api/users/0/items/top',
+      '/api/users/0/items/trash',
+    ])
+  })
+
+  it('reports a child object as a child even when its parent also changed', async () => {
+    // Zotero keeps notes, attachments and annotations as items with their own
+    // versions: the parent's edit says nothing about the annotation's, so both
+    // belong in the diff and only one of them is a top-level item.
+    routeItems({
+      top: versionMap([['PARN1234', 50]]),
+      children: versionMap([['ANNO1234', 49]]),
+    })
+    const result = await provider.changes({ since: at(42), include: new Set(['items']) })
+    expect(result.changed.items).toEqual([{ key: 'PARN1234', version: 50 }])
+    expect(result.changed.childItems).toEqual([{ key: 'ANNO1234', version: 49 }])
+    expect(result.totals).toEqual({ items: 1, childItems: 1, trashedItems: 0 })
   })
 
   it('leaves the full-text listing out unless it is named', async () => {
@@ -402,6 +438,7 @@ describe('changes', () => {
     routeItems({ body: { top: [{ key: 'ABCD1234', version: 44 }] } })
     const result = await provider.changes({ since: at(42), include: new Set(['items']) })
     expect(result.changed.items).toBeUndefined()
+    expect(result.changed.childItems).toBeUndefined()
     expect(result.totals).toBeUndefined()
     expect(result.unobservable).toEqual([{ kind: 'items', reason: 'unreadable' }])
     expect(result.cursor).toBeUndefined()
@@ -544,6 +581,18 @@ describe('changes', () => {
     })
     expect(result.totals?.deletedCollections).toBe(0)
     expect(result.totals?.deletedTags).toBe(0)
+  })
+
+  it('leaves the whole item kind unobservable when one of its reads is missing', async () => {
+    // The partition needs all three: without the trash read a trashing would be
+    // invisible, so a slice of the item space is never reported as the space.
+    routeItems({ top: versionMap([['ABCD1234', 44]]), diff: { trash: 'not-found' } })
+    const result = await provider.changes({ since: at(42), include: new Set(['items']) })
+    expect(result.changed.items).toBeUndefined()
+    expect(result.changed.childItems).toBeUndefined()
+    expect(result.changed.trashedItems).toBeUndefined()
+    expect(result.totals).toBeUndefined()
+    expect(result.unobservable).toEqual([{ kind: 'items', reason: 'not-served' }])
   })
 
   it('reports a versionless library as an empty, cursor-less diff', async () => {

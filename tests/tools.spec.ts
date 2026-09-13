@@ -1536,7 +1536,7 @@ describe('zotero_changes tool', () => {
     }
   })
 
-  it('diffs from a cursor and renders per-resource sections', async () => {
+  it('diffs from a cursor and renders every section, child objects included', async () => {
     const bodies: Record<string, Record<string, number>> = {
       '/api/users/0/items/top': { ABCD1234: 44 },
       '/api/users/0/items': { ABCD1234: 44, NOTE1234: 45 },
@@ -1576,12 +1576,15 @@ describe('zotero_changes tool', () => {
     const value = result.value as {
       fromVersion?: number
       cursor?: { version: number }
-      changed: { items?: unknown[] }
+      changed: { items?: unknown[]; childItems?: unknown[]; trashedItems?: unknown[] }
       deleted?: { items?: string[]; tags?: string[] }
       totals?: { items?: number; childItems?: number; deletedItems?: number }
     }
     expect(value.fromVersion).toBe(42)
     expect(value.cursor?.version).toBe(50)
+    expect(value.changed.childItems).toEqual([{ key: 'NOTE1234', version: 45 }])
+    expect(value.changed.trashedItems).toEqual([{ key: 'TRSH1234', version: 46 }])
+    expect(value.totals?.childItems).toBe(1)
     expect(value.deleted?.items).toEqual(['EEEE0001'])
     expect(value.deleted?.tags).toEqual(['obsolete'])
     expect(value.totals?.items).toBe(1)
@@ -1589,7 +1592,10 @@ describe('zotero_changes tool', () => {
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('Changes 42 → 50')
     expect(text).toContain('- ABCD1234 (v44)')
-    expect(text).toContain('Items: 1 changed')
+    expect(text).toContain('Items (top-level): 1 changed')
+    expect(text).toContain('Child objects (notes, attachments, annotations): 1 changed')
+    expect(text).toContain('- NOTE1234 (v45)')
+    expect(text).toContain('Items in the trash: 1 changed')
     expect(text).toContain('Deleted items: 1')
     expect(text).toContain('Deleted tags: 1')
   })
@@ -1748,7 +1754,7 @@ describe('zotero_changes tool', () => {
     } as never)
     const digestText = (digest[0] as { text: string }).text
     expect(digestText).toContain('Changes 1 → 220')
-    expect(digestText).toContain('Items: 120 changed — 50 newest listed')
+    expect(digestText).toContain('Items (top-level): 120 changed — 50 newest listed')
     expect(digestText).toContain('… 100 more')
     expect(digestText).not.toContain('KEY0049')
 
@@ -1767,7 +1773,7 @@ describe('zotero_changes tool', () => {
     } as never)
     const text = (incomplete[0] as { text: string }).text
     expect(text).toContain('version not advanced: the read did not verify the whole range')
-    expect(text).toContain('Items: 25 changed')
+    expect(text).toContain('Items (top-level): 25 changed')
     expect(text).toContain('… 5 more')
     expect(text).not.toContain('KEY0024')
     expect(text).toContain('Deleted items: 22')
@@ -1814,6 +1820,23 @@ describe('zotero_changes tool', () => {
       totals: { deletedItems: 0, deletedCollections: 0, deletedSavedSearches: 0, deletedTags: 0 },
     } as never)
     expect((nothingRemoved[0] as { text: string }).text).toContain('Deletions: none in this range.')
+
+    // Child objects and trash have their own sections: a reader of a diff must
+    // be able to tell a top-level item from the note or PDF beneath it.
+    const childSections = renderChanges({}, {
+      fromVersion: 1,
+      cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 220 },
+      changed: {
+        items: [{ key: 'PARN1234', version: 219 }],
+        childItems: [{ key: 'ANNO1234', version: 218 }],
+        trashedItems: [{ key: 'TRSH1234', version: 217 }],
+      },
+      totals: { items: 1, childItems: 1, trashedItems: 1 },
+    } as never)
+    const childText = (childSections[0] as { text: string }).text
+    expect(childText).toContain('Items (top-level): 1 changed')
+    expect(childText).toContain('Child objects (notes, attachments, annotations): 1 changed')
+    expect(childText).toContain('Items in the trash: 1 changed')
 
     // A diff whose build reported no version says so instead of blaming the range.
     const noVersionDiff = renderChanges({}, {

@@ -626,7 +626,12 @@ export interface ZoteroChangesUnobservable {
  * was read, so presence — not the value — is the coverage statement.
  */
 export interface ZoteroChangesTotals {
+  /** Changed live top-level items. */
   items?: number
+  /** Changed live child objects: notes, attachments, annotations. */
+  childItems?: number
+  /** Changed items currently in the trash. */
+  trashedItems?: number
   collections?: number
   savedSearches?: number
   /** Rows the full-text index listed — the index's counter, not the library version. */
@@ -673,7 +678,25 @@ export interface ZoteroChangesResult {
    */
   versionUnavailable?: boolean
   changed: {
+    /**
+     * Changed live top-level items (`/items/top`), the entries a library
+     * listing shows.
+     */
     items?: ZoteroChangedObject[]
+    /**
+     * Changed live child objects — notes, attachments, and annotations, read
+     * as the difference between `/items` and `/items/top`. They carry their
+     * own versions, so an edit to one of them advances the library without
+     * touching its parent; reporting only top-level items would drop them
+     * silently.
+     */
+    childItems?: ZoteroChangedObject[]
+    /**
+     * Changed items that are currently in the trash (`/items/trash`). Zotero's
+     * item listings exclude the trash, so without this read trashing an item
+     * would advance the library version invisibly.
+     */
+    trashedItems?: ZoteroChangedObject[]
     collections?: ZoteroChangedObject[]
     savedSearches?: ZoteroChangedObject[]
     /**

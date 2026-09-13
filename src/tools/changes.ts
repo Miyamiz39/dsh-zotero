@@ -102,7 +102,7 @@ const CHANGES_PARAMETERS = {
     items: { type: 'string', enum: [...ALL_INCLUDES] },
     default: DEFAULT_INCLUDES,
     description:
-      'Resource kinds to diff; defaults to everything but fulltext. deleted lists tombstoned items, collections, saved searches and tag names. fulltext is a separate listing: its endpoint answers in the full-text index\u2019s own version counter, so its rows are not a delta on the library version and it is left out unless named explicitly.',
+      'Resource kinds to diff; defaults to everything but fulltext. items covers the whole item space as Zotero partitions it — top-level items, child objects (notes, attachments, annotations) and items in the trash — and reports each as its own list, because a child object carries its own version: editing one advances the library without touching any top-level item. deleted lists tombstoned items, collections, saved searches and tag names. fulltext is a separate listing: its endpoint answers in the full-text index\u2019s own version counter, so its rows are not a delta on the library version and it is left out unless named explicitly.',
   },
 } as const
 
@@ -174,6 +174,8 @@ const CHANGES_OUTPUT_SCHEMA = {
       required: true,
       properties: {
         items: { type: 'array', items: CHANGED_OBJECT },
+        childItems: { type: 'array', items: CHANGED_OBJECT },
+        trashedItems: { type: 'array', items: CHANGED_OBJECT },
         collections: { type: 'array', items: CHANGED_OBJECT },
         savedSearches: { type: 'array', items: CHANGED_OBJECT },
         fulltextAttachments: { type: 'array', items: CHANGED_OBJECT },
@@ -194,6 +196,8 @@ const CHANGES_OUTPUT_SCHEMA = {
       additionalProperties: false,
       properties: {
         items: { type: 'integer' },
+        childItems: { type: 'integer' },
+        trashedItems: { type: 'integer' },
         collections: { type: 'integer' },
         savedSearches: { type: 'integer' },
         fulltextAttachments: { type: 'integer' },
@@ -285,7 +289,14 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
     number | undefined,
     string | undefined,
   ][] = [
-    ['Items', value.changed.items, totals?.items, undefined],
+    ['Items (top-level)', value.changed.items, totals?.items, undefined],
+    [
+      'Child objects (notes, attachments, annotations)',
+      value.changed.childItems,
+      totals?.childItems,
+      undefined,
+    ],
+    ['Items in the trash', value.changed.trashedItems, totals?.trashedItems, undefined],
     ['Collections', value.changed.collections, totals?.collections, undefined],
     ['Saved searches', value.changed.savedSearches, totals?.savedSearches, undefined],
     [
@@ -402,7 +413,7 @@ export function registerChangesTool(ctx: Context, service: ZoteroService): void 
     defineTool({
       name: 'zotero_changes',
       description: [
-        'See what changed in the Zotero library since a version: new/edited items, collections, saved searches, reindexed full text, and deletions.',
+        'See what changed in the Zotero library since a version: new/edited items (top-level items, the notes/attachments/annotations under them, and trashed items, each listed apart), collections, saved searches, reindexed full text, and deletions.',
         'Call without since first to take a baseline reading, then pass the cursor it returns back as since — fully local, no cloud.',
         'Listings are capped digests; totals reports the true counts behind them. A returned cursor always accounts for every change in the range it reports, so it is safe to pass back as since; a result without one is not. The cursor is pinned to the instance and library it came from, and a cursor from another database is refused instead of diffed against this one.',
         'unobservable names every kind this call could not cover, with the reason: a build that does not serve it, a range older than the history the build keeps, or an answer it could not read. Never read an absent listing as "nothing changed" before checking that list; deleted is present exactly when removals were actually observed. versionUnavailable means the build reports no library version at all, so no diff can be taken from it.',

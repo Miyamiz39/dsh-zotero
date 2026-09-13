@@ -166,7 +166,7 @@ zotero_export(refs=["zotero://user/0/item/ABC123", "zotero://user/0/item/DEF456"
 
 发现库结构。所有 `kind` 均 `offset/limit` 分页（默认 `20`，受 `maxBrowseResults` 限制 50），返回 `total/returned/nextOffset`。
 
-分页诚实性对所有分页列表端点统一生效：`zotero_search` 与 `zotero_browse` 的数组型列表读取要求响应携带合法的 `Total-Results` 头，缺失或非法时整个调用以 `ZOTERO_UNEXPECTED` 失败，而不是用响应体长度猜测总数。`zotero_changes` 走另一条路：它按资源整批读取（不带 `limit`，本地 API 对无上限请求返回全集），`Total-Results` 存在时用它与 map 键数比对来判定这一批是否读全，缺失时按「无上限请求即全集」信任；列表本身按 `maxChangesResults` 截断，真实条数进 `totals`。响应体不是 key→version map（如数组、字符串，或值不是非负整数）时不当作「没有变化」：该种类记为不可读（`unobservable` 的 `unreadable`）并否决本次游标。
+分页诚实性对所有分页列表端点统一生效：`zotero_search` 与 `zotero_browse` 的数组型列表读取要求响应携带合法的 `Total-Results` 头，缺失或非法时整个调用以 `ZOTERO_UNEXPECTED` 失败，而不是用响应体长度猜测总数。`zotero_changes` 走另一条路：它按资源整批读取（不带 `limit`，本地 API 对无上限请求返回全集；条目种类是 `/items`、`/items/top`、`/items/trash` 三个端点各整批读一次），`Total-Results` 存在时用它与 map 键数比对来判定这一批是否读全，缺失时按「无上限请求即全集」信任；列表本身按 `maxChangesResults` 截断，真实条数进 `totals`。响应体不是 key→version map（如数组、字符串，或值不是非负整数）时不当作「没有变化」：该种类记为不可读（`unobservable` 的 `unreadable`）并否决本次游标。
 
 | 参数      | 类型                                                                           | 默认值     | 说明                                                                        |
 | --------- | ------------------------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------- |
@@ -223,6 +223,8 @@ zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
 
 查看库的增量变化。在核验过的 Zotero 10.0.2-beta.9 上，版本号是本地事务版本——每次对象保存都会递增库计数器并给该对象盖章（Zotero 源码 `dataObject.js` 的 `_finalizeSave`），删除只递增计数器。插件不按 Zotero 版本号猜语义，而是在每次调用里按响应本身判定：拿不到库版本就报 `versionUnavailable`（该构建无法做增量），某类资源读不到就在 `unobservable` 里点名并说明原因。不带 `since` 调用先取基线，它给出一个**游标**：版本号连同它所属的实例与库。下次把该游标原样作为 `since` 传回即得差异。
 
+**条目空间按 Zotero 自己的划分读取**：`items` 一项覆盖三个端点——`/items/top`（顶层条目）、`/items`（全部活动条目）与 `/items/trash`（回收站），分别列为 `changed.items`、`changed.childItems`、`changed.trashedItems`。子对象（笔记、附件、批注）是 `/items` 与 `/items/top` 的差集：它们有自己的版本，编辑一条批注会推进库版本却不动任何顶层条目，只读 `/items/top` 的增量会静默漏掉它；Zotero 的条目列表同样排除回收站，不读 `/items/trash` 就看不到「移入回收站」这一变化。三者缺一时整个种类列为不可观测，而不是把条目空间的一部分当作全部报出去。
+
 **游标契约**：`cursor` 出现即安全——它表示该调用已把报告范围内的变更整批读完，且读取期间库版本没有前进，因此可以直接作为下次 `since`。读不全（该构建给响应加了上限）或读取期间有写入时不返回 `cursor`（后者另带 `libraryChanged: true`），此时不要从这次结果推进游标。游标只覆盖产生它的那次调用 `include` 的资源种类。`unobservable` 里 `not-served`（该构建没有这个端点）与 `range-not-covered`（范围早于该构建保留的删除日志）**不**否决游标——这些变更本来就不在任何区间可观测；`unreadable`（响应形状不合约）则否决，因为数据存在、只是这次调用没读到。
 
 **删除的读法**：`deleted` 出现即已观测——四个列表（`items`/`collections`/`savedSearches`/`tags`，最后一个存标签名而非 key）在读取成功时总是存在，全空即正面陈述「本区间没有删除」；端点 404（本机 Zotero 10.0.2-beta.9 没有 `/deleted` 路由）或响应形状不合约时 `deleted` 整体缺席，并在 `unobservable` 里点名，绝不把「没读到」写成「没有删除」。文档化的四类之外的墓碑条目（Zotero 自己也同步一份 settings 列表）计数进 `totals.deletedOther`。
@@ -233,15 +235,15 @@ zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
 
 ### 参数
 
-| 参数      | 类型     | 默认值           | 说明                                                                                                |
-| --------- | -------- | ---------------- | --------------------------------------------------------------------------------------------------- |
-| `library` | object   | —                | `{type, id}`，省略默认个人库 `user/0`                                                               |
-| `since`   | object   | —                | 起始游标 `{serverId, library, version}`：把早先结果的 `cursor` 原样传回；不接受裸版本号；省略取基线 |
-| `include` | string[] | 除 fulltext 现有 | `items` / `collections` / `savedSearches` / `fulltext` / `deleted`（显式空数组报参数错误）          |
+| 参数      | 类型     | 默认值           | 说明                                                                                                                          |
+| --------- | -------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `library` | object   | —                | `{type, id}`，省略默认个人库 `user/0`                                                                                         |
+| `since`   | object   | —                | 起始游标 `{serverId, library, version}`：把早先结果的 `cursor` 原样传回；不接受裸版本号；省略取基线                           |
+| `include` | string[] | 除 fulltext 现有 | `items`（顶层条目 + 子对象 + 回收站，分列）/ `collections` / `savedSearches` / `fulltext` / `deleted`（显式空数组报参数错误） |
 
 ### 输出
 
-`{library, serverId?, fromVersion?, cursor?, libraryChanged?, versionUnavailable?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches, tags}, totals?, unobservable?: {kind, reason}[], truncated?}`。每种资源整批读取，但每个列表按 `maxChangesResults`（默认 50）截断，`truncated` 表示列表是摘要；`totals` 给出每种资源（含 `deletedItems`/`deletedCollections`/`deletedSavedSearches`/`deletedTags`/`deletedOther`）被截断前的真实条数——某个计数出现即表示该种类读过，读没读过不必从列表是否为空去猜。`unobservable` 的每项带原因：`not-served`（该构建没有这个端点，如本机 Zotero 10.0.2-beta.9 没有 `/deleted` 路由）、`range-not-covered`（`since` 早于该构建保留的删除日志，409）、`unreadable`（响应形状不是文档化的那个，本次没读到，游标也不归还）。
+`{library, serverId?, fromVersion?, cursor?, libraryChanged?, versionUnavailable?, changed: {items?, childItems?, trashedItems?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches, tags}, totals?, unobservable?: {kind, reason}[], truncated?}`。每种资源整批读取（条目是三个端点各整批读一次），但每个列表按 `maxChangesResults`（默认 50）截断，`truncated` 表示列表是摘要；`totals` 给出每种资源（含 `childItems`/`trashedItems`/`deletedItems`/`deletedCollections`/`deletedSavedSearches`/`deletedTags`/`deletedOther`）被截断前的真实条数——某个计数出现即表示该种类读过，读没读过不必从列表是否为空去猜。`unobservable` 的每项带原因：`not-served`（该构建没有这个端点，如本机 Zotero 10.0.2-beta.9 没有 `/deleted` 路由）、`range-not-covered`（`since` 早于该构建保留的删除日志，409）、`unreadable`（响应形状不是文档化的那个，本次没读到，游标也不归还）。
 
 ### 示例
 

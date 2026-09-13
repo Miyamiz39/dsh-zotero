@@ -276,11 +276,13 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     expect(diff.cursor?.serverId).toBe(baseline.cursor!.serverId)
     expect(diff.truncated).toBeUndefined()
     expect(diff.changed.items?.length ?? 0).toBe(diff.totals?.items ?? 0)
+    expect(diff.changed.childItems?.length ?? 0).toBe(diff.totals?.childItems ?? 0)
     // The default diff leaves out the full-text listing: that endpoint filters
     // on the index's own counter, not the library version (live-verified).
     expect(diff.changed.fulltextAttachments).toBeUndefined()
     // A same-version diff is empty but well-formed.
     expect(Array.isArray(diff.changed.items)).toBe(true)
+    expect(Array.isArray(diff.changed.childItems)).toBe(true)
   })
 
   it('reports the tombstone kind this build does not serve, with that reason', async () => {
@@ -295,6 +297,40 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     expect(diff.deleted).toBeUndefined()
     expect(diff.unobservable).toContainEqual({ kind: 'deleted', reason: 'not-served' })
     expect(diff.cursor).toBeDefined()
+  })
+
+  it('reports a child object change that a top-level-only diff would drop', async () => {
+    // The bug this pins: a note, attachment or annotation carries its own
+    // version, so editing one advances the library version without touching a
+    // top-level item. A diff over /items/top alone reports "0 items changed"
+    // and hands back a cursor that steps over it.
+    const baseline = await provider.changes({})
+    const whole = await provider.changes({
+      since: { ...baseline.cursor!, version: 0 },
+      include: new Set(['items']),
+    })
+    const topKeys = new Set((whole.changed.items ?? []).map((entry) => entry.key))
+    const childKeys = (whole.changed.childItems ?? []).map((entry) => entry.key)
+    console.log(
+      `[integration] item space: ${whole.totals?.items ?? 0} top-level, ` +
+        `${whole.totals?.childItems ?? 0} child objects, ` +
+        `${whole.totals?.trashedItems ?? 0} trashed`,
+    )
+    // The two listings are the API's own partition, so they cannot overlap.
+    for (const key of childKeys) expect(topKeys.has(key)).toBe(false)
+    const newestChild = whole.changed.childItems?.[0]
+    if (newestChild === undefined || newestChild.version === 0) {
+      console.log(
+        '[integration] no versioned child object to narrow onto; skipping the window check',
+      )
+      return
+    }
+    const narrowed = await provider.changes({
+      since: { ...baseline.cursor!, version: newestChild.version - 1 },
+      include: new Set(['items']),
+    })
+    expect(narrowed.changed.childItems?.map((entry) => entry.key)).toContain(newestChild.key)
+    expect(narrowed.changed.items?.map((entry) => entry.key) ?? []).not.toContain(newestChild.key)
   })
 
   it('refuses a cursor minted by another instance', async () => {
@@ -339,10 +375,16 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     })
     const listed = result.changed.items?.length ?? 0
     const total = result.totals?.items ?? 0
-    console.log(`[integration] full-library diff: ${listed} listed of ${total}`)
+    const children = result.totals?.childItems ?? 0
+    console.log(
+      `[integration] full-library diff: ${listed} top-level listed of ${total}, ${children} child objects`,
+    )
     expect(result.cursor).toBeDefined()
     expect(total).toBeGreaterThanOrEqual(listed)
     expect(listed).toBeLessThanOrEqual(50)
+    // The child listing is read in the same window, so a library with child
+    // objects reports them rather than folding them into the top-level count.
+    expect(result.changed.childItems?.length ?? 0).toBeLessThanOrEqual(50)
     if (total > listed) expect(result.truncated).toBe(true)
     // The newest rows lead, so the capped listing is the useful end of the window.
     const versions = result.changed.items?.map((entry) => entry.version) ?? []

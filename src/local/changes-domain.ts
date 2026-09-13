@@ -10,6 +10,16 @@
  * version the response reports be a cursor a caller may resume from, while
  * `maxChangesResults` only shortens the listings the model sees.
  *
+ * The item space is read as the API itself partitions it: `/items` (live
+ * items), `/items/top` (their top-level subset) and `/items/trash` (the
+ * trash). Zotero keeps child objects — notes, attachments, annotations — as
+ * items with versions of their own, and excludes the trash from its item
+ * listings, so a diff over `/items/top` alone would report a version advance
+ * whose changes it never mentioned: editing one annotation moves the library
+ * version without touching any top-level item. Top-level items are the
+ * top-level read, child objects are the difference between the two live
+ * reads, and the trash is its own listing.
+ *
  * A cursor is more than a number: it carries the instance and the library it
  * describes. The claim travels with every request (`Zotero-Server-ID`), so a
  * cursor from another database is rejected by the server rather than silently
@@ -351,8 +361,39 @@ export async function changes(
   }
 
   if (include.has('items')) {
-    const entries = await readKind('items', `${prefix}/items/top`, 'items')
-    if (entries !== undefined) changed.items = entries
+    // The item space in the API's own three reads. All three are needed for
+    // the partition: without the top-level read no key can be told from a
+    // child object, and without the trash read a trashing would advance the
+    // library version invisibly (item listings exclude the trash). A build
+    // that serves only some of these reads leaves the kind unobservable as a
+    // whole rather than reporting a slice of the item space as the item space.
+    const live = await readResource(`${prefix}/items`)
+    const top = await readResource(`${prefix}/items/top`)
+    const trash = await readResource(`${prefix}/items/trash`)
+    if (live.status === 'ok' && top.status === 'ok' && trash.status === 'ok') {
+      foldRead(live.value)
+      foldRead(top.value)
+      foldRead(trash.value)
+      const topKeys = new Set(top.value.entries.map((entry) => entry.key))
+      const childEntries = live.value.entries.filter((entry) => !topKeys.has(entry.key))
+      changed.items = display(top.value.entries)
+      changed.childItems = display(childEntries)
+      changed.trashedItems = display(trash.value.entries)
+      totals.items = top.value.total
+      totals.trashedItems = trash.value.total
+      // The split is a difference of two whole reads of one range, so it is
+      // the true count whenever neither read was capped — and a build that
+      // capped one of them leaves the call without a cursor anyway.
+      totals.childItems = childEntries.length
+    } else {
+      // The conjunction above failed, so one of the three carries the reason;
+      // the first one is it, and the kind is named once.
+      for (const read of [live, top, trash]) {
+        if (read.status !== 'failed') continue
+        recordUnobservable('items', read.reason)
+        break
+      }
+    }
   }
   if (include.has('collections')) {
     const entries = await readKind('collections', `${prefix}/collections`, 'collections')
