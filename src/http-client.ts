@@ -11,7 +11,12 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { ConcurrencyGate } from './concurrency.js'
-import { ZOTERO_MAX_INFLIGHT_REQUESTS, ZOTERO_SERVER_ID_HEADER } from './constants.js'
+import {
+  ZOTERO_API_VERSION_HEADER,
+  ZOTERO_LOCAL_API_VERSION,
+  ZOTERO_MAX_INFLIGHT_REQUESTS,
+  ZOTERO_SERVER_ID_HEADER,
+} from './constants.js'
 import {
   API_DISABLED_MESSAGE,
   NOT_RUNNING_MESSAGE,
@@ -20,6 +25,7 @@ import {
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
   ZOTERO_NOT_FOUND,
+  ZOTERO_NOT_IMPLEMENTED,
   ZOTERO_NOT_RUNNING,
   ZOTERO_RANGE_UNSUPPORTED,
   ZOTERO_RESPONSE_TOO_LARGE,
@@ -93,8 +99,35 @@ function translateFetchError(
   })
 }
 
-/** Translate a non-2xx status. The 412 identity path is handled before this runs. */
-function translateHttpStatus(response: Response): never {
+/** The API-relative path of a request URL, as the API's own messages name paths. */
+function relativePathOf(url: URL, baseUrlWithSlash: string): string {
+  return url.href.startsWith(baseUrlWithSlash)
+    ? url.href.slice(baseUrlWithSlash.length)
+    : url.pathname
+}
+
+/**
+ * Zotero's own statement that it does not implement the requested API
+ * version (`API version not implemented: 9`, observed live on 10.0.2-beta.9).
+ * A 501 carrying anything else is about the endpoint or the format, not the
+ * version, and must not be answered with upgrade advice.
+ */
+const NOT_IMPLEMENTED_VERSION = /^API version not implemented:\s*(\d+)/
+
+/**
+ * Translate a non-2xx status. The 412 identity path is handled before this
+ * runs.
+ * @param response - the non-ok response.
+ * @param notImplementedDetail - the body a 501 carried, already read under
+ *   the response byte bound; empty when it could not be read.
+ * @param path - the API-relative path that was requested, named in the
+ *   not-implemented message so the model knows which call this build refuses.
+ */
+function translateHttpStatus(
+  response: Response,
+  notImplementedDetail: string,
+  path: string,
+): never {
   if (response.status >= 300 && response.status < 400) {
     throw new ZoteroError(
       'Zotero responded with a redirect, which this plugin refuses to follow.',
@@ -104,13 +137,8 @@ function translateHttpStatus(response: Response): never {
   switch (response.status) {
     case 403:
       throw new ZoteroError(API_DISABLED_MESSAGE, ZOTERO_API_DISABLED)
-    case 501: {
-      const version = response.headers.get('zotero-api-version') ?? 'unknown'
-      throw new ZoteroError(
-        `Zotero speaks API version ${version}, but this plugin requires version 3. Upgrade Zotero to a version whose local API supports version 3.`,
-        ZOTERO_API_VERSION,
-      )
-    }
+    case 501:
+      throw notImplementedError(response, notImplementedDetail, path)
     case 404:
       throw new ZoteroError('Zotero did not find the requested object.', ZOTERO_NOT_FOUND)
     case 409:
@@ -123,6 +151,41 @@ function translateHttpStatus(response: Response): never {
     default:
       throw new ZoteroError(`Zotero local API returned HTTP ${response.status}.`, ZOTERO_UNEXPECTED)
   }
+}
+
+/**
+ * Read what a 501 refused. Zotero's Local API refuses two different things
+ * with that status — an API version it does not speak, and an output format
+ * or method it does not implement — and only its own statement tells them
+ * apart.
+ *
+ * Caller cancellation and the provider deadline still win: the request did
+ * reach Zotero, but an aborted or expired read is the caller's own failure,
+ * not a fact about the 501. Any other read failure leaves the statement
+ * unavailable, and the 501 itself stays the finding.
+ */
+function notImplementedError(response: Response, detail: string, path: string): ZoteroError {
+  const version = NOT_IMPLEMENTED_VERSION.exec(detail.trim())
+  if (version === null) {
+    return new ZoteroError(
+      `Zotero's local API does not implement the request this plugin made (${path}), and it reports no API-version problem: the endpoint or its output format is not available in this build. The connection and the API version are fine.`,
+      ZOTERO_NOT_IMPLEMENTED,
+    )
+  }
+  const rejected = version[1]!
+  const serverVersion = response.headers.get(ZOTERO_API_VERSION_HEADER)
+  const speaks = serverVersion === null ? 'an unnamed version' : `version ${serverVersion}`
+  // The two directions need different fixes, and the answering build names
+  // which one this is: a build whose version is above the one it refused is
+  // newer than this plugin, not older.
+  const route =
+    serverVersion !== null && Number(serverVersion) > Number(rejected)
+      ? 'The running Zotero is newer than this plugin line: update dsh-zotero to a version that speaks its local API version.'
+      : `Upgrade Zotero to a version whose local API supports version ${ZOTERO_LOCAL_API_VERSION}.`
+  return new ZoteroError(
+    `Zotero does not implement local API version ${rejected}, which this plugin requires; it answers as ${speaks}. ${route}`,
+    ZOTERO_API_VERSION,
+  )
 }
 
 /**
@@ -174,6 +237,28 @@ export class ZoteroHttpClient {
   /** The instance id remembered from the latest response carrying one (Zotero 10+). */
   get serverId(): string | undefined {
     return this.currentServerId
+  }
+
+  /**
+   * Read a failure's own statement (a 501 body) under the byte bound.
+   * Caller cancellation and the deadline still win over the statement: the
+   * request did reach Zotero, but an aborted read is the caller's failure,
+   * not a fact about the refusal. Any other read failure leaves the
+   * statement unavailable — the status itself is still the finding.
+   */
+  private async readStatement(
+    response: Response,
+    signal: AbortSignal,
+    callerSignal: AbortSignal | undefined,
+  ): Promise<string> {
+    try {
+      return await readBody(response, this.options.maxResponseBytes)
+    } catch (error) {
+      if (callerSignal?.aborted === true || timeoutOf(signal, ZOTERO_TIMEOUT) !== undefined) {
+        translateFetchError(error, signal, callerSignal, this.options.timeoutMs)
+      }
+      return ''
+    }
   }
 
   /**
@@ -243,7 +328,7 @@ export class ZoteroHttpClient {
     // starts here, after the slot was taken, so time spent queued behind the
     // gate is never reported as Zotero failing to respond in time.
     using d = deadline(opts.signal, this.options.timeoutMs, ZOTERO_TIMEOUT)
-    const headers: Record<string, string> = { 'Zotero-API-Version': '3' }
+    const headers: Record<string, string> = { 'Zotero-API-Version': ZOTERO_LOCAL_API_VERSION }
     const serverId =
       opts.serverId ?? (opts.sendServerId === false ? undefined : this.currentServerId)
     if (serverId !== undefined) headers[ZOTERO_SERVER_ID_HEADER] = serverId
@@ -282,7 +367,12 @@ export class ZoteroHttpClient {
       )
     }
     if (!response.ok) {
-      translateHttpStatus(response)
+      // Only a 501 needs its body: Zotero states there what it refused, and
+      // that statement is the difference between a version mismatch and an
+      // unimplemented endpoint or format. It is read under the same bound.
+      const detail =
+        response.status === 501 ? await this.readStatement(response, d.signal, opts.signal) : ''
+      translateHttpStatus(response, detail, relativePathOf(url, this.baseUrlWithSlash))
     }
     // Body reads can still fail mid-stream (connection resets, deadline
     // expiring during transfer, caller abort); route them through the same

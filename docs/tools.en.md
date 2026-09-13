@@ -264,22 +264,23 @@ zotero_changes(since={serverId: "<from cursor>", library: {type: "user", id: 0},
 
 ## Error codes
 
-| Error code                      | Description                                                                                  |
-| ------------------------------- | -------------------------------------------------------------------------------------------- |
-| `ZOTERO_NOT_RUNNING`            | Zotero not running or local API unreachable                                                  |
-| `ZOTERO_API_DISABLED`           | Zotero running but local API disabled (403)                                                  |
-| `ZOTERO_API_VERSION`            | Zotero API version not supported                                                             |
-| `ZOTERO_SERVER_MISMATCH`        | Ref from a different Zotero instance                                                         |
-| `ZOTERO_NOT_FOUND`              | Referenced item, collection, or saved search does not exist                                  |
-| `ZOTERO_NO_ATTACHMENT`          | Item has no attachment of the specified type                                                 |
-| `ZOTERO_NO_FULLTEXT`            | Attachment has no full-text index                                                            |
-| `ZOTERO_FILE_MISSING`           | Local file reported by Zotero does not exist on disk                                         |
-| `ZOTERO_INVALID_REF`            | Ref string does not match `zotero://` syntax or references unsupported library               |
-| `ZOTERO_INVALID_ARGUMENT`       | Parameter violates domain constraints not expressible in schema                              |
-| `ZOTERO_SCOPE_AMBIGUOUS`        | Collection or saved search name matched multiple objects                                     |
-| `ZOTERO_TIMEOUT`                | Provider internal timeout                                                                    |
-| `ZOTERO_RESPONSE_TOO_LARGE`     | Response stream exceeded resource limit                                                      |
-| `ZOTERO_OUTPUT_TOO_LARGE`       | Export output exceeded provider hard limit                                                   |
-| `ZOTERO_CAPABILITY_UNAVAILABLE` | Provider did not declare the required capability                                             |
-| `ZOTERO_PROVIDER_UNAVAILABLE`   | Configured provider not registered, or declares a capability without implementing its method |
-| `ZOTERO_UNEXPECTED`             | Response could not be parsed or behaved unexpectedly                                         |
+| Error code                      | Description                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `ZOTERO_NOT_RUNNING`            | Zotero not running or local API unreachable                                                                                           |
+| `ZOTERO_API_DISABLED`           | Zotero running but local API disabled (403)                                                                                           |
+| `ZOTERO_API_VERSION`            | Zotero API version not supported                                                                                                      |
+| `ZOTERO_NOT_IMPLEMENTED`        | Zotero refused the request as unimplemented (501) with no version problem: the endpoint or output format is unavailable in this build |
+| `ZOTERO_SERVER_MISMATCH`        | Ref from a different Zotero instance                                                                                                  |
+| `ZOTERO_NOT_FOUND`              | Referenced item, collection, or saved search does not exist                                                                           |
+| `ZOTERO_NO_ATTACHMENT`          | Item has no attachment of the specified type                                                                                          |
+| `ZOTERO_NO_FULLTEXT`            | Attachment has no full-text index                                                                                                     |
+| `ZOTERO_FILE_MISSING`           | Local file reported by Zotero does not exist on disk                                                                                  |
+| `ZOTERO_INVALID_REF`            | Ref string does not match `zotero://` syntax or references unsupported library                                                        |
+| `ZOTERO_INVALID_ARGUMENT`       | Parameter violates domain constraints not expressible in schema                                                                       |
+| `ZOTERO_SCOPE_AMBIGUOUS`        | Collection or saved search name matched multiple objects                                                                              |
+| `ZOTERO_TIMEOUT`                | Provider internal timeout                                                                                                             |
+| `ZOTERO_RESPONSE_TOO_LARGE`     | Response stream exceeded resource limit                                                                                               |
+| `ZOTERO_OUTPUT_TOO_LARGE`       | Export output exceeded provider hard limit                                                                                            |
+| `ZOTERO_CAPABILITY_UNAVAILABLE` | Provider did not declare the required capability                                                                                      |
+| `ZOTERO_PROVIDER_UNAVAILABLE`   | Configured provider not registered, or declares a capability without implementing its method                                          |
+| `ZOTERO_UNEXPECTED`             | Response could not be parsed or behaved unexpectedly                                                                                  |

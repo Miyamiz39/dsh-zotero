@@ -109,10 +109,10 @@ describe('withConnectivityAsk question content', () => {
     },
     {
       code: ZOTERO_API_VERSION,
-      header: 'Zotero version too old',
+      header: 'Zotero and this plugin share no API version',
       question:
-        'The running Zotero does not speak local API version 3, which this plugin requires.',
-      retryLabel: 'I upgraded Zotero, retry (Recommended)',
+        'The running Zotero does not implement local API version 3, which this plugin requires.',
+      retryLabel: 'I fixed the version, retry (Recommended)',
     },
     {
       code: ZOTERO_TIMEOUT,

@@ -13,6 +13,17 @@ import type { ZoteroSortField } from './types.js'
 /** The id the built-in local provider registers under; also the provider config default. */
 export const LOCAL_PROVIDER_ID = 'local'
 
+/**
+ * The Local API version this plugin speaks, sent as `Zotero-API-Version` on
+ * every request. Zotero 10 implements version 3 and answers another value
+ * with 501; the plugin names this version in its errors rather than
+ * repeating the literal.
+ */
+export const ZOTERO_LOCAL_API_VERSION = '3'
+
+/** The response header naming the Local API version the answering build speaks. */
+export const ZOTERO_API_VERSION_HEADER = 'zotero-api-version'
+
 /** The Local API response/request header carrying the serving instance identity. */
 export const ZOTERO_SERVER_ID_HEADER = 'zotero-server-id'
 

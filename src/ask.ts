@@ -23,6 +23,7 @@ import type {
   AskUserQuestionRequest,
   UserQuestionService,
 } from '@deepseek-ai/dsh-user-questions'
+import { ZOTERO_LOCAL_API_VERSION } from './constants.js'
 import {
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
@@ -81,10 +82,10 @@ const FAILURE_SPECS: Record<AskWorthyCode, FailureSpec> = {
     abortDescription: ABORT_DESCRIPTION,
   },
   [ZOTERO_API_VERSION]: {
-    header: 'Zotero version too old',
-    question: 'The running Zotero does not speak local API version 3, which this plugin requires.',
-    detail: 'Upgrade Zotero to a version whose local API supports version 3.',
-    retryLabel: 'I upgraded Zotero, retry (Recommended)',
+    header: 'Zotero and this plugin share no API version',
+    question: `The running Zotero does not implement local API version ${ZOTERO_LOCAL_API_VERSION}, which this plugin requires.`,
+    detail: `Upgrade Zotero to a version whose local API supports version ${ZOTERO_LOCAL_API_VERSION} — or update dsh-zotero if the running Zotero is newer than this plugin line.`,
+    retryLabel: 'I fixed the version, retry (Recommended)',
     retryDescription: RETRY_DESCRIPTION,
     abortLabel: ABORT_LABEL,
     abortDescription: ABORT_DESCRIPTION,

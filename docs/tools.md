@@ -265,22 +265,23 @@ zotero_changes(since={serverId: "<from cursor>", library: {type: "user", id: 0},
 
 ## 错误码
 
-| 错误码                          | 说明                                                |
-| ------------------------------- | --------------------------------------------------- |
-| `ZOTERO_NOT_RUNNING`            | Zotero 未运行或本地 API 不可达                      |
-| `ZOTERO_API_DISABLED`           | Zotero 运行中但本地 API 被禁用（403）               |
-| `ZOTERO_API_VERSION`            | Zotero API 版本不受支持                             |
-| `ZOTERO_SERVER_MISMATCH`        | ref 来自不同的 Zotero 实例                          |
-| `ZOTERO_NOT_FOUND`              | 引用的条目、集合或保存搜索不存在                    |
-| `ZOTERO_NO_ATTACHMENT`          | 条目没有指定类型的附件                              |
-| `ZOTERO_NO_FULLTEXT`            | 附件没有全文索引                                    |
-| `ZOTERO_FILE_MISSING`           | Zotero 报告的本地文件在磁盘上不存在                 |
-| `ZOTERO_INVALID_REF`            | ref 字符串不符合 `zotero://` 语法或引用了不支持的库 |
-| `ZOTERO_INVALID_ARGUMENT`       | 参数违反了 schema 无法表达的领域约束                |
-| `ZOTERO_SCOPE_AMBIGUOUS`        | 集合或保存搜索名称匹配到多个对象                    |
-| `ZOTERO_TIMEOUT`                | 提供方自身超时                                      |
-| `ZOTERO_RESPONSE_TOO_LARGE`     | 响应流式传输超出资源限制                            |
-| `ZOTERO_OUTPUT_TOO_LARGE`       | 导出输出超过提供方硬上限                            |
-| `ZOTERO_CAPABILITY_UNAVAILABLE` | 提供方未声明所需能力                                |
-| `ZOTERO_PROVIDER_UNAVAILABLE`   | 配置的提供方未注册，或声明了能力却未实现对应方法    |
-| `ZOTERO_UNEXPECTED`             | 响应无法解析或行为异常                              |
+| 错误码                          | 说明                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `ZOTERO_NOT_RUNNING`            | Zotero 未运行或本地 API 不可达                                             |
+| `ZOTERO_API_DISABLED`           | Zotero 运行中但本地 API 被禁用（403）                                      |
+| `ZOTERO_API_VERSION`            | Zotero API 版本不受支持                                                    |
+| `ZOTERO_NOT_IMPLEMENTED`        | 本地 API 明确拒绝该请求（501）且非版本问题：端点或输出格式在本构建中不可用 |
+| `ZOTERO_SERVER_MISMATCH`        | ref 来自不同的 Zotero 实例                                                 |
+| `ZOTERO_NOT_FOUND`              | 引用的条目、集合或保存搜索不存在                                           |
+| `ZOTERO_NO_ATTACHMENT`          | 条目没有指定类型的附件                                                     |
+| `ZOTERO_NO_FULLTEXT`            | 附件没有全文索引                                                           |
+| `ZOTERO_FILE_MISSING`           | Zotero 报告的本地文件在磁盘上不存在                                        |
+| `ZOTERO_INVALID_REF`            | ref 字符串不符合 `zotero://` 语法或引用了不支持的库                        |
+| `ZOTERO_INVALID_ARGUMENT`       | 参数违反了 schema 无法表达的领域约束                                       |
+| `ZOTERO_SCOPE_AMBIGUOUS`        | 集合或保存搜索名称匹配到多个对象                                           |
+| `ZOTERO_TIMEOUT`                | 提供方自身超时                                                             |
+| `ZOTERO_RESPONSE_TOO_LARGE`     | 响应流式传输超出资源限制                                                   |
+| `ZOTERO_OUTPUT_TOO_LARGE`       | 导出输出超过提供方硬上限                                                   |
+| `ZOTERO_CAPABILITY_UNAVAILABLE` | 提供方未声明所需能力                                                       |
+| `ZOTERO_PROVIDER_UNAVAILABLE`   | 配置的提供方未注册，或声明了能力却未实现对应方法                           |
+| `ZOTERO_UNEXPECTED`             | 响应无法解析或行为异常                                                     |

@@ -6,6 +6,7 @@ import {
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
   ZOTERO_NOT_FOUND,
+  ZOTERO_NOT_IMPLEMENTED,
   ZOTERO_NOT_RUNNING,
   ZOTERO_RESPONSE_TOO_LARGE,
   ZOTERO_SERVER_MISMATCH,
@@ -199,22 +200,93 @@ describe('http status translation', () => {
     await expectZoteroError(client.getJson(''), ZOTERO_API_DISABLED, 'Settings')
   })
 
-  it('maps a version mismatch (501) to API_VERSION and reports the version', async () => {
+  it('maps a version mismatch (501) to API_VERSION and names both sides', async () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
       helpers.raw(
         501,
         { 'Content-Type': 'text/plain', 'Zotero-API-Version': '4' },
-        'API version not implemented: 4',
+        'API version not implemented: 3',
       ),
     )
-    await expectZoteroError(client.getJson('users/0/items'), ZOTERO_API_VERSION, '4')
+    const error = await expectZoteroError(
+      client.getJson('users/0/items'),
+      ZOTERO_API_VERSION,
+      'does not implement local API version 3',
+    )
+    // The answering build is newer than this plugin, so the fix is the
+    // plugin, not Zotero — the message says which way round it is.
+    expect(error.message).toContain('it answers as version 4')
+    expect(error.message).toContain('newer than this plugin line')
+    expect(error.message).toContain('update dsh-zotero')
   })
 
-  it('reports an unknown version when the 501 carries no version header', async () => {
+  it('tells an older Zotero to upgrade, and names the version it refused', async () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.raw(501, { 'Content-Type': 'text/plain' }, 'API version not implemented'),
+      helpers.raw(
+        501,
+        { 'Content-Type': 'text/plain', 'Zotero-API-Version': '2' },
+        'API version not implemented: 3',
+      ),
     )
-    await expectZoteroError(client.getJson('users/0/items'), ZOTERO_API_VERSION, 'unknown')
+    const error = await expectZoteroError(
+      client.getJson('users/0/items'),
+      ZOTERO_API_VERSION,
+      'does not implement local API version 3',
+    )
+    expect(error.message).toContain('it answers as version 2')
+    expect(error.message).toContain('Upgrade Zotero')
+  })
+
+  it('reads a 501 without a version statement as an unimplemented request', async () => {
+    // Zotero refuses an unsupported output format with the same status and its
+    // own wording (verified live: `Local API does not support Atom output`).
+    // Advising an upgrade for that sent users after the wrong problem.
+    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
+      helpers.raw(501, { 'Content-Type': 'text/plain' }, 'Local API does not support Atom output'),
+    )
+    const error = await expectZoteroError(
+      client.getJson('users/0/items'),
+      ZOTERO_NOT_IMPLEMENTED,
+      'does not implement the request this plugin made (users/0/items)',
+    )
+    expect(error.message).toContain(
+      'the endpoint or its output format is not available in this build',
+    )
+    expect(error.message).not.toContain('Upgrade')
+  })
+
+  it('keeps the 501 as the finding when its statement cannot be read', async () => {
+    // A body past the byte bound: the statement is unavailable, but the
+    // status Zotero chose is still the finding — it is not re-reported as an
+    // oversized response.
+    const bounded = new ZoteroHttpClient({
+      baseUrl: mock.baseUrl,
+      timeoutMs: 5000,
+      maxResponseBytes: 32,
+    })
+    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
+      helpers.raw(501, { 'Content-Type': 'text/plain' }, 'x'.repeat(200)),
+    )
+    await expectZoteroError(
+      bounded.getJson('users/0/items'),
+      ZOTERO_NOT_IMPLEMENTED,
+      'does not implement the request',
+    )
+  })
+
+  it('lets the deadline win over an unfinished 501 statement', async () => {
+    const slow = new ZoteroHttpClient({
+      baseUrl: mock.baseUrl,
+      timeoutMs: 40,
+      maxResponseBytes: 1024,
+    })
+    mock.route('GET', '/api/users/0/items', (req, res) => {
+      res.writeHead(501, { 'Content-Type': 'text/plain' })
+      // Headers and a partial statement arrive; the rest never does, so the
+      // read ends on the provider deadline and that is what is reported.
+      res.write('API version not implemented: 3')
+    })
+    await expectZoteroError(slow.getJson('users/0/items'), ZOTERO_TIMEOUT)
   })
 
   it('maps 404 to NOT_FOUND', async () => {

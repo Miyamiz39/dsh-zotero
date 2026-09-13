@@ -8,6 +8,8 @@ export const ZOTERO_NOT_RUNNING = 'ZOTERO_NOT_RUNNING'
 export const ZOTERO_API_DISABLED = 'ZOTERO_API_DISABLED'
 /** The running Zotero speaks an unsupported API version. */
 export const ZOTERO_API_VERSION = 'ZOTERO_API_VERSION'
+/** Zotero's local API does not implement the request, without a version mismatch (501). */
+export const ZOTERO_NOT_IMPLEMENTED = 'ZOTERO_NOT_IMPLEMENTED'
 /** A ref names a Zotero instance other than the one currently served. */
 export const ZOTERO_SERVER_MISMATCH = 'ZOTERO_SERVER_MISMATCH'
 /** The referenced item, collection, or saved search does not exist. */
@@ -43,6 +45,7 @@ const ZOTERO_ERROR_CODES = [
   ZOTERO_NOT_RUNNING,
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
+  ZOTERO_NOT_IMPLEMENTED,
   ZOTERO_SERVER_MISMATCH,
   ZOTERO_NOT_FOUND,
   ZOTERO_RANGE_UNSUPPORTED,
