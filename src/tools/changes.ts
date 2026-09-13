@@ -310,13 +310,14 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
     if (entries === undefined) continue
     const count = total ?? entries.length
     lines.push(
-      `${label}: ${count} changed${count > entries.length ? ` — ${entries.length} newest listed` : ''}${note === undefined ? '' : ` — ${note}`}`,
+      `${label}: ${count} changed${count > entries.length ? ` — ${entries.length} newest listed, raise maxChangesResults for the rest` : ''}${note === undefined ? '' : ` — ${note}`}`,
     )
-    const printed = entries.slice(0, 20)
-    for (const entry of printed) {
+    // Everything the read returned is printed. The listing is already bounded
+    // by `maxChangesResults`, and cutting it a second time here left keys the
+    // model could count but never read, with no way to ask for them.
+    for (const entry of entries) {
       lines.push(`  - ${entry.key} (v${entry.version})`)
     }
-    if (count > printed.length) lines.push(`  … ${count - printed.length} more`)
   }
   if (value.deleted !== undefined) {
     const deletedSections: [string, readonly string[] | undefined, number | undefined][] = [
@@ -337,10 +338,10 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
     for (const [label, keys, total] of deletedSections) {
       if (keys === undefined || keys.length === 0) continue
       const count = total ?? keys.length
-      lines.push(`${label}: ${count}${count > keys.length ? ` — ${keys.length} listed` : ''}`)
-      const printed = keys.slice(0, 20)
-      for (const key of printed) lines.push(`  - ${key}`)
-      if (count > printed.length) lines.push(`  … ${count - printed.length} more`)
+      lines.push(
+        `${label}: ${count}${count > keys.length ? ` — ${keys.length} listed, raise maxChangesResults for the rest` : ''}`,
+      )
+      for (const key of keys) lines.push(`  - ${key}`)
     }
     const other = totals?.deletedOther ?? 0
     if (other > 0) {

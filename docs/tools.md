@@ -175,7 +175,7 @@ zotero_export(refs=["zotero://user/0/item/ABC123", "zotero://user/0/item/DEF456"
 
 发现库结构。所有 `kind` 均 `offset/limit` 分页（默认 `20`，受 `maxBrowseResults` 限制 50），返回 `total/returned/nextOffset`。
 
-分页诚实性对所有分页列表端点统一生效：`zotero_search` 与 `zotero_browse` 的数组型列表读取要求响应携带合法的 `Total-Results` 头，缺失或非法时整个调用以 `ZOTERO_UNEXPECTED` 失败，而不是用响应体长度猜测总数。`zotero_changes` 走另一条路：它按资源整批读取（不带 `limit`，本地 API 对无上限请求返回全集；条目种类是 `/items`、`/items/top`、`/items/trash` 三个端点各整批读一次），`Total-Results` 存在时用它与 map 键数比对来判定这一批是否读全，缺失时按「无上限请求即全集」信任；列表本身按 `maxChangesResults` 截断，真实条数进 `totals`。响应体不是 key→version map（如数组、字符串，或值不是非负整数）时不当作「没有变化」：该种类记为不可读（`unobservable` 的 `unreadable`）并否决本次游标。
+分页诚实性对所有分页列表端点统一生效：`zotero_search` 与 `zotero_browse` 的数组型列表读取要求响应携带合法的 `Total-Results` 头，缺失或非法时整个调用以 `ZOTERO_UNEXPECTED` 失败，而不是用响应体长度猜测总数。`zotero_changes` 走另一条路：它按资源整批读取（不带 `limit`，本地 API 对无上限请求返回全集；条目种类是 `/items`、`/items/top`、`/items/trash` 三个端点各整批读一次），`Total-Results` 存在时用它与 map 键数比对来判定这一批是否读全，缺失时按「无上限请求即全集」信任；列表本身按 `maxChangesResults` 截断，真实条数进 `totals`；渲染给模型的就是这份列表的全部，不再二次截断——超出上限的部分要读就得提高 `maxChangesResults`，而不是换个参数重试。响应体不是 key→version map（如数组、字符串，或值不是非负整数）时不当作「没有变化」：该种类记为不可读（`unobservable` 的 `unreadable`）并否决本次游标。
 
 | 参数      | 类型                                                                           | 默认值     | 说明                                                                        |
 | --------- | ------------------------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------- |

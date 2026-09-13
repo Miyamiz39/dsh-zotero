@@ -1876,9 +1876,14 @@ describe('zotero_changes tool', () => {
     } as never)
     const digestText = (digest[0] as { text: string }).text
     expect(digestText).toContain('Changes 1 → 220')
-    expect(digestText).toContain('Items (top-level): 120 changed — 50 newest listed')
-    expect(digestText).toContain('… 100 more')
-    expect(digestText).not.toContain('KEY0049')
+    expect(digestText).toContain(
+      'Items (top-level): 120 changed — 50 newest listed, raise maxChangesResults for the rest',
+    )
+    // Every key the read returned is printed: the listing is bounded by
+    // maxChangesResults, so a second cut here only hid keys the model could
+    // already see counted.
+    expect(digestText).toContain('KEY0049 (v51)')
+    expect(digestText).not.toContain('KEY0050')
 
     const incomplete = renderChanges({}, {
       fromVersion: 1,
@@ -1895,11 +1900,13 @@ describe('zotero_changes tool', () => {
     } as never)
     const text = (incomplete[0] as { text: string }).text
     expect(text).toContain('version not advanced: the read did not verify the whole range')
+    // A listing the read returned whole is printed whole — the 25th key and
+    // the 22nd tombstone included.
     expect(text).toContain('Items (top-level): 25 changed')
-    expect(text).toContain('… 5 more')
-    expect(text).not.toContain('KEY0024')
+    expect(text).toContain('  - KEY0024 (v26)')
+    expect(text).not.toContain('more')
     expect(text).toContain('Deleted items: 22')
-    expect(text).toContain('… 2 more')
+    expect(text).toContain('  - GONE0021')
 
     const moved = renderChanges({}, {
       fromVersion: 1,
