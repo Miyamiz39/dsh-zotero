@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { ZOTERO_PROVIDER_UNAVAILABLE } from '../../src/errors.js'
+import { intRangeArgumentMessage } from '../../src/tools/validate.js'
 import { ZOTERO_SETTINGS_NAMESPACE } from '../../src/settings-namespace.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 
@@ -104,7 +105,7 @@ describe('the zotero settings namespace', () => {
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
     expect((result.content[0] as { text: string }).text).toContain(
-      'limit must be an integer between 1 and 5',
+      intRangeArgumentMessage('limit', 10, 1, 5),
     )
   })
 })

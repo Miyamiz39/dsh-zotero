@@ -146,20 +146,46 @@ const RETRIEVE_OUTPUT_SCHEMA = {
 
 type RetrieveOutput = InferValue<typeof RETRIEVE_OUTPUT_SCHEMA>
 
+/** The model-facing messages the retrieve argument rules throw. */
+export const RETRIEVE_QUERY_EMPTY_MESSAGE =
+  'query must be a non-empty string of terms to rank evidence against'
+export const RETRIEVE_SOURCES_EMPTY_MESSAGE = 'sources must list at least one evidence source'
+export const RETRIEVE_SPECIFIED_EMPTY_MESSAGE =
+  'attachmentPolicy "specified" requires at least one attachmentRef'
+export const RETRIEVE_SPECIFIED_ONLY_MESSAGE =
+  'attachmentRefs is only valid with attachmentPolicy="specified"'
+
+/**
+ * The message for an attachmentRef outside the item's own library: the ref's
+ * library is named so the model can see which identity the list must match.
+ */
+export function attachmentRefsLibraryMessage(library: string): string {
+  return `attachmentRefs must belong to the same library as ref (${library})`
+}
+
+/**
+ * The message for a list of distinct attachmentRefs past the per-call cap.
+ * The count names how much work the call asked for and the cap names the
+ * split point.
+ */
+export function attachmentRefsOverCapMessage(count: number, cap: number): string {
+  return `attachmentRefs lists ${count} attachments; at most ${cap} can enter one ranking — split the work across calls`
+}
+
 function buildRequest(args: RetrieveArgs, config: ResolvedConfig): ZoteroRetrieveRequest {
   const query = args.query.trim()
-  if (query === '') invalid('query must be a non-empty string of terms to rank evidence against')
+  if (query === '') invalid(RETRIEVE_QUERY_EMPTY_MESSAGE)
   const passages = args.passages ?? DEFAULT_PASSAGES
   assertIntInRange('passages', passages, 1, config.maxEvidencePassages)
   const sources = args.sources ?? ALL_SOURCES
-  assertNonEmptyList(sources, 'sources must list at least one evidence source')
+  assertNonEmptyList(sources, RETRIEVE_SOURCES_EMPTY_MESSAGE)
   const ref = parseSupportedRef(args.ref, ['item'])
   const policy = args.attachmentPolicy ?? 'best'
   let attachmentRefs: ZoteroObjectRef[] | undefined
   if (args.attachmentPolicy === 'specified') {
     const raw = args.attachmentRefs ?? []
     if (raw.length === 0) {
-      invalid('attachmentPolicy "specified" requires at least one attachmentRef')
+      invalid(RETRIEVE_SPECIFIED_EMPTY_MESSAGE)
     }
     attachmentRefs = []
     // The list is a set: the same attachment named twice would be read twice
@@ -176,19 +202,15 @@ function buildRequest(args: RetrieveArgs, config: ResolvedConfig): ZoteroRetriev
         attachmentRef.library.type !== ref.library.type ||
         attachmentRef.library.id !== ref.library.id
       ) {
-        invalid(
-          `attachmentRefs must belong to the same library as ref (${ref.library.type}/${ref.library.id})`,
-        )
+        invalid(attachmentRefsLibraryMessage(`${ref.library.type}/${ref.library.id}`))
       }
       attachmentRefs.push(attachmentRef)
     }
     if (attachmentRefs.length > ZOTERO_RETRIEVE_ATTACHMENT_CAP) {
-      invalid(
-        `attachmentRefs lists ${attachmentRefs.length} attachments; at most ${ZOTERO_RETRIEVE_ATTACHMENT_CAP} can enter one ranking — split the work across calls`,
-      )
+      invalid(attachmentRefsOverCapMessage(attachmentRefs.length, ZOTERO_RETRIEVE_ATTACHMENT_CAP))
     }
   } else if (args.attachmentRefs !== undefined) {
-    invalid('attachmentRefs is only valid with attachmentPolicy="specified"')
+    invalid(RETRIEVE_SPECIFIED_ONLY_MESSAGE)
   }
   return {
     ref,
@@ -210,24 +232,45 @@ const MATCH_FIELD_LABELS = {
   comment: 'the reader\u2019s comment',
 } as const satisfies Record<ZoteroEvidenceField, string>
 
+/**
+ * The clause appended to a match line whose only hit is a reader comment:
+ * those words are the annotator's, not the paper's.
+ */
+export const PASSAGE_COMMENT_ONLY_CLAUSE =
+  'those are the annotator\u2019s words, not the paper\u2019s own text'
+
 /** The one-line account of which fields carried the query terms. */
 function matchLine(fields: readonly ZoteroEvidenceField[]): string {
   const where = fields.map((field) => MATCH_FIELD_LABELS[field]).join(' and ')
   const onlyComment =
     fields.includes('comment') && !fields.includes('text')
-      ? ' — those are the annotator\u2019s words, not the paper\u2019s own text'
+      ? ` — ${PASSAGE_COMMENT_ONLY_CLAUSE}`
       : ''
   return `Matched in: ${where}${onlyComment}`
+}
+
+/** The model-facing note for an attachment Zotero has not indexed. */
+export const ATTACHMENT_UNINDEXED_NOTE = "no full text in Zotero's index"
+
+/** The model-facing note for an attachment this call's cap left unread. */
+export const ATTACHMENT_LIMIT_NOTE = 'not read — this call was already at its attachment limit'
+
+/**
+ * The honesty line under the full-text sources: how many of them contributed
+ * no text, so whatever they contain is not covered.
+ */
+export function silentAttachmentsMessage(silent: number, total: number): string {
+  return `${silent} of these ${total} attachments contributed no text, so whatever they contain is not covered here.`
 }
 
 /** One full-text source's own facts: what it is, what it gave, what it could not. */
 function attachmentSourceLine(source: NonNullable<RetrieveOutput['attachments']>[number]): string {
   const type = source.contentType === undefined ? '' : ` (${source.contentType})`
   if (source.status === 'unindexed') {
-    return `${source.ref}${type}: no full text in Zotero's index`
+    return `${source.ref}${type}: ${ATTACHMENT_UNINDEXED_NOTE}`
   }
   if (source.status === 'unread') {
-    return `${source.ref}${type}: not read — this call was already at its attachment limit`
+    return `${source.ref}${type}: ${ATTACHMENT_LIMIT_NOTE}`
   }
   const chars =
     source.coverage?.indexedChars === undefined
@@ -237,6 +280,17 @@ function attachmentSourceLine(source: NonNullable<RetrieveOutput['attachments']>
     source.inputTruncated === true ? ', text cut by this call\u2019s character budget' : ''
   return `${source.ref}${type}: ${source.passages ?? 0} passages${chars}${cut}`
 }
+
+/**
+ * The truncated-result message: what was omitted, what a passage costs, and
+ * the call that reads the item's notes and annotations outside the budget.
+ */
+export const RETRIEVE_TRUNCATED_MESSAGE =
+  'More evidence was available but omitted by the passage or character budget — a passage charges its text and, for an annotation, its comment.'
+
+/** The remedy half of {@link RETRIEVE_TRUNCATED_MESSAGE}. */
+export const RETRIEVE_TRUNCATED_REMEDY =
+  'zotero_get with include:["notes", "annotations"] reads the item\u2019s notes and annotations outside this budget.'
 
 export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): ContentBlock[] {
   const lines = [
@@ -272,9 +326,7 @@ export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): Cont
       ...value.attachments.map((source) => `  - ${attachmentSourceLine(source)}`),
     )
     if (silent > 0) {
-      lines.push(
-        `${silent} of these ${total} attachments contributed no text, so whatever they contain is not covered here.`,
-      )
+      lines.push(silentAttachmentsMessage(silent, total))
     }
   }
   value.evidence.forEach((entry) => {
@@ -293,10 +345,7 @@ export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): Cont
   if (value.sourcesSkipped.length > 0) {
     lines.push(`\nSkipped unavailable sources: ${value.sourcesSkipped.join(', ')}`)
   }
-  if (value.truncated)
-    lines.push(
-      '\nMore evidence was available but omitted by the passage or character budget — a passage charges its text and, for an annotation, its comment. zotero_get with include:["notes", "annotations"] reads the item\u2019s notes and annotations outside this budget.',
-    )
+  if (value.truncated) lines.push(`\n${RETRIEVE_TRUNCATED_MESSAGE} ${RETRIEVE_TRUNCATED_REMEDY}`)
   return [{ type: 'text', text: lines.join('\n') }]
 }
 

@@ -141,6 +141,23 @@ function fakeWorld(mountFail = false): FakeApplyWorld {
   return world
 }
 
+/**
+ * Await the Remote mount `apply` starts — its third effect, the only
+ * asynchronous one (`src/client/index.ts`, `dsh-zotero: remote`; the other two
+ * register synchronously and are collected as their disposers). The promise
+ * settles after the mount attempt, the namespace read through the service
+ * store, and the fault log, so a test that awaits it reads `reflectCalls` and
+ * the mount state as settled — nothing here waits for a duration.
+ * @param world - the world `apply` was called on.
+ */
+async function settleMount(world: FakeApplyWorld): Promise<void> {
+  const mount = world.effects[2]
+  // Awaiting a disposer would resolve at once and turn this into a silent
+  // no-op, so a rewiring of the effects fails here instead.
+  if (!(mount instanceof Promise)) throw new Error('the third effect is not the Remote mount')
+  await mount
+}
+
 describe('the browser-half entry', () => {
   it('declares the services it consumes', () => {
     expect(inject).toEqual(['locale', 'slots', 'connection', 'settingsScope', 'remote'])
@@ -201,7 +218,7 @@ describe('the browser-half entry', () => {
   it('keeps the tab and reports the fault when the Remote namespace is not served', async () => {
     const world = fakeWorld(true)
     apply(world.ctx as Context)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleMount(world)
     // The tab's Sources workspace reads the session's own tool calls, so a
     // probe that cannot mount must not take the tab down with it.
     const tabEntry = world.injected.find((entry) => entry.name === 'conversation.view')
@@ -222,7 +239,7 @@ describe('the browser-half entry', () => {
     // the runtime does, so reaching the status face at all proves the entry
     // went through the store: `$mount` installs the namespace on the gateway's
     // own context, and only the store path resolves it across fiber branches.
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleMount(world)
     expect(world.reflectCalls).toBeGreaterThan(0)
     const tab = world.injected.find((entry) => entry.name === 'conversation.view')
     tab?.register()
@@ -249,7 +266,7 @@ describe('the browser-half entry', () => {
     const statusSpy = vi.fn(async () => ({ ok: true, value: {} }))
     world.status = statusSpy
     apply(world.ctx as Context)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleMount(world)
     const tab = world.injected.find((entry) => entry.name === 'conversation.view')
     expect(tab).toBeDefined()
     tab?.register()
@@ -272,7 +289,7 @@ describe('the browser-half entry', () => {
       const world = fakeWorld()
       world.scope = fakeScope({ status })
       apply(world.ctx as Context)
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await settleMount(world)
       expect(
         world.injected.some((entry) => entry.name === 'conversation.view'),
         `tab on ${status}`,
@@ -287,25 +304,25 @@ describe('the browser-half entry', () => {
       user: { webEnabled: false },
     })
     apply(world.ctx as Context)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleMount(world)
     expect(world.injected.map((entry) => entry.name)).toEqual(['settings.section'])
   })
 
   it('withdraws the tab live when webEnabled turns off and restores it on', async () => {
     const world = fakeWorld()
     apply(world.ctx as Context)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleMount(world)
     expect(world.injected.some((entry) => entry.name === 'conversation.view')).toBe(true)
 
-    // Toggle the flag: the gate subscription withdraws the tab.
+    // Toggle the flag: the gate subscription withdraws the tab. The fake scope
+    // publishes its listeners synchronously inside the write, so the awaited
+    // write is the whole wait — the tab is withdrawn by the time it resolves.
     await world.scope.set('webEnabled', false)
-    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(world.injected.find((entry) => entry.name === 'conversation.view')?.active).toBe(false)
     expect(world.injectDisposes).toBe(1)
 
     // Toggle back on: the tab returns (a fresh live registration).
     await world.scope.set('webEnabled', true)
-    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(
       world.injected
         .filter((entry) => entry.name === 'conversation.view')
@@ -321,7 +338,6 @@ describe('the browser-half entry', () => {
     // effects[0] is the dictionary registration.
     const disposeTab = world.effects[1] as () => void
     const disposeRemote = (await world.effects[2]) as () => void
-    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(world.injected.some((entry) => entry.name === 'conversation.view')).toBe(true)
 
     // The tab goes with its own effect, without waiting on the mount.
@@ -340,7 +356,7 @@ describe('the browser-half entry', () => {
       value: { baseUrl: 'http://127.0.0.1:23119/api', timeoutMs: 5000 },
     })
     apply(world.ctx as Context)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleMount(world)
     const entry = world.injected.find((entry) => entry.name === 'settings.section')
     expect(entry?.register()).toBeDefined()
     const registration = world.registered.find((entry) => entry.name === 'settings.section')

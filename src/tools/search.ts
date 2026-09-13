@@ -279,6 +279,28 @@ const SEARCH_OUTPUT_SCHEMA = {
 
 type SearchOutput = InferValue<typeof SEARCH_OUTPUT_SCHEMA>
 
+/** The model-facing messages the search argument rules throw. */
+export const SCOPE_REF_OR_NAME_MESSAGE =
+  'scope.refOrName must be a collection/saved-search name or ref'
+export const TAGS_LITERAL_MESSAGE =
+  'tags are literal tag names (AND semantics); got an empty or "||"-containing tag'
+export const EXCLUDE_TAGS_LITERAL_MESSAGE = 'excludeTags are literal tag names'
+export const TAG_MATCH_REQUIRES_TAGS_MESSAGE =
+  'tagMatch requires tags; it has no effect without a tag filter'
+export const INCLUDE_TRASHED_SCOPE_MESSAGE = 'includeTrashed is only allowed with library scope'
+export const ITEM_TYPES_LITERAL_MESSAGE =
+  'itemTypes are positive Zotero item type names joined with OR'
+
+/** The page announcement: where the next page starts, and that the scope stays. */
+export function searchMoreMessage(nextOffset: number): string {
+  return `More results available: search again with offset ${nextOffset} and the same scope.`
+}
+
+/** The supplemental announcement: note-body matches sit outside the paged total. */
+export function noteBodyMatchesMessage(count: number, scanned: number, truncated: boolean): string {
+  return `+${count} note-body matches (scanned ${scanned}${truncated ? '+' : ''} notes, ordered by dateModified desc, outside the paged total):`
+}
+
 function buildRequest(args: SearchArgs, config: ResolvedConfig): ZoteroSearchRequest {
   const limit = args.limit ?? SEARCH_DEFAULT_LIMIT
   assertIntInRange('limit', limit, 1, config.maxSearchResults)
@@ -287,32 +309,30 @@ function buildRequest(args: SearchArgs, config: ResolvedConfig): ZoteroSearchReq
   const query = args.query?.trim()
   const scope = args.scope ?? SEARCH_DEFAULT_SCOPE
   if (scope.kind !== 'library' && scope.kind !== 'publications' && scope.refOrName.trim() === '') {
-    invalid('scope.refOrName must be a collection/saved-search name or ref')
+    invalid(SCOPE_REF_OR_NAME_MESSAGE)
   }
   for (const tag of args.tags ?? []) {
     if (tag.trim() === '' || tag.includes('||')) {
-      invalid(
-        `tags are literal tag names (AND semantics); got an empty or "||"-containing tag: "${tag}"`,
-      )
+      invalid(`${TAGS_LITERAL_MESSAGE}: "${tag}"`)
     }
   }
   for (const tag of ((args as Record<string, unknown>).excludeTags as string[] | undefined) ?? []) {
     if (tag.trim() === '' || tag.includes('||')) {
-      invalid(`excludeTags are literal tag names; got "${tag}"`)
+      invalid(`${EXCLUDE_TAGS_LITERAL_MESSAGE}; got "${tag}"`)
     }
   }
   // tagMatch's all|any enum is enforced by the parameter schema; the
   // cross-field rule below is what the schema cannot express.
   const tagMatch = (args as Record<string, unknown>).tagMatch as 'all' | 'any' | undefined
   if (tagMatch !== undefined && (args.tags === undefined || args.tags.length === 0))
-    invalid('tagMatch requires tags; it has no effect without a tag filter')
+    invalid(TAG_MATCH_REQUIRES_TAGS_MESSAGE)
   const includeTrashed = (args as Record<string, unknown>).includeTrashed as boolean | undefined
   if (includeTrashed === true && scope.kind !== 'library') {
-    invalid('includeTrashed is only allowed with library scope')
+    invalid(INCLUDE_TRASHED_SCOPE_MESSAGE)
   }
   for (const itemType of args.itemTypes ?? []) {
     if (!/^[A-Za-z][A-Za-z0-9]*$/.test(itemType)) {
-      invalid(`itemTypes are positive Zotero item type names joined with OR; got "${itemType}"`)
+      invalid(`${ITEM_TYPES_LITERAL_MESSAGE}; got "${itemType}"`)
     }
   }
   const library = parseLibrary((args as Record<string, unknown>).library)
@@ -350,14 +370,16 @@ export function renderSearch(_args: SearchArgs, value: SearchOutput): ContentBlo
     )
   })
   if (value.nextOffset !== undefined) {
-    lines.push(
-      `More results available: search again with offset ${value.nextOffset} and the same scope.`,
-    )
+    lines.push(searchMoreMessage(value.nextOffset))
   }
   const supplemental = value.supplemental
   if (supplemental !== undefined && supplemental.items.length > 0) {
     lines.push(
-      `+${supplemental.items.length} note-body matches (scanned ${supplemental.scanned}${supplemental.truncated ? '+' : ''} notes, ordered by dateModified desc, outside the paged total):`,
+      noteBodyMatchesMessage(
+        supplemental.items.length,
+        supplemental.scanned,
+        supplemental.truncated,
+      ),
     )
     supplemental.items.forEach((item, index) => {
       const creator = item.creatorSummary === '' ? '' : ` — ${item.creatorSummary}`

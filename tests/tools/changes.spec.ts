@@ -6,7 +6,24 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { renderChanges } from '../../src/tools/changes.js'
+import {
+  BASELINE_CURSOR_REUSE,
+  baselineCursorMessage,
+  BASELINE_NO_INSTANCE_MESSAGE,
+  BASELINE_NO_VERSION_MESSAGE,
+  CHANGES_INCLUDE_EMPTY_MESSAGE,
+  CHANGES_NO_DELETIONS_MESSAGE,
+  CHANGES_NOT_ADVANCED_LIBRARY_MOVED,
+  CHANGES_NOT_ADVANCED_NO_VERSION,
+  CHANGES_NOT_ADVANCED_UNVERIFIED,
+  FULLTEXT_COUNTER_NOTE,
+  otherDeletedMessage,
+  renderChanges,
+  UNOBSERVABLE_NOT_SERVED_MESSAGE,
+  UNOBSERVABLE_RANGE_NOT_COVERED_MESSAGE,
+  UNOBSERVABLE_UNREADABLE_MESSAGE,
+} from '../../src/tools/changes.js'
+import { PERSONAL_LIBRARY_MESSAGE } from '../../src/tools/validate.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 
 let lane: HostLane
@@ -68,8 +85,8 @@ describe('zotero_changes tool', () => {
     })
     expect(value.changed).toEqual({})
     const text = (result.content[0] as { text: string }).text
-    expect(text).toContain('Baseline reading: library is at version 42 on instance S1')
-    expect(text).toContain('Pass that cursor back as since')
+    expect(text).toContain(baselineCursorMessage(42, 'S1'))
+    expect(text).toContain(BASELINE_CURSOR_REUSE)
   })
 
   it('round-trips the minted cursor through a diff and carries the claim', async () => {
@@ -259,7 +276,7 @@ describe('zotero_changes tool', () => {
     expect(value.cursor?.version).toBe(50)
     expect(mock.requests.some((request) => request.pathname.endsWith('/fulltext'))).toBe(false)
     const text = (result.content[0] as { text: string }).text
-    expect(text).toContain('Deletions: none in this range.')
+    expect(text).toContain(CHANGES_NO_DELETIONS_MESSAGE)
   })
 
   it('names an unserved kind and an older-than-history range apart in the render', async () => {
@@ -284,7 +301,7 @@ describe('zotero_changes tool', () => {
     expect(value.deleted).toBeUndefined()
     expect(value.unobservable).toEqual([{ kind: 'deleted', reason: 'range-not-covered' }])
     const text = (result.content[0] as { text: string }).text
-    expect(text).toContain('Older than the change history this build keeps')
+    expect(text).toContain(UNOBSERVABLE_RANGE_NOT_COVERED_MESSAGE)
     expect(text).toContain('deleted')
   })
 
@@ -294,7 +311,7 @@ describe('zotero_changes tool', () => {
     })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain('Only user/0 is supported')
+    expect((result.content[0] as { text: string }).text).toContain(PERSONAL_LIBRARY_MESSAGE)
     expect(mock.requests).toEqual([])
   })
 
@@ -305,9 +322,7 @@ describe('zotero_changes tool', () => {
     })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain(
-      'include must list at least one resource kind',
-    )
+    expect((result.content[0] as { text: string }).text).toContain(CHANGES_INCLUDE_EMPTY_MESSAGE)
     expect(mock.requests).toEqual([])
   })
 
@@ -316,20 +331,14 @@ describe('zotero_changes tool', () => {
     // instance, and no version at all. None of them is a bare "Baseline
     // reading." that leaves the model guessing why no cursor came back.
     const noVersion = renderChanges({}, { changed: {}, versionUnavailable: true } as never)
-    expect((noVersion[0] as { text: string }).text).toContain(
-      'this Zotero build reports no library version',
-    )
+    expect((noVersion[0] as { text: string }).text).toContain(BASELINE_NO_VERSION_MESSAGE)
     const noInstance = renderChanges({}, { changed: {} } as never)
-    expect((noInstance[0] as { text: string }).text).toContain(
-      'named no instance to pin a cursor to',
-    )
+    expect((noInstance[0] as { text: string }).text).toContain(BASELINE_NO_INSTANCE_MESSAGE)
     const based = renderChanges({}, {
       changed: {},
       cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
     } as never)
-    expect((based[0] as { text: string }).text).toContain(
-      'Baseline reading: library is at version 42 on instance S1',
-    )
+    expect((based[0] as { text: string }).text).toContain(baselineCursorMessage(42, 'S1'))
 
     // A capped listing is a digest: the cursor still stands and totals carries
     // the counts behind the rows that were dropped.
@@ -370,7 +379,7 @@ describe('zotero_changes tool', () => {
       truncated: true,
     } as never)
     const text = (incomplete[0] as { text: string }).text
-    expect(text).toContain('version not advanced: the read did not verify the whole range')
+    expect(text).toContain(CHANGES_NOT_ADVANCED_UNVERIFIED)
     // A listing the read returned whole is printed whole — the 25th key and
     // the 22nd tombstone included.
     expect(text).toContain('Items (top-level): 25 changed')
@@ -386,10 +395,8 @@ describe('zotero_changes tool', () => {
       unobservable: [{ kind: 'deleted', reason: 'not-served' }],
     } as never)
     const movedText = (moved[0] as { text: string }).text
-    expect(movedText).toContain('the library changed while this call was reading — re-run')
-    expect(movedText).toContain(
-      'Not served by this Zotero build (not observable here, removals included)',
-    )
+    expect(movedText).toContain(CHANGES_NOT_ADVANCED_LIBRARY_MOVED)
+    expect(movedText).toContain(UNOBSERVABLE_NOT_SERVED_MESSAGE)
     expect(movedText).toContain('deleted')
 
     const cappedDeleted = renderChanges({}, {
@@ -408,8 +415,8 @@ describe('zotero_changes tool', () => {
     const cappedText = (cappedDeleted[0] as { text: string }).text
     expect(cappedText).toContain('Deleted items: 540 — 50 listed')
     expect(cappedText).toContain('Deleted tags: 1')
-    expect(cappedText).toContain('Other deleted objects: 3 (kinds this tool does not report)')
-    expect(cappedText).not.toContain('Deletions: none in this range')
+    expect(cappedText).toContain(otherDeletedMessage(3))
+    expect(cappedText).not.toContain(CHANGES_NO_DELETIONS_MESSAGE)
 
     // An observed, empty tombstone read is stated positively.
     const nothingRemoved = renderChanges({}, {
@@ -419,7 +426,7 @@ describe('zotero_changes tool', () => {
       deleted: { items: [], collections: [], savedSearches: [], tags: [] },
       totals: { deletedItems: 0, deletedCollections: 0, deletedSavedSearches: 0, deletedTags: 0 },
     } as never)
-    expect((nothingRemoved[0] as { text: string }).text).toContain('Deletions: none in this range.')
+    expect((nothingRemoved[0] as { text: string }).text).toContain(CHANGES_NO_DELETIONS_MESSAGE)
 
     // Child objects and trash have their own sections: a reader of a diff must
     // be able to tell a top-level item from the note or PDF beneath it.
@@ -444,9 +451,7 @@ describe('zotero_changes tool', () => {
       changed: {},
       versionUnavailable: true,
     } as never)
-    expect((noVersionDiff[0] as { text: string }).text).toContain(
-      'this Zotero build reported no library version for this read',
-    )
+    expect((noVersionDiff[0] as { text: string }).text).toContain(CHANGES_NOT_ADVANCED_NO_VERSION)
 
     // Each unobservable reason reads as its own remedy.
     const reasons = renderChanges({}, {
@@ -460,11 +465,9 @@ describe('zotero_changes tool', () => {
       ],
     } as never)
     const reasonsText = (reasons[0] as { text: string }).text
-    expect(reasonsText).toContain(
-      'Not served by this Zotero build (not observable here, removals included)',
-    )
-    expect(reasonsText).toContain('Older than the change history this build keeps')
-    expect(reasonsText).toContain('could not read it (re-run)')
+    expect(reasonsText).toContain(UNOBSERVABLE_NOT_SERVED_MESSAGE)
+    expect(reasonsText).toContain(UNOBSERVABLE_RANGE_NOT_COVERED_MESSAGE)
+    expect(reasonsText).toContain(UNOBSERVABLE_UNREADABLE_MESSAGE)
     expect(reasonsText).toContain('deleted')
     expect(reasonsText).toContain('collections')
     expect(reasonsText).toContain('fulltext')
@@ -475,8 +478,6 @@ describe('zotero_changes tool', () => {
       changed: { fulltextAttachments: [{ key: 'WXYZ6789', version: 90071 }] },
       totals: { fulltextAttachments: 1 },
     } as never)
-    expect((fulltext[0] as { text: string }).text).toContain(
-      'index versions are a counter of their own',
-    )
+    expect((fulltext[0] as { text: string }).text).toContain(FULLTEXT_COUNTER_NOTE)
   })
 })

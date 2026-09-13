@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { FILE_ENVIRONMENT_MESSAGE } from '../../src/tools/attachment.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 
 let lane: HostLane
@@ -74,8 +75,7 @@ describe('zotero_attachment tool', () => {
       )
       // The path's environment is part of the answer: a reader that runs
       // somewhere else cannot assume it sees the file.
-      expect(text).toContain('File environment: the machine running Zotero')
-      expect(text).toContain('may not see this path')
+      expect(text).toContain(FILE_ENVIRONMENT_MESSAGE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

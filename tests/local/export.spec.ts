@@ -35,6 +35,7 @@ import {
 } from '../helpers/server/keys.js'
 import { citationRow } from '../helpers/server/objects.js'
 import { serveJson, serveText } from '../helpers/server/serve.js'
+import { deferred, progress } from '../helpers/sync.js'
 
 let mock: ProviderHarness['mock']
 let provider: LocalApiProvider
@@ -443,12 +444,23 @@ describe('export', () => {
       parseRef(`zotero://user/0/item/${String(i).padStart(4, '0')}ABCD`),
     )
     await provider.export(exportRequest({ refs, format: 'ris' }))
-    // The pool keeps the concurrent single-item requests at its bound; a
-    // bare Promise.all would have put all eight in flight at once.
+    // The delay is the measurement, not a synchronization guess: the pool's
+    // fan-out is only visible as overlap at the server, and the client opens
+    // its connections asynchronously, so the wave an over-eager pool would
+    // send needs a window wide enough to land inside — the same instrument and
+    // the same reason as `routeCounting` in tests/host/http-client.spec.ts.
+    // Holding the responses and releasing them instead was tried and rejected:
+    // the first release then paces the rest of the wave, and a pool that
+    // ignored its bound never shows the extra requests. The pool keeps the
+    // concurrent single-item requests at its bound; a bare Promise.all would
+    // have put all eight in flight at once.
     expect(maxInFlight).toBe(4)
   })
 
   it('stops the pool when one single-item export fails', async () => {
+    /** Resolvers of the responses the test holds open, in start order. */
+    const held: Array<() => void> = []
+    const inFlight = progress()
     mock.route('GET', `${apiPath()}/items`, async (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
@@ -459,20 +471,33 @@ describe('export', () => {
         helpers.text('')
         return
       }
-      await new Promise((resolve) => setTimeout(resolve, 30))
+      const slot = deferred()
+      held.push(slot.resolve)
+      inFlight.notify()
+      await slot.promise
       if (res.destroyed || res.writableEnded) return
       helpers.text(`entry-of-${keys[0]}`)
     })
     const refs = Array.from({ length: 8 }, (_, i) =>
       parseRef(`zotero://user/0/item/${String(i).padStart(4, '0')}ABCD`),
     )
-    await zoteroError(
-      provider.export(exportRequest({ refs, format: 'ris' })),
-      ZOTERO_NOT_FOUND,
-      '0002ABCD',
-    )
-    // Let the in-flight workers finish their delayed responses: the failure
-    // must stop the pool from starting further items even as those complete.
+    const call = provider.export(exportRequest({ refs, format: 'ris' }))
+    // The expected failure is asserted through `zoteroError` first: the call
+    // attaches the handler immediately, so the rejection the wait below is
+    // written to expect never sits unhandled while that wait is pending.
+    const failure = zoteroError(call, ZOTERO_NOT_FOUND, '0002ABCD')
+    // Four workers open and only the failing item answers: the other three
+    // hold their responses, so the failure is processed with them still in
+    // flight — a pool that ignored it could start items 4..7 only once they
+    // complete, and the test decides when that happens.
+    await inFlight.when(() => held.length >= 3)
+    await failure
+    // Release the in-flight workers. Whether the pool starts a further item is
+    // decided as each one completes, so this settle is the measurement: "no
+    // further item was started" is an absence, and nothing after the release
+    // is a positive event to wait on — it is the time those completions need
+    // to reach the client and for a request they provoke to come back here.
+    for (const release of held.splice(0)) release()
     await new Promise((resolve) => setTimeout(resolve, 60))
     const requestedKeys = new Set(
       mock.requests
@@ -504,19 +529,37 @@ describe('export', () => {
   })
 
   it('propagates an abort while the per-document requests are in flight', async () => {
+    /** Resolvers of the responses the test holds open, in start order. */
+    const held: Array<() => void> = []
+    /** Set by the abort: requests answering after it are served instead of held. */
+    let cancelled = false
+    const inFlight = progress()
     mock.route('GET', `${apiPath()}/items`, async (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text('batch')
         return
       }
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      // Held before the abort, so the request is on the wire and answering
+      // nothing when the caller cancels; served after it, so a call that
+      // ignored the cancellation cannot hide behind a response never sent.
+      if (!cancelled) {
+        const slot = deferred()
+        held.push(slot.resolve)
+        inFlight.notify()
+        await slot.promise
+      }
       if (res.destroyed || res.writableEnded) return
       helpers.text(`entry-of-${keys[0]}`)
     })
     const controller = new AbortController()
     const call = provider.export(exportRequest({ format: 'ris' }), controller.signal)
-    setTimeout(() => controller.abort(), 20)
+    // A per-document request has reached the mock: the abort below lands on a
+    // request in flight, never on a race against a delay.
+    await inFlight.when(() => held.length >= 1)
+    controller.abort()
+    cancelled = true
+    for (const release of held.splice(0)) release()
     await expect(call).rejects.toThrow()
   })
 

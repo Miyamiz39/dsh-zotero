@@ -7,7 +7,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { renderSearch } from '../../src/tools/search.js'
+import {
+  EXCLUDE_TAGS_LITERAL_MESSAGE,
+  INCLUDE_TRASHED_SCOPE_MESSAGE,
+  ITEM_TYPES_LITERAL_MESSAGE,
+  noteBodyMatchesMessage,
+  renderSearch,
+  SCOPE_REF_OR_NAME_MESSAGE,
+  searchMoreMessage,
+  TAGS_LITERAL_MESSAGE,
+  TAG_MATCH_REQUIRES_TAGS_MESSAGE,
+} from '../../src/tools/search.js'
+import {
+  GROUP_ID_MESSAGE,
+  intRangeArgumentMessage,
+  PERSONAL_LIBRARY_MESSAGE,
+} from '../../src/tools/validate.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { collectionRow, searchHit } from '../helpers/server/objects.js'
 
@@ -103,9 +118,7 @@ describe('zotero_search tool', () => {
         },
       },
     )
-    expect((withNotes[0] as { text: string }).text).toContain(
-      '+2 note-body matches (scanned 5+ notes, ordered by dateModified desc, outside the paged total):',
-    )
+    expect((withNotes[0] as { text: string }).text).toContain(noteBodyMatchesMessage(2, 5, true))
     const completeScan = renderSearch(
       {},
       {
@@ -119,7 +132,7 @@ describe('zotero_search tool', () => {
       },
     )
     expect((completeScan[0] as { text: string }).text).toContain(
-      '+1 note-body matches (scanned 5 notes, ordered by dateModified desc, outside the paged total):',
+      noteBodyMatchesMessage(1, 5, false),
     )
     expect((completeScan[0] as { text: string }).text).toContain(' — Dao, Tri')
     const withoutNotes = renderSearch({}, value)
@@ -174,7 +187,7 @@ describe('zotero_search tool', () => {
     const result = await runTool('zotero_search', { query: 'x', tags: ['reviewed', 'a||b'] })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain('literal tag names')
+    expect((result.content[0] as { text: string }).text).toContain(TAGS_LITERAL_MESSAGE)
     expect(mock.requests).toEqual([])
   })
 
@@ -183,7 +196,7 @@ describe('zotero_search tool', () => {
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
     expect((result.content[0] as { text: string }).text).toContain(
-      'limit must be an integer between 1 and 20',
+      intRangeArgumentMessage('limit', 21, 1, 20),
     )
   })
 
@@ -191,9 +204,7 @@ describe('zotero_search tool', () => {
     const result = await runTool('zotero_search', { query: 'x', tagMatch: 'any' })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain(
-      'tagMatch requires tags; it has no effect without a tag filter',
-    )
+    expect((result.content[0] as { text: string }).text).toContain(TAG_MATCH_REQUIRES_TAGS_MESSAGE)
     expect(mock.requests).toEqual([])
   })
 
@@ -203,12 +214,12 @@ describe('zotero_search tool', () => {
     })
     expect(emptyScope.isError).toBe(true)
     if (!emptyScope.isError) throw new Error('unreachable')
-    expect((emptyScope.content[0] as { text: string }).text).toContain('scope.refOrName')
+    expect((emptyScope.content[0] as { text: string }).text).toContain(SCOPE_REF_OR_NAME_MESSAGE)
 
     const badType = await runTool('zotero_search', { itemTypes: ['-attachment'] })
     expect(badType.isError).toBe(true)
     if (!badType.isError) throw new Error('unreachable')
-    expect((badType.content[0] as { text: string }).text).toContain('itemTypes')
+    expect((badType.content[0] as { text: string }).text).toContain(ITEM_TYPES_LITERAL_MESSAGE)
   })
 
   it('announces further pages in the rendered output', async () => {
@@ -218,9 +229,7 @@ describe('zotero_search tool', () => {
     const result = await runTool('zotero_search', { limit: 5 })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain(
-      'More results available: search again with offset 1',
-    )
+    expect((result.content[0] as { text: string }).text).toContain(searchMoreMessage(1))
   })
 
   it('declares itself concurrency-safe', () => {
@@ -268,20 +277,20 @@ describe('zotero_search tool', () => {
     expect(zeroLimit.isError).toBe(true)
     if (!zeroLimit.isError) throw new Error('unreachable')
     expect((zeroLimit.content[0] as { text: string }).text).toContain(
-      'limit must be an integer between 1 and 20',
+      intRangeArgumentMessage('limit', 0, 1, 20),
     )
 
     const negativeOffset = await runTool('zotero_search', { offset: -1 })
     expect(negativeOffset.isError).toBe(true)
     if (!negativeOffset.isError) throw new Error('unreachable')
     expect((negativeOffset.content[0] as { text: string }).text).toContain(
-      'offset must be an integer between 0 and 1000000',
+      intRangeArgumentMessage('offset', -1, 0, 1_000_000),
     )
 
     const blankTag = await runTool('zotero_search', { tags: ['   '] })
     expect(blankTag.isError).toBe(true)
     if (!blankTag.isError) throw new Error('unreachable')
-    expect((blankTag.content[0] as { text: string }).text).toContain('literal tag names')
+    expect((blankTag.content[0] as { text: string }).text).toContain(TAGS_LITERAL_MESSAGE)
   })
 
   it('renders missing years and creators without decoration', async () => {
@@ -310,13 +319,13 @@ describe('zotero_search validation', () => {
     const cases = [
       {
         args: { includeTrashed: true, scope: { kind: 'collection', refOrName: 'x' } },
-        contains: 'includeTrashed is only allowed with library scope',
+        contains: INCLUDE_TRASHED_SCOPE_MESSAGE,
       },
-      { args: { library: { type: 'user', id: 1 } }, contains: 'Only user/0' },
-      { args: { library: { type: 'group', id: 0 } }, contains: 'group id must be positive' },
+      { args: { library: { type: 'user', id: 1 } }, contains: PERSONAL_LIBRARY_MESSAGE },
+      { args: { library: { type: 'group', id: 0 } }, contains: GROUP_ID_MESSAGE },
       // A "||" in a tag is not a tag: the API joins literal tags with it, so
       // one embedded in a name would silently become two conditions.
-      { args: { excludeTags: ['a||b'] }, contains: 'excludeTags are literal tag names' },
+      { args: { excludeTags: ['a||b'] }, contains: EXCLUDE_TAGS_LITERAL_MESSAGE },
     ]
     for (const c of cases) {
       const result = await runTool('zotero_search', c.args)

@@ -108,6 +108,20 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+/**
+ * Let the download helper's scheduled URL release run.
+ *
+ * `downloadBlob` hands the object URL to a `window.setTimeout(…, 0)` callback
+ * (`src/client/download.ts`: "the blob URL must not outlive the click"), so the
+ * release is a macrotask, and the click that schedules it returns long before
+ * that callback runs — a microtask flush would assert too early. This is the
+ * one wait in this file that a promise the test owns cannot express: the code
+ * under test does not hand out the timer.
+ */
+async function settleUrlRelease(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0))
+}
+
 describe('sanitizeFileStem', () => {
   it('replaces path, separator, and control characters with dashes', () => {
     expect(sanitizeFileStem('a/b\\c:d*e?f"g<h>i|j')).toBe('a-b-c-d-e-f-g-h-i-j')
@@ -240,7 +254,7 @@ describe('ExportDocumentRow', () => {
     expect(click).toHaveBeenCalledTimes(1)
     const anchor = click.mock.instances[0] as HTMLAnchorElement
     expect(anchor.download).toBe('zotero-dao2023.bib')
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleUrlRelease()
     expect(revoke).toHaveBeenCalledTimes(1)
     create.mockRestore()
     revoke.mockRestore()
@@ -255,7 +269,7 @@ describe('ExportDocumentRow', () => {
     const anchor = click.mock.instances[0] as HTMLAnchorElement
     expect(anchor.download).toBe('zotero-BBBBBBBB.ris')
     // Let the scheduled URL release run before the next test's spy lands.
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleUrlRelease()
     create.mockRestore()
     click.mockRestore()
   })
@@ -267,7 +281,7 @@ describe('ExportDocumentRow', () => {
     fireEvent.click(screen.getByText(`${zh.downloadArtifact} ${extensionOf('ris')}`))
     const anchor = click.mock.instances[0] as HTMLAnchorElement
     expect(anchor.download).toBe('zotero-export.ris')
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleUrlRelease()
     create.mockRestore()
     click.mockRestore()
   })
@@ -356,7 +370,7 @@ describe('ExportSections', () => {
     fireEvent.click(screen.getByText(`${zh.downloadFull} BibTeX`))
     const anchor = click.mock.instances[0] as HTMLAnchorElement
     expect(anchor.download).toBe('zotero-bibtex.bib')
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleUrlRelease()
     expect(revoke).toHaveBeenCalledTimes(1)
     create.mockRestore()
     revoke.mockRestore()
@@ -372,7 +386,7 @@ describe('ExportSections', () => {
     expect(create).toHaveBeenCalledTimes(1)
     const anchor = click.mock.instances[0] as HTMLAnchorElement
     expect(anchor.download).toBe('zotero-bibtex.bib')
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleUrlRelease()
     expect(revoke).toHaveBeenCalledTimes(1)
     create.mockRestore()
     revoke.mockRestore()
@@ -476,7 +490,7 @@ describe('artifact file and time facts', () => {
     expect(create).toHaveBeenCalledTimes(1)
     expect(click).toHaveBeenCalledTimes(1)
     // The URL release is scheduled right after the click, never leaked.
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await settleUrlRelease()
     expect(revoke).toHaveBeenCalledTimes(1)
     create.mockRestore()
     revoke.mockRestore()

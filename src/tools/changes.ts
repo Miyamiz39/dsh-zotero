@@ -125,16 +125,17 @@ const CHANGED_OBJECT = {
  * call again. The schema's enum is derived from these keys, so a new reason
  * cannot reach the wire unrendered.
  */
+export const UNOBSERVABLE_NOT_SERVED_MESSAGE =
+  'Not served by this Zotero build (not observable here, removals included)'
+export const UNOBSERVABLE_RANGE_NOT_COVERED_MESSAGE =
+  'Older than the change history this build keeps (take a fresh baseline to track it from here)'
+export const UNOBSERVABLE_UNREADABLE_MESSAGE =
+  'The answer did not carry the documented shape, so this call could not read it (re-run)'
+
 const UNOBSERVABLE_HEADLINES = [
-  ['not-served', 'Not served by this Zotero build (not observable here, removals included)'],
-  [
-    'range-not-covered',
-    'Older than the change history this build keeps (take a fresh baseline to track it from here)',
-  ],
-  [
-    'unreadable',
-    'The answer did not carry the documented shape, so this call could not read it (re-run)',
-  ],
+  ['not-served', UNOBSERVABLE_NOT_SERVED_MESSAGE],
+  ['range-not-covered', UNOBSERVABLE_RANGE_NOT_COVERED_MESSAGE],
+  ['unreadable', UNOBSERVABLE_UNREADABLE_MESSAGE],
 ] as const satisfies readonly (readonly [ZoteroChangesUnobservableReason, string])[]
 
 /** DTO reasons this tool never renders; a non-empty union fails the build. */
@@ -215,6 +216,14 @@ const CHANGES_OUTPUT_SCHEMA = {
 
 type ChangesOutput = InferValue<typeof CHANGES_OUTPUT_SCHEMA>
 
+/** The model-facing message for an explicit empty include list. */
+export const CHANGES_INCLUDE_EMPTY_MESSAGE =
+  'include must list at least one resource kind when provided'
+
+/** The note that full-text rows are a listing, not a delta on the library version. */
+export const FULLTEXT_COUNTER_NOTE =
+  'index versions are a counter of their own, so these rows are a listing, not this version\u2019s change set'
+
 /**
  * Turn the schema-validated cursor argument into the domain value. The schema
  * owns the shape; what it cannot express is checked here — a blank instance
@@ -235,10 +244,7 @@ function buildRequest(args: ChangesArgs): ZoteroChangesRequest {
   const library = parseLibrary((args as Record<string, unknown>).library)
   const since = parseCursor(args.since)
   if (args.include !== undefined) {
-    assertNonEmptyList(
-      args.include as readonly unknown[],
-      'include must list at least one resource kind when provided',
-    )
+    assertNonEmptyList(args.include as readonly unknown[], CHANGES_INCLUDE_EMPTY_MESSAGE)
   }
   const include = new Set<ZoteroChangesInclude>(
     (args.include as ZoteroChangesInclude[] | undefined) ?? DEFAULT_INCLUDES,
@@ -250,37 +256,58 @@ function buildRequest(args: ChangesArgs): ZoteroChangesRequest {
   }
 }
 
+/**
+ * The baseline and diff messages the model reads: the three baseline outcomes
+ * (a cursor, a version without an instance, and no version at all) and the
+ * three ways a diff withholds its cursor.
+ */
+export function baselineCursorMessage(version: number, serverId: string): string {
+  return `Baseline reading: library is at version ${version} on instance ${serverId}. ${BASELINE_CURSOR_REUSE}`
+}
+
+/** The instruction a cursor baseline closes with. */
+export const BASELINE_CURSOR_REUSE =
+  'Pass that cursor back as since on a later call to see what changed.'
+
+export const BASELINE_NO_VERSION_MESSAGE =
+  'Baseline reading: this Zotero build reports no library version, so there is no cursor to diff from — incremental changes cannot be read here.'
+export const BASELINE_NO_INSTANCE_MESSAGE =
+  'Baseline reading: the library is at a version, but the answering build named no instance to pin a cursor to, so there is nothing to pass back.'
+
+export const CHANGES_NOT_ADVANCED_LIBRARY_MOVED =
+  'version not advanced: the library changed while this call was reading — re-run for a settled cursor.'
+export const CHANGES_NOT_ADVANCED_NO_VERSION =
+  'version not advanced: this Zotero build reported no library version for this read, so the diff cannot be pinned to one.'
+export const CHANGES_NOT_ADVANCED_UNVERIFIED =
+  'version not advanced: the read did not verify the whole range — do not reuse a version from this call.'
+
+/** The positive statement an observed, empty tombstone read renders. */
+export const CHANGES_NO_DELETIONS_MESSAGE = 'Deletions: none in this range.'
+
+/** The note that tombstoned kinds outside this tool's reports were counted too. */
+export function otherDeletedMessage(count: number): string {
+  return `Other deleted objects: ${count} (kinds this tool does not report).`
+}
+
 export function renderChanges(_args: ChangesArgs, value: ChangesOutput): ContentBlock[] {
   const lines = []
   const cursor = value.cursor
   if (value.fromVersion === undefined) {
     if (cursor !== undefined) {
-      lines.push(
-        `Baseline reading: library is at version ${cursor.version} on instance ${cursor.serverId}. Pass that cursor back as since on a later call to see what changed.`,
-      )
+      lines.push(baselineCursorMessage(cursor.version, cursor.serverId))
     } else if (value.versionUnavailable === true) {
-      lines.push(
-        'Baseline reading: this Zotero build reports no library version, so there is no cursor to diff from — incremental changes cannot be read here.',
-      )
+      lines.push(BASELINE_NO_VERSION_MESSAGE)
     } else {
-      lines.push(
-        'Baseline reading: the library is at a version, but the answering build named no instance to pin a cursor to, so there is nothing to pass back.',
-      )
+      lines.push(BASELINE_NO_INSTANCE_MESSAGE)
     }
   } else if (cursor !== undefined) {
     lines.push(`Changes ${value.fromVersion} → ${cursor.version}`)
   } else if (value.libraryChanged === true) {
-    lines.push(
-      `Changes ${value.fromVersion} → version not advanced: the library changed while this call was reading — re-run for a settled cursor.`,
-    )
+    lines.push(`Changes ${value.fromVersion} → ${CHANGES_NOT_ADVANCED_LIBRARY_MOVED}`)
   } else if (value.versionUnavailable === true) {
-    lines.push(
-      `Changes ${value.fromVersion} → version not advanced: this Zotero build reported no library version for this read, so the diff cannot be pinned to one.`,
-    )
+    lines.push(`Changes ${value.fromVersion} → ${CHANGES_NOT_ADVANCED_NO_VERSION}`)
   } else {
-    lines.push(
-      `Changes ${value.fromVersion} → version not advanced: the read did not verify the whole range — do not reuse a version from this call.`,
-    )
+    lines.push(`Changes ${value.fromVersion} → ${CHANGES_NOT_ADVANCED_UNVERIFIED}`)
   }
   const totals = value.totals
   const sections: [
@@ -303,7 +330,7 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
       'Full-text reindexed',
       value.changed.fulltextAttachments,
       totals?.fulltextAttachments,
-      'index versions are a counter of their own, so these rows are a listing, not this version\u2019s change set',
+      FULLTEXT_COUNTER_NOTE,
     ],
   ]
   for (const [label, entries, total, note] of sections) {
@@ -333,7 +360,7 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
       0,
     )
     if (removed === 0) {
-      lines.push('Deletions: none in this range.')
+      lines.push(CHANGES_NO_DELETIONS_MESSAGE)
     }
     for (const [label, keys, total] of deletedSections) {
       if (keys === undefined || keys.length === 0) continue
@@ -345,7 +372,7 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
     }
     const other = totals?.deletedOther ?? 0
     if (other > 0) {
-      lines.push(`Other deleted objects: ${other} (kinds this tool does not report).`)
+      lines.push(otherDeletedMessage(other))
     }
   }
   for (const [reason, headline] of UNOBSERVABLE_HEADLINES) {

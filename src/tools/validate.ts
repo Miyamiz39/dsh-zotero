@@ -17,6 +17,21 @@ export function invalid(message: string): never {
   throw new ZoteroError(message, ZOTERO_INVALID_ARGUMENT)
 }
 
+/** The model-facing message for a blank free-text argument, naming what to fix. */
+export function nonBlankArgumentMessage(name: string): string {
+  return `${name} must be a non-empty string when provided`
+}
+
+/** The model-facing message for an integer argument outside `[min, max]`. */
+export function intRangeArgumentMessage(
+  name: string,
+  value: number,
+  min: number,
+  max: number,
+): string {
+  return `${name} must be an integer between ${min} and ${max}; got ${value}`
+}
+
 /**
  * Assert an optional free-text filter carries non-whitespace text, returning
  * its trimmed form. Browse facet filters route through here; search and
@@ -29,7 +44,7 @@ export function invalid(message: string): never {
  */
 export function assertNonBlank(name: string, value: string): string {
   const trimmed = value.trim()
-  if (trimmed === '') invalid(`${name} must be a non-empty string when provided`)
+  if (trimmed === '') invalid(nonBlankArgumentMessage(name))
   return trimmed
 }
 
@@ -42,7 +57,7 @@ export function assertNonBlank(name: string, value: string): string {
  */
 export function assertIntInRange(name: string, value: number, min: number, max: number): void {
   if (!Number.isInteger(value) || value < min || value > max) {
-    invalid(`${name} must be an integer between ${min} and ${max}; got ${value}`)
+    invalid(intRangeArgumentMessage(name, value, min, max))
   }
 }
 
@@ -70,6 +85,13 @@ export function parseSupportedRef(value: string, kinds?: readonly ZoteroKind[]):
   return requireSupportedLocalRef(parseRef(value), kinds)
 }
 
+/** The model-facing messages for the `library` argument's own rules. */
+export const LIBRARY_TYPE_MESSAGE = 'library.type must be user or group'
+export const LIBRARY_ID_MESSAGE = 'library.id must be integer'
+export const PERSONAL_LIBRARY_MESSAGE = 'Only user/0 is supported for personal library'
+export const GROUP_ID_MESSAGE = 'group id must be positive integer'
+export const LIBRARY_REQUIRED_MESSAGE = 'library is required here, as {type: "user"|"group", id}'
+
 /**
  * Parse the optional `library` tool argument. Absent stays absent; a
  * malformed shape fails closed instead of silently defaulting.
@@ -80,10 +102,10 @@ export function parseLibrary(value: unknown): SupportedLocalLibrary | undefined 
   const rec = value as Record<string, unknown>
   const type = rec.type
   const id = rec.id
-  if (type !== 'user' && type !== 'group') invalid('library.type must be user or group')
-  if (!Number.isSafeInteger(id)) invalid('library.id must be integer')
-  if (type === 'user' && id !== 0) invalid('Only user/0 is supported for personal library')
-  if (type === 'group' && (id as number) <= 0) invalid('group id must be positive integer')
+  if (type !== 'user' && type !== 'group') invalid(LIBRARY_TYPE_MESSAGE)
+  if (!Number.isSafeInteger(id)) invalid(LIBRARY_ID_MESSAGE)
+  if (type === 'user' && id !== 0) invalid(PERSONAL_LIBRARY_MESSAGE)
+  if (type === 'group' && (id as number) <= 0) invalid(GROUP_ID_MESSAGE)
   return { type: type as SupportedLocalLibrary['type'], id: id as number } as SupportedLocalLibrary
 }
 
@@ -96,7 +118,7 @@ export function parseLibrary(value: unknown): SupportedLocalLibrary | undefined 
 export function requireLibrary(value: unknown): SupportedLocalLibrary {
   const library = parseLibrary(value)
   if (library === undefined) {
-    invalid('library is required here, as {type: "user"|"group", id}')
+    invalid(LIBRARY_REQUIRED_MESSAGE)
   }
   return library
 }

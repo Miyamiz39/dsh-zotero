@@ -123,10 +123,17 @@ const CHILDREN_OUTPUT_SCHEMA = {
 
 type ChildrenOutput = InferValue<typeof CHILDREN_OUTPUT_SCHEMA>
 
+/** The model-facing message for an explicit empty include list. */
+export const CHILDREN_INCLUDE_EMPTY_MESSAGE =
+  'include must list at least one child kind when provided'
+
+/** The model-facing message for a call that asked for no child kind. */
+export const CHILDREN_NONE_REQUESTED_MESSAGE = 'No child kinds requested.'
+
 function buildRequest(args: ChildrenArgs): ZoteroChildrenRequest {
   const ref = parseSupportedRef(args.ref, ['item', 'attachment'])
   if (args.include !== undefined) {
-    assertNonEmptyList(args.include, 'include must list at least one child kind when provided')
+    assertNonEmptyList(args.include, CHILDREN_INCLUDE_EMPTY_MESSAGE)
   }
   const include = new Set<ZoteroChildrenInclude>(
     (args.include as ZoteroChildrenInclude[] | undefined) ?? [
@@ -159,7 +166,7 @@ export function renderChildren(_args: ChildrenArgs, value: ChildrenOutput): Cont
       lines.push(`  - ${annotation.ref}${page}: ${annotation.text}`)
     }
   }
-  if (lines.length === 1) lines.push('No child kinds requested.')
+  if (lines.length === 1) lines.push(CHILDREN_NONE_REQUESTED_MESSAGE)
   return [{ type: 'text', text: lines.join('\n') }]
 }
 

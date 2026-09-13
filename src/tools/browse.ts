@@ -210,9 +210,34 @@ const BROWSE_OUTPUT_SCHEMA = {
 
 type BrowseOutput = InferValue<typeof BROWSE_OUTPUT_SCHEMA>
 
+/** The model-facing message for a kind outside the browse enum. */
+export function unsupportedBrowseKindMessage(kind: string): string {
+  return `Unsupported browse kind ${kind}`
+}
+
+/** The model-facing message for a library argument on a kind that is global. */
+export function libraryNotAllowedMessage(kind: string): string {
+  return `library is not allowed for kind ${kind}; omit library for libraries/itemTypes/itemFields`
+}
+
+export const ITEM_TYPE_SCOPE_MESSAGE = 'itemType is only valid when kind="itemFields"'
+export const ITEM_FIELDS_ITEM_TYPE_MESSAGE =
+  'kind="itemFields" requires a Zotero item type name (e.g. dataset, journalArticle)'
+export const Q_MATCH_SCOPE_MESSAGE = 'q/match are only valid when kind="tags"'
+export const MATCH_REQUIRES_Q_MESSAGE = 'match requires q'
+export const PARENT_REF_SCOPE_MESSAGE = 'parentRef is only valid when kind="collections"'
+export const TAG_FACET_SCOPE_MESSAGE =
+  'tagScope/itemLevel/itemQuery are only valid when kind="tags"'
+export const TAG_COLLECTION_SCOPE_MESSAGE = 'tagCollection requires tagScope="collection"'
+export const TAG_SCOPE_COLLECTION_MESSAGE =
+  'tagScope="collection" requires tagCollection (a zotero:// ref or a collection name)'
+export const ITEM_LEVEL_SCOPE_MESSAGE =
+  'itemLevel/itemQuery require tagScope (library, collection, or publications)'
+export const ITEM_QUERY_MODE_MESSAGE = 'itemQueryMode requires itemQuery'
+
 function buildRequest(args: BrowseArgs, config: { maxBrowseResults: number }): ZoteroBrowseRequest {
   const kind = args.kind as ZoteroBrowseKind
-  if (!BROWSE_KINDS.includes(kind)) invalid(`Unsupported browse kind ${kind}`)
+  if (!BROWSE_KINDS.includes(kind)) invalid(unsupportedBrowseKindMessage(kind))
   const offset = args.offset ?? 0
   const limit = args.limit ?? 20
   assertIntInRange('offset', offset, 0, 1_000_000)
@@ -223,31 +248,29 @@ function buildRequest(args: BrowseArgs, config: { maxBrowseResults: number }): Z
     (kind === 'libraries' || kind === 'itemTypes' || kind === 'itemFields') &&
     library !== undefined
   ) {
-    invalid(
-      `library is not allowed for kind ${kind}; omit library for libraries/itemTypes/itemFields`,
-    )
+    invalid(libraryNotAllowedMessage(kind))
   }
   const itemType = (args as Record<string, unknown>).itemType as string | undefined
   if (itemType !== undefined && kind !== 'itemFields') {
-    invalid('itemType is only valid when kind="itemFields"')
+    invalid(ITEM_TYPE_SCOPE_MESSAGE)
   }
   if (kind === 'itemFields') {
     if (itemType === undefined || !/^[A-Za-z][A-Za-z0-9]*$/.test(itemType)) {
-      invalid('kind="itemFields" requires a Zotero item type name (e.g. dataset, journalArticle)')
+      invalid(ITEM_FIELDS_ITEM_TYPE_MESSAGE)
     }
   }
   const q = (args as Record<string, unknown>).q as string | undefined
   const match = (args as Record<string, unknown>).match as 'contains' | 'startsWith' | undefined
   if ((q !== undefined || match !== undefined) && kind !== 'tags') {
-    invalid('q/match are only valid when kind="tags"')
+    invalid(Q_MATCH_SCOPE_MESSAGE)
   }
   if (match !== undefined && q === undefined) {
-    invalid('match requires q')
+    invalid(MATCH_REQUIRES_Q_MESSAGE)
   }
   const query = q === undefined ? undefined : assertNonBlank('q', q)
   const parentRef = (args as Record<string, unknown>).parentRef as string | undefined
   if (parentRef !== undefined && kind !== 'collections') {
-    invalid('parentRef is only valid when kind="collections"')
+    invalid(PARENT_REF_SCOPE_MESSAGE)
   }
   const tagScope = (args as Record<string, unknown>).tagScope as
     'library' | 'collection' | 'publications' | undefined
@@ -263,21 +286,21 @@ function buildRequest(args: BrowseArgs, config: { maxBrowseResults: number }): Z
       itemQueryMode !== undefined) &&
     kind !== 'tags'
   ) {
-    invalid('tagScope/itemLevel/itemQuery are only valid when kind="tags"')
+    invalid(TAG_FACET_SCOPE_MESSAGE)
   }
   if (tagCollection !== undefined && tagScope !== 'collection') {
-    invalid('tagCollection requires tagScope="collection"')
+    invalid(TAG_COLLECTION_SCOPE_MESSAGE)
   }
   if (tagScope === 'collection' && tagCollection === undefined) {
-    invalid('tagScope="collection" requires tagCollection (a zotero:// ref or a collection name)')
+    invalid(TAG_SCOPE_COLLECTION_MESSAGE)
   }
   const collection =
     tagCollection === undefined ? undefined : assertNonBlank('tagCollection', tagCollection)
   if ((itemLevel !== undefined || itemQuery !== undefined) && tagScope === undefined) {
-    invalid('itemLevel/itemQuery require tagScope (library, collection, or publications)')
+    invalid(ITEM_LEVEL_SCOPE_MESSAGE)
   }
   if (itemQueryMode !== undefined && itemQuery === undefined) {
-    invalid('itemQueryMode requires itemQuery')
+    invalid(ITEM_QUERY_MODE_MESSAGE)
   }
   const facetedQuery = itemQuery === undefined ? undefined : assertNonBlank('itemQuery', itemQuery)
   const scope =
@@ -300,6 +323,11 @@ function buildRequest(args: BrowseArgs, config: { maxBrowseResults: number }): Z
     offset,
     limit,
   }
+}
+
+/** The page announcement: the offset the next call should pass. */
+export function browseMoreMessage(nextOffset: number): string {
+  return `More: browse again with offset ${nextOffset}`
 }
 
 export function renderBrowse(_args: BrowseArgs, value: BrowseOutput): ContentBlock[] {
@@ -338,8 +366,7 @@ export function renderBrowse(_args: BrowseArgs, value: BrowseOutput): ContentBlo
       lines.push(`${n}. ${name}${conditions}${ref ? ` — ${ref}` : ''}`)
     }
   })
-  if (value.nextOffset !== undefined)
-    lines.push(`More: browse again with offset ${value.nextOffset}`)
+  if (value.nextOffset !== undefined) lines.push(browseMoreMessage(value.nextOffset))
   return [{ type: 'text', text: lines.join('\n') }]
 }
 

@@ -4,6 +4,19 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import ZoteroService from '../../src/index.js'
+import {
+  ITEM_FIELDS_ITEM_TYPE_MESSAGE,
+  ITEM_LEVEL_SCOPE_MESSAGE,
+  ITEM_QUERY_MODE_MESSAGE,
+  ITEM_TYPE_SCOPE_MESSAGE,
+  libraryNotAllowedMessage,
+  PARENT_REF_SCOPE_MESSAGE,
+  Q_MATCH_SCOPE_MESSAGE,
+  TAG_COLLECTION_SCOPE_MESSAGE,
+  TAG_FACET_SCOPE_MESSAGE,
+  TAG_SCOPE_COLLECTION_MESSAGE,
+} from '../../src/tools/browse.js'
+import { nonBlankArgumentMessage } from '../../src/tools/validate.js'
 import { MockZotero } from '../helpers/mock-zotero.js'
 
 let mock: MockZotero
@@ -161,34 +174,26 @@ describe('registry integration: zotero_browse libraries Native identity', () => 
   it('fails closed for q/match on non-tags via tool', async () => {
     const r = await run('zotero_browse', { kind: 'collections', q: 'foo' })
     expect(r.isError).toBe(true)
-    expect((r.content[0] as { text: string }).text).toContain(
-      'q/match are only valid when kind="tags"',
-    )
+    expect((r.content[0] as { text: string }).text).toContain(Q_MATCH_SCOPE_MESSAGE)
     const r2 = await run('zotero_browse', { kind: 'tags', match: 'contains' })
     expect(r2.isError).toBe(true)
   })
 
   it('fails closed on mispaired tag facet arguments via tool', async () => {
     const cases: [Record<string, unknown>, string][] = [
-      [{ kind: 'collections', tagScope: 'library' }, 'tagScope/itemLevel/itemQuery are only valid'],
-      [
-        { kind: 'tags', tagCollection: 'LLM Papers' },
-        'tagCollection requires tagScope="collection"',
-      ],
-      [{ kind: 'tags', tagScope: 'collection' }, 'tagScope="collection" requires tagCollection'],
-      [{ kind: 'tags', itemLevel: 'all' }, 'itemLevel/itemQuery require tagScope'],
-      [
-        { kind: 'tags', tagScope: 'library', itemQueryMode: 'everything' },
-        'itemQueryMode requires itemQuery',
-      ],
+      [{ kind: 'collections', tagScope: 'library' }, TAG_FACET_SCOPE_MESSAGE],
+      [{ kind: 'tags', tagCollection: 'LLM Papers' }, TAG_COLLECTION_SCOPE_MESSAGE],
+      [{ kind: 'tags', tagScope: 'collection' }, TAG_SCOPE_COLLECTION_MESSAGE],
+      [{ kind: 'tags', itemLevel: 'all' }, ITEM_LEVEL_SCOPE_MESSAGE],
+      [{ kind: 'tags', tagScope: 'library', itemQueryMode: 'everything' }, ITEM_QUERY_MODE_MESSAGE],
       [
         { kind: 'tags', parentRef: 'zotero://user/0/collection/COLL0001' },
-        'parentRef is only valid',
+        PARENT_REF_SCOPE_MESSAGE,
       ],
-      [{ kind: 'tags', itemType: 'dataset' }, 'itemType is only valid when kind="itemFields"'],
+      [{ kind: 'tags', itemType: 'dataset' }, ITEM_TYPE_SCOPE_MESSAGE],
       [
         { kind: 'itemFields', library: { type: 'user', id: 0 } },
-        'library is not allowed for kind itemFields',
+        libraryNotAllowedMessage('itemFields'),
       ],
     ]
     for (const [args, message] of cases) {
@@ -201,7 +206,7 @@ describe('registry integration: zotero_browse libraries Native identity', () => 
     expect(missingType.isError).toBe(true)
     if (!missingType.isError) throw new Error('unreachable')
     expect((missingType.content[0] as { text: string }).text).toContain(
-      'requires a Zotero item type name',
+      ITEM_FIELDS_ITEM_TYPE_MESSAGE,
     )
     expect(mock.requests).toEqual([])
   })
@@ -308,9 +313,7 @@ describe('registry integration: browse render exposes structured fields', () => 
   it('rejects a whitespace-only q instead of silently dropping match', async () => {
     const result = await run('zotero_browse', { kind: 'tags', q: '   ', match: 'startsWith' })
     expect(result.isError).toBe(true)
-    expect((result.content[0] as { text: string }).text).toContain(
-      'q must be a non-empty string when provided',
-    )
+    expect((result.content[0] as { text: string }).text).toContain(nonBlankArgumentMessage('q'))
     expect(mock.requests.filter((entry) => entry.pathname === '/api/users/0/tags')).toEqual([])
   })
 })

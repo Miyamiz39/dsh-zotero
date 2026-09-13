@@ -6,7 +6,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { renderRetrieve } from '../../src/tools/retrieve.js'
+import {
+  ATTACHMENT_LIMIT_NOTE,
+  ATTACHMENT_UNINDEXED_NOTE,
+  attachmentRefsLibraryMessage,
+  attachmentRefsOverCapMessage,
+  PASSAGE_COMMENT_ONLY_CLAUSE,
+  renderRetrieve,
+  RETRIEVE_QUERY_EMPTY_MESSAGE,
+  RETRIEVE_SOURCES_EMPTY_MESSAGE,
+  RETRIEVE_SPECIFIED_EMPTY_MESSAGE,
+  RETRIEVE_SPECIFIED_ONLY_MESSAGE,
+  RETRIEVE_TRUNCATED_MESSAGE,
+  RETRIEVE_TRUNCATED_REMEDY,
+  silentAttachmentsMessage,
+} from '../../src/tools/retrieve.js'
+import { intRangeArgumentMessage } from '../../src/tools/validate.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { searchHit } from '../helpers/server/objects.js'
 
@@ -132,7 +147,7 @@ describe('zotero_retrieve tool', () => {
     })
     expect(empty.isError).toBe(true)
     if (!empty.isError) throw new Error('unreachable')
-    expect((empty.content[0] as { text: string }).text).toContain('query')
+    expect((empty.content[0] as { text: string }).text).toContain(RETRIEVE_QUERY_EMPTY_MESSAGE)
 
     const tooMany = await runTool('zotero_retrieve', {
       ref: 'zotero://user/0/item/ABCD1234',
@@ -141,7 +156,9 @@ describe('zotero_retrieve tool', () => {
     })
     expect(tooMany.isError).toBe(true)
     if (!tooMany.isError) throw new Error('unreachable')
-    expect((tooMany.content[0] as { text: string }).text).toContain('passages')
+    expect((tooMany.content[0] as { text: string }).text).toContain(
+      intRangeArgumentMessage('passages', 5, 1, 4),
+    )
 
     expect(mock.requests).toEqual([])
   })
@@ -154,7 +171,7 @@ describe('zotero_retrieve tool', () => {
           query: 'x',
           attachmentPolicy: 'specified',
         },
-        'requires at least one attachmentRef',
+        RETRIEVE_SPECIFIED_EMPTY_MESSAGE,
       ],
       [
         {
@@ -162,7 +179,7 @@ describe('zotero_retrieve tool', () => {
           query: 'x',
           attachmentRefs: ['zotero://user/0/attachment/WXYZ6789'],
         },
-        'only valid with attachmentPolicy="specified"',
+        RETRIEVE_SPECIFIED_ONLY_MESSAGE,
       ],
       [
         {
@@ -171,7 +188,7 @@ describe('zotero_retrieve tool', () => {
           attachmentPolicy: 'specified',
           attachmentRefs: ['zotero://group/8/attachment/WXYZ6789'],
         },
-        'same library',
+        attachmentRefsLibraryMessage('group/7'),
       ],
       [
         {
@@ -205,7 +222,7 @@ describe('zotero_retrieve tool', () => {
     expect(overCap.isError).toBe(true)
     if (!overCap.isError) throw new Error('unreachable')
     expect((overCap.content[0] as { text: string }).text).toContain(
-      'at most 16 can enter one ranking',
+      attachmentRefsOverCapMessage(17, 16),
     )
     expect(mock.requests).toEqual([])
 
@@ -232,7 +249,7 @@ describe('zotero_retrieve tool', () => {
     })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain('sources must list')
+    expect((result.content[0] as { text: string }).text).toContain(RETRIEVE_SOURCES_EMPTY_MESSAGE)
     expect(mock.requests).toEqual([])
   })
 
@@ -352,7 +369,7 @@ describe('zotero_retrieve render', () => {
       sourcesSkipped: [],
     } as never)
     expect(text).toContain('Matched in: the reader\u2019s comment')
-    expect(text).toContain('those are the annotator\u2019s words, not the paper\u2019s own text')
+    expect(text).toContain(PASSAGE_COMMENT_ONLY_CLAUSE)
   })
 
   it('renders chunk locators and skipped sources', () => {
@@ -413,11 +430,9 @@ describe('zotero_retrieve render', () => {
     )
     // A source with no reported counts still names what it gave.
     expect(capped).toContain('  - zotero://user/0/attachment/WXYZ6789: 3 passages')
-    expect(capped).toContain("no full text in Zotero's index")
-    expect(capped).toContain('not read — this call was already at its attachment limit')
-    expect(capped).toContain(
-      '2 of these 4 attachments contributed no text, so whatever they contain is not covered here.',
-    )
+    expect(capped).toContain(ATTACHMENT_UNINDEXED_NOTE)
+    expect(capped).toContain(ATTACHMENT_LIMIT_NOTE)
+    expect(capped).toContain(silentAttachmentsMessage(2, 4))
 
     // A count without its total is stated as unknown, never guessed.
     const partial = render({
@@ -446,10 +461,8 @@ describe('zotero_retrieve render', () => {
       sourcesSkipped: [],
     } as never)
     expect(text).toContain('Full text: zotero://user/0/attachment/WXYZ6789')
-    expect(text).toContain(
-      'More evidence was available but omitted by the passage or character budget — a passage charges its text and, for an annotation, its comment.',
-    )
-    expect(text).toContain('zotero_get with include:["notes", "annotations"]')
+    expect(text).toContain(RETRIEVE_TRUNCATED_MESSAGE)
+    expect(text).toContain(RETRIEVE_TRUNCATED_REMEDY)
     expect(text).toContain('(0 passages)')
   })
 })

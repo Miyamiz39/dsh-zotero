@@ -121,21 +121,31 @@ const EXPORT_OUTPUT_SCHEMA = {
 
 type ExportOutput = InferValue<typeof EXPORT_OUTPUT_SCHEMA>
 
+/** The model-facing message for an empty refs list. */
+export const EXPORT_REFS_EMPTY_MESSAGE = 'refs must list at least one zotero:// item ref'
+
+/** The model-facing message for a refs list past the configured cap. */
+export function exportRefsOverCapMessage(maxExportRefs: number, requested: number): string {
+  return `refs must list at most ${maxExportRefs} item refs per call; got ${requested} — export in batches`
+}
+
+/** The model-facing messages for a blank style or locale argument. */
+export const EXPORT_STYLE_BLANK_MESSAGE = 'style must be a non-empty CSL style id when provided'
+export const EXPORT_LOCALE_BLANK_MESSAGE = 'locale must be a non-empty CSL locale when provided'
+
 function buildRequest(args: ExportArgs, config: ResolvedConfig): ZoteroExportRequest {
-  assertNonEmptyList(args.refs, 'refs must list at least one zotero:// item ref')
+  assertNonEmptyList(args.refs, EXPORT_REFS_EMPTY_MESSAGE)
   if (args.refs.length > config.maxExportRefs) {
-    invalid(
-      `refs must list at most ${config.maxExportRefs} item refs per call; got ${args.refs.length} — export in batches`,
-    )
+    invalid(exportRefsOverCapMessage(config.maxExportRefs, args.refs.length))
   }
   const refs = args.refs.map((value) => {
     const ref = parseSupportedRef(value, ['item'])
     return ref
   })
   const style = args.style?.trim()
-  if (style === '') invalid('style must be a non-empty CSL style id when provided')
+  if (style === '') invalid(EXPORT_STYLE_BLANK_MESSAGE)
   const locale = args.locale?.trim()
-  if (locale === '') invalid('locale must be a non-empty CSL locale when provided')
+  if (locale === '') invalid(EXPORT_LOCALE_BLANK_MESSAGE)
   return {
     refs,
     format: args.format as ZoteroExportFormat,

@@ -11,6 +11,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { NOT_RUNNING_MESSAGE } from '../../src/errors.js'
 import ZoteroService from '../../src/index.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { MockZotero } from '../helpers/mock-zotero.js'
@@ -56,7 +57,7 @@ describe('connectivity failure ask', () => {
     if (!result.isError) throw new Error('unreachable')
     // The retry hit the same unreachable instance and surfaced the typed
     // error; the user was asked exactly once, never looped.
-    expect((result.content[0] as { text: string }).text).toContain('not running')
+    expect((result.content[0] as { text: string }).text).toContain(NOT_RUNNING_MESSAGE)
     expect(asked).toHaveLength(1)
     const request = asked[0] as { questions: { id: string; options: { label: string }[] }[] }
     expect(request.questions[0]!.id).toBe('zotero-failure')

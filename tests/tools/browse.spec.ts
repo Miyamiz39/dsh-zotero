@@ -6,7 +6,27 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { renderBrowse } from '../../src/tools/browse.js'
+import {
+  browseMoreMessage,
+  ITEM_FIELDS_ITEM_TYPE_MESSAGE,
+  ITEM_QUERY_MODE_MESSAGE,
+  ITEM_TYPE_SCOPE_MESSAGE,
+  ITEM_LEVEL_SCOPE_MESSAGE,
+  libraryNotAllowedMessage,
+  MATCH_REQUIRES_Q_MESSAGE,
+  PARENT_REF_SCOPE_MESSAGE,
+  Q_MATCH_SCOPE_MESSAGE,
+  renderBrowse,
+  TAG_COLLECTION_SCOPE_MESSAGE,
+  TAG_FACET_SCOPE_MESSAGE,
+  TAG_SCOPE_COLLECTION_MESSAGE,
+} from '../../src/tools/browse.js'
+import {
+  GROUP_ID_MESSAGE,
+  intRangeArgumentMessage,
+  nonBlankArgumentMessage,
+  PERSONAL_LIBRARY_MESSAGE,
+} from '../../src/tools/validate.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 
 let lane: HostLane
@@ -26,32 +46,47 @@ afterEach(async () => {
 describe('zotero_browse validation', () => {
   it('rejects malformed libraries, ranges, and kinds through execute', async () => {
     const cases = [
-      { args: { kind: 'libraries', library: { type: 'bad', id: 0 } }, contains: 'library.type' },
+      // The parameter schema rejects these two shapes before the tool's own
+      // parseLibrary runs, so the text is the registry's, not this plugin's.
+      {
+        args: { kind: 'libraries', library: { type: 'bad', id: 0 } },
+        contains: 'library.type',
+      },
       { args: { kind: 'tags', library: { type: 'user', id: 'x' } }, contains: 'library.id' },
-      { args: { kind: 'tags', library: { type: 'user', id: 1 } }, contains: 'Only user/0' },
+      {
+        args: { kind: 'tags', library: { type: 'user', id: 1 } },
+        contains: PERSONAL_LIBRARY_MESSAGE,
+      },
       {
         args: { kind: 'tags', library: { type: 'group', id: 0 } },
-        contains: 'group id must be positive',
+        contains: GROUP_ID_MESSAGE,
       },
-      { args: { kind: 'tags', offset: -1 }, contains: 'offset' },
-      { args: { kind: 'tags', limit: 9999 }, contains: 'limit' },
+      {
+        args: { kind: 'tags', offset: -1 },
+        contains: intRangeArgumentMessage('offset', -1, 0, 1_000_000),
+      },
+      {
+        args: { kind: 'tags', limit: 9999 },
+        contains: intRangeArgumentMessage('limit', 9999, 1, 50),
+      },
+      // The kind enum is the parameter schema's, not this plugin's message.
       { args: { kind: 'unsupported' }, contains: 'kind' },
       // match is only meaningful alongside q
-      { args: { kind: 'tags', match: 'contains' }, contains: 'match requires q' },
+      { args: { kind: 'tags', match: 'contains' }, contains: MATCH_REQUIRES_Q_MESSAGE },
       // blank free text is invalid wherever it is meaningful
-      { args: { kind: 'tags', q: '   ' }, contains: 'q must be a non-empty string' },
+      { args: { kind: 'tags', q: '   ' }, contains: nonBlankArgumentMessage('q') },
       {
         args: { kind: 'tags', tagScope: 'library', itemQuery: '  ' },
-        contains: 'itemQuery must be a non-empty string',
+        contains: nonBlankArgumentMessage('itemQuery'),
       },
       {
         args: { kind: 'tags', tagScope: 'collection', tagCollection: ' ' },
-        contains: 'tagCollection must be a non-empty string',
+        contains: nonBlankArgumentMessage('tagCollection'),
       },
       // the global kinds refuse a library parameter
       {
         args: { kind: 'libraries', library: { type: 'group', id: 1 } },
-        contains: 'library is not allowed',
+        contains: libraryNotAllowedMessage('libraries'),
       },
     ]
     for (const c of cases) {
@@ -120,6 +155,6 @@ describe('zotero_browse render', () => {
       nextOffset: 2,
       items: [{ tag: 'a' }],
     } as never)
-    expect((out[0] as { text: string }).text).toContain('More: browse again')
+    expect((out[0] as { text: string }).text).toContain(browseMoreMessage(2))
   })
 })

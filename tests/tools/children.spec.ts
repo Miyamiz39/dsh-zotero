@@ -6,7 +6,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { renderChildren } from '../../src/tools/children.js'
+import {
+  CHILDREN_INCLUDE_EMPTY_MESSAGE,
+  CHILDREN_NONE_REQUESTED_MESSAGE,
+  renderChildren,
+} from '../../src/tools/children.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { annotationRow, attachment, noteRow } from '../helpers/server/objects.js'
 
@@ -114,7 +118,7 @@ describe('zotero_children tool', () => {
       { ref: 'zotero://user/0/item/ABCD1234' },
       { ref: 'zotero://user/0/item/ABCD1234' },
     )
-    expect((text[0] as { text: string }).text).toContain('No child kinds requested.')
+    expect((text[0] as { text: string }).text).toContain(CHILDREN_NONE_REQUESTED_MESSAGE)
   })
 
   it('renders annotations without page labels bare', async () => {
@@ -139,9 +143,7 @@ describe('zotero_children tool', () => {
     })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain(
-      'include must list at least one child kind',
-    )
+    expect((result.content[0] as { text: string }).text).toContain(CHILDREN_INCLUDE_EMPTY_MESSAGE)
     expect(mock.requests).toEqual([])
   })
 })

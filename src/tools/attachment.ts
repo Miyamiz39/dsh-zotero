@@ -72,6 +72,9 @@ function buildRequest(args: AttachmentArgs): { ref: ReturnType<typeof parseSuppo
  * Saying so costs one line and saves a turn spent on a path that was never
  * visible to that reader.
  */
+export const FILE_ENVIRONMENT_MESSAGE =
+  'File environment: the machine running Zotero (this plugin only reaches a loopback API, so that is this machine). A reader elsewhere — a sandbox, a container, a remote host — may not see this path.'
+
 function renderAttachment(_args: AttachmentArgs, value: AttachmentOutput): ContentBlock[] {
   const label = value.title === '' ? value.ref : `${value.title} (${value.ref})`
   const type = value.contentType || 'unknown type'
@@ -81,7 +84,7 @@ function renderAttachment(_args: AttachmentArgs, value: AttachmentOutput): Conte
   return [
     {
       type: 'text',
-      text: `${label} ${type} → ${value.path}\nFile environment: the machine running Zotero (this plugin only reaches a loopback API, so that is this machine). A reader elsewhere — a sandbox, a container, a remote host — may not see this path.`,
+      text: `${label} ${type} → ${value.path}\n${FILE_ENVIRONMENT_MESSAGE}`,
     },
   ]
 }

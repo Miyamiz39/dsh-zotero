@@ -6,6 +6,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  EXPORT_LOCALE_BLANK_MESSAGE,
+  EXPORT_REFS_EMPTY_MESSAGE,
+  EXPORT_STYLE_BLANK_MESSAGE,
+  exportRefsOverCapMessage,
+} from '../../src/tools/export.js'
 import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { citationRow } from '../helpers/server/objects.js'
 
@@ -145,7 +151,7 @@ describe('zotero_export tool', () => {
     const empty = await runTool('zotero_export', { refs: [], format: 'bibtex' })
     expect(empty.isError).toBe(true)
     if (!empty.isError) throw new Error('unreachable')
-    expect((empty.content[0] as { text: string }).text).toContain('refs')
+    expect((empty.content[0] as { text: string }).text).toContain(EXPORT_REFS_EMPTY_MESSAGE)
 
     const malformed = await runTool('zotero_export', { refs: ['nope'], format: 'bibtex' })
     expect(malformed.isError).toBe(true)
@@ -159,7 +165,7 @@ describe('zotero_export tool', () => {
     })
     expect(blankStyle.isError).toBe(true)
     if (!blankStyle.isError) throw new Error('unreachable')
-    expect((blankStyle.content[0] as { text: string }).text).toContain('style')
+    expect((blankStyle.content[0] as { text: string }).text).toContain(EXPORT_STYLE_BLANK_MESSAGE)
 
     const blankLocale = await runTool('zotero_export', {
       refs: ['zotero://user/0/item/ABCD1234'],
@@ -168,7 +174,7 @@ describe('zotero_export tool', () => {
     })
     expect(blankLocale.isError).toBe(true)
     if (!blankLocale.isError) throw new Error('unreachable')
-    expect((blankLocale.content[0] as { text: string }).text).toContain('locale')
+    expect((blankLocale.content[0] as { text: string }).text).toContain(EXPORT_LOCALE_BLANK_MESSAGE)
 
     expect(mock.requests).toEqual([])
   })
@@ -181,7 +187,9 @@ describe('zotero_export tool', () => {
     const result = await runTool('zotero_export', { refs, format: 'bibtex' })
     expect(result.isError).toBe(true)
     if (!result.isError) throw new Error('unreachable')
-    expect((result.content[0] as { text: string }).text).toContain('export in batches')
+    expect((result.content[0] as { text: string }).text).toContain(
+      exportRefsOverCapMessage(50, 1001),
+    )
     expect(mock.requests).toEqual([])
   })
 
