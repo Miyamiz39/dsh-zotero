@@ -224,6 +224,28 @@ describe('one-time keys', () => {
   })
 })
 
+describe('hasGrant (status fact)', () => {
+  it('reports the in-memory grant for the connected instance', async () => {
+    authorizeOnce(true)
+    const writer = authorizer()
+    await writer.keyFor(SERVER_ID)
+    expect(await writer.hasGrant(SERVER_ID)).toBe(true)
+    expect(await writer.hasGrant(OTHER_SERVER_ID)).toBe(false)
+  })
+
+  it('reports a persisted grant bound to the asking instance only', async () => {
+    credentials.records.set(String(WRITE_KEY_RECORD), storedGrant('stored-key-02'))
+    const writer = authorizer()
+    expect(await writer.hasGrant(SERVER_ID)).toBe(true)
+    expect(await writer.hasGrant(OTHER_SERVER_ID)).toBe(false)
+  })
+
+  it('reports no grant without a credentials seam or an in-process key', async () => {
+    const authorizer = authorizerWithoutSeam()
+    expect(await authorizer.hasGrant(SERVER_ID)).toBe(false)
+  })
+})
+
 describe('authorization refusals', () => {
   it('surfaces a declined dialog as the typed unauthorized error', async () => {
     mock.route('POST', AUTHORIZE_PATH, (_req, res, helpers) =>

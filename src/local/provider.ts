@@ -150,13 +150,24 @@ export class LocalApiProvider implements ZoteroProvider {
   async status(signal?: AbortSignal): Promise<ZoteroStatus> {
     try {
       const { headers } = await this.client.get('', undefined, { signal })
+      const serverId = headers.get(ZOTERO_SERVER_ID_HEADER) ?? undefined
+      // The write block rides only when the provider wires the capability at
+      // all; its absence is the statement "this provider serves no writes".
+      const write =
+        this.writer === undefined || this.authorizer === undefined
+          ? undefined
+          : {
+              enabled: this.capabilities.has('write'),
+              authorized: await this.authorizer.hasGrant(serverId ?? ''),
+            }
       return {
         providerId: this.id,
         connected: true,
         apiVersion: headers.get('zotero-api-version') ?? undefined,
-        serverId: headers.get(ZOTERO_SERVER_ID_HEADER) ?? undefined,
+        serverId,
         schemaVersion: headers.get('zotero-schema-version') ?? undefined,
         zoteroVersion: headers.get(ZOTERO_VERSION_HEADER) ?? undefined,
+        ...(write !== undefined ? { write } : {}),
         diagnosis: 'ok',
       }
     } catch (error) {

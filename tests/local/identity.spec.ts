@@ -8,7 +8,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type LocalApiProvider } from '../../src/local/provider.js'
+import { ZoteroHttpClient } from '../../src/http-client.js'
+import { ZoteroWriteHttpClient } from '../../src/write-http.js'
+import { WriteAuthorizer } from '../../src/write-auth.js'
+import {
+  LocalApiProvider,
+  type LocalApiProvider as LocalApiProviderType,
+} from '../../src/local/provider.js'
 import { parseRef } from '../../src/refs.js'
 import {
   createProvider,
@@ -28,7 +34,7 @@ import { collectionRow, item, versionHeaders } from '../helpers/server/objects.j
 import { serveJson, serveStatus } from '../helpers/server/serve.js'
 
 let mock: ProviderHarness['mock']
-let provider: LocalApiProvider
+let provider: LocalApiProviderType
 let harness: ProviderHarness
 
 beforeEach(async () => {
@@ -184,6 +190,56 @@ describe('Server-ID cache identity', () => {
     // spec; the identity guard lives in provider state, not module state.
     const fresh = createProvider(mock)
     expect(fresh.id).toBe(provider.id)
+  })
+
+  it('reports no write state from a provider that wires no write capability', async () => {
+    mock.route('GET', '/api/', (_req, res, helpers) =>
+      helpers.raw(200, { 'Zotero-Server-ID': 'srv-identity-1' }, JSON.stringify({})),
+    )
+    const status = await provider.status()
+    expect(status.connected).toBe(true)
+    expect(status.write).toBeUndefined()
+  })
+
+  it('reports the write state with the stored-grant fact when the capability is wired', async () => {
+    const client = new ZoteroHttpClient({
+      baseUrl: mock.baseUrl,
+      timeoutMs: 5000,
+      maxResponseBytes: 1_000_000,
+    })
+    const writer = new ZoteroWriteHttpClient({
+      baseUrl: mock.baseUrl,
+      timeoutMs: 5000,
+      maxResponseBytes: 1_000_000,
+    })
+    const writable = new LocalApiProvider(
+      client,
+      {
+        maxNoteScanRecords: 200,
+        maxDetailChars: 500,
+        maxNoteBodyChars: 30_000,
+        maxNoteChars: 2000,
+        maxNoteRecords: 50,
+        maxAnnotationRecords: 100,
+        fulltextChunkWords: 200,
+        maxEvidenceChars: 6000,
+        maxEvidencePassages: 4,
+        maxFulltextChars: 100_000,
+        maxExportChars: 1_000_000,
+        defaultStyle: 'apa',
+        defaultLocale: 'en-US',
+        maxBrowseResults: 50,
+        maxChangesResults: 50,
+      },
+      {},
+      writer,
+      new WriteAuthorizer({ client: writer, persistKey: () => true }),
+    )
+    mock.route('GET', '/api/', (_req, res, helpers) =>
+      helpers.raw(200, { 'Zotero-Server-ID': 'srv-identity-1' }, JSON.stringify({})),
+    )
+    const status = await writable.status()
+    expect(status.write).toEqual({ enabled: true, authorized: false })
   })
 
   it('carries the error code in the status diagnosis so callers can route on it', async () => {

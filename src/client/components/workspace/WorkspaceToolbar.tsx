@@ -40,6 +40,21 @@ export function WorkspaceToolbar({ connection, onRefresh, t }: WorkspaceToolbarP
     ...(data?.serverId !== undefined
       ? [{ id: 'serverId', label: `${t('serverIdLabel')} ${data.serverId}`, disabled: true }]
       : []),
+    ...(data?.write !== undefined
+      ? [
+          {
+            id: 'write',
+            label: `${t('writeLabel')} ${
+              data.write.enabled
+                ? data.write.authorized
+                  ? t('writeAuthorizedLabel')
+                  : t('writeUnauthorizedLabel')
+                : t('writeDisabledLabel')
+            }`,
+            disabled: true,
+          },
+        ]
+      : []),
     ...(data?.zoteroVersion !== undefined
       ? [
           {

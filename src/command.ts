@@ -52,6 +52,16 @@ function formatStatus(status: ZoteroStatus): string {
     status.serverId === undefined
       ? ZOTERO_STATUS_SERVER_ID_UNREPORTED
       : statusLine('Server ID', status.serverId),
+    status.write === undefined
+      ? undefined
+      : statusLine(
+          'Write',
+          status.write.enabled
+            ? status.write.authorized
+              ? 'enabled (key stored)'
+              : 'enabled (not authorized)'
+            : 'disabled',
+        ),
   ].join('\n')
 }
 

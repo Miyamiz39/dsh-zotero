@@ -109,6 +109,24 @@ export class WriteAuthorizer {
   }
 
   /**
+   * Whether a grant for this Zotero instance is already available — the
+   * in-memory key of this process, or a persisted grant bound to the
+   * instance. A status fact for the settings card and the command output;
+   * never a capability: {@link keyFor} still runs the full resolution.
+   */
+  async hasGrant(serverId: string): Promise<boolean> {
+    if (this.memoryKey !== undefined && this.memoryServerId === serverId) return true
+    const credentials = this.deps.credentials
+    if (credentials === undefined) return false
+    const record = await credentials.readRecord(WRITE_KEY_RECORD)
+    if (record?.kind !== 'grant') return false
+    const payload = asRecord(record.payload)
+    const key = payload === undefined ? undefined : asString(payload.key)
+    const boundTo = payload === undefined ? undefined : asString(payload.serverId)
+    return key !== undefined && key !== '' && boundTo === serverId
+  }
+
+  /**
    * Forget this process's copy of a key. Called by the domain when the write
    * a one-time key authorized has settled — the server consumed the key at
    * authentication whether the write succeeded or failed, so the memory slot

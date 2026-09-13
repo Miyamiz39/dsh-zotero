@@ -35,6 +35,10 @@ export type ZoteroLocaleKey =
   | 'schemaVersionLabel'
   | 'zoteroVersionLabel'
   | 'serverIdLabel'
+  | 'writeLabel'
+  | 'writeAuthorizedLabel'
+  | 'writeUnauthorizedLabel'
+  | 'writeDisabledLabel'
   | 'buildInfoLabel'
   | 'diagnosisLabel'
   | 'refresh'
@@ -242,6 +246,10 @@ export const en: Record<ZoteroLocaleKey, string> = {
   schemaVersionLabel: 'Schema version',
   zoteroVersionLabel: 'Zotero version',
   serverIdLabel: 'Server ID',
+  writeLabel: 'Write',
+  writeAuthorizedLabel: 'enabled, key stored',
+  writeUnauthorizedLabel: 'enabled, no key yet',
+  writeDisabledLabel: 'disabled',
   buildInfoLabel: 'Build',
   diagnosisLabel: 'Diagnosis',
   refresh: 'Refresh',
@@ -444,7 +452,11 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   apiVersionLabel: 'API 版本',
   schemaVersionLabel: 'Schema 版本',
   zoteroVersionLabel: 'Zotero 版本',
-  serverIdLabel: 'Server ID',
+  serverIdLabel: '服务器 ID',
+  writeLabel: '写入',
+  writeAuthorizedLabel: '已启用，密钥已保存',
+  writeUnauthorizedLabel: '已启用，尚未授权',
+  writeDisabledLabel: '已关闭',
   buildInfoLabel: '构建',
   diagnosisLabel: '诊断',
   refresh: '刷新',

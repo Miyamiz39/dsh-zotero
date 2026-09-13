@@ -76,6 +76,13 @@ export interface ZoteroStatus {
    * fact a version-scoped expectation has to be checked against.
    */
   zoteroVersion?: string
+  /**
+   * The write state of the answering provider, present only when the provider
+   * wires the write capability at all. `authorized` says whether a grant for
+   * the connected instance is already stored — a diagnostic fact, never a
+   * capability: the gate still answers every write.
+   */
+  write?: { enabled: boolean; authorized: boolean }
   diagnosis: string
 }
 

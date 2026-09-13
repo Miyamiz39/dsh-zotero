@@ -26,6 +26,8 @@ export interface ZoteroStatusView {
   readonly schemaVersion?: string
   /** The answering Zotero build (`X-Zotero-Version`); the only version fact that names a release. */
   readonly zoteroVersion?: string
+  /** The write state; absent when the serving provider wires no write capability. */
+  readonly write?: { readonly enabled: boolean; readonly authorized: boolean }
   readonly diagnosis: string
 }
 
@@ -38,6 +40,7 @@ const zoteroStatusSchema = z
     serverId: z.string().optional(),
     schemaVersion: z.string().optional(),
     zoteroVersion: z.string().optional(),
+    write: z.object({ enabled: z.boolean(), authorized: z.boolean() }).strict().optional(),
     diagnosis: z.string(),
   })
   .strict()
