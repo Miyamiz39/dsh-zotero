@@ -210,6 +210,19 @@ export function savedSearchRow(overrides: ObjectOverrides = {}): WireObject {
 }
 
 /**
+ * One row of a citation export: an item key with the citation text Zotero
+ * rendered for it. The export path pairs rows with the refs it asked about and
+ * reorders them to the caller's order, so the pairing — not the row's position
+ * in the response — is the fact under test.
+ * @param key - the item key the citation belongs to.
+ * @param citation - the rendered citation text.
+ * @returns the wire row.
+ */
+export function citationRow(key: string, citation: string): { key: string; citation: string } {
+  return { key, citation }
+}
+
+/**
  * The headers a versioned response carries: the instance that answered and the
  * library version it answered at.
  * @param serverId - the answering instance.

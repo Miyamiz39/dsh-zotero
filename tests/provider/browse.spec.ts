@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ZOTERO_INVALID_ARGUMENT } from '../../src/errors.js'
-import { MockZotero } from '../helpers/mock-zotero.js'
+import { LocalApiProvider } from '../../src/local/provider.js'
 import {
   createProvider,
   setupProvider,
   teardownProvider,
-  zoteroError,
   type ProviderHarness,
 } from '../helpers/provider-harness.js'
-import { LocalApiProvider } from '../../src/local/provider.js'
+import { expectRequestCount, zoteroError } from '../helpers/server/assert.js'
+import { COLLECTION_KEY, GROUP_LIBRARY, apiPath, collectionRef } from '../helpers/server/keys.js'
+import { collectionRow, savedSearchRow, versionHeaders } from '../helpers/server/objects.js'
+import { serveJson, serveStatus } from '../helpers/server/serve.js'
 
-let mock: MockZotero
+let mock: ProviderHarness['mock']
 let provider: LocalApiProvider
 let harness: ProviderHarness
 
@@ -98,14 +100,14 @@ describe('browse: validation', () => {
 
 describe('browse: libraries', () => {
   it('returns personal + groups when available', async () => {
-    mock.route('GET', '/api/users/0/groups', (req, res, helpers) =>
-      helpers.json(
-        [
-          { id: 1, name: 'Group One' },
-          { id: 2, name: 'Group Two', data: { name: 'Group Two' } },
-        ],
-        { 'Zotero-Server-ID': 'S1' },
-      ),
+    serveJson(
+      mock,
+      `${apiPath()}/groups`,
+      [
+        { id: 1, name: 'Group One' },
+        { id: 2, name: 'Group Two', data: { name: 'Group Two' } },
+      ],
+      versionHeaders('S1'),
     )
     const result = await provider.browse({ kind: 'libraries', offset: 0, limit: 10 })
     expect(result.kind).toBe('libraries')
@@ -114,24 +116,20 @@ describe('browse: libraries', () => {
     expect(result.serverId).toBe('S1')
   })
   it('falls back to personal when groups 404', async () => {
-    mock.route('GET', '/api/users/0/groups', (req, res, helpers) =>
-      helpers.raw(404, {}, 'not found'),
-    )
+    serveStatus(mock, `${apiPath()}/groups`, 404, 'not found')
     const result = await provider.browse({ kind: 'libraries', offset: 0, limit: 10 })
     expect(result.total).toBe(1)
   })
   it('propagates a groups listing failure instead of degrading silently', async () => {
-    mock.route('GET', '/api/users/0/groups', (req, res, helpers) => helpers.raw(500, {}, 'err'))
+    serveStatus(mock, `${apiPath()}/groups`, 500, 'err')
     await expect(provider.browse({ kind: 'libraries', offset: 0, limit: 5 })).rejects.toThrow()
   })
   it('paginates libraries', async () => {
-    mock.route('GET', '/api/users/0/groups', (req, res, helpers) =>
-      helpers.json([
-        { id: 1, name: 'G1' },
-        { id: 2, name: 'G2' },
-        { id: 3, name: 'G3' },
-      ]),
-    )
+    serveJson(mock, `${apiPath()}/groups`, [
+      { id: 1, name: 'G1' },
+      { id: 2, name: 'G2' },
+      { id: 3, name: 'G3' },
+    ])
     const r1 = await provider.browse({ kind: 'libraries', offset: 0, limit: 2 })
     expect(r1.returned).toBe(2)
     expect(r1.nextOffset).toBe(2)
@@ -143,10 +141,10 @@ describe('browse: libraries', () => {
 describe('browse: collections', () => {
   it('lists top-level collections server-side paged', async () => {
     const tops = [
-      { key: 'COLL0001', data: { key: 'COLL0001', name: 'Root B' } },
-      { key: 'COLL0002', data: { key: 'COLL0002', name: 'Root A' } },
+      collectionRow({ key: 'COLL0001', data: { name: 'Root B' } }),
+      collectionRow({ key: 'COLL0002', data: { name: 'Root A' } }),
     ]
-    mock.route('GET', '/api/users/0/collections/top', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/collections/top`, (req, res, helpers, search) => {
       expect(search.get('start')).toBe('0')
       expect(search.get('limit')).toBe('10')
       helpers.json(tops, { 'Total-Results': '2', 'Zotero-Server-ID': 'S1' })
@@ -164,11 +162,10 @@ describe('browse: collections', () => {
   })
 
   it('paginates against the header total with nextOffset', async () => {
-    const tops = Array.from({ length: 5 }, (_, i) => ({
-      key: `COLL${String(i).padStart(4, '0')}`,
-      data: { key: `COLL${String(i).padStart(4, '0')}`, name: `C${i}` },
-    }))
-    mock.route('GET', '/api/users/0/collections/top', (req, res, helpers, search) => {
+    const tops = Array.from({ length: 5 }, (_, i) =>
+      collectionRow({ key: `COLL${String(i).padStart(4, '0')}`, data: { name: `C${i}` } }),
+    )
+    mock.route('GET', `${apiPath()}/collections/top`, (req, res, helpers, search) => {
       const start = Number(search.get('start') ?? '0')
       const limit = Number(search.get('limit') ?? '10')
       helpers.json(tops.slice(start, start + limit), { 'Total-Results': String(tops.length) })
@@ -181,29 +178,29 @@ describe('browse: collections', () => {
   it('navigates children via parentRef and builds breadcrumbs through ancestor GETs', async () => {
     mock.route(
       'GET',
-      '/api/users/0/collections/COLL0001/collections',
+      `${apiPath()}/collections/COLL0001/collections`,
       (req, res, helpers, search) => {
         expect(search.get('start')).toBe('0')
         helpers.json(
           [
-            {
+            collectionRow({
               key: 'COLL0002',
-              data: { key: 'COLL0002', name: 'Child A', parentCollection: 'COLL0001' },
-            },
-            {
+              data: { name: 'Child A', parentCollection: 'COLL0001' },
+            }),
+            collectionRow({
               key: 'COLL0003',
-              data: { key: 'COLL0003', name: 'Child B', parentCollection: 'COLL0001' },
-            },
+              data: { name: 'Child B', parentCollection: 'COLL0001' },
+            }),
           ],
           { 'Total-Results': '2', 'Zotero-Server-ID': 'S1' },
         )
       },
     )
-    mock.route('GET', '/api/users/0/collections/COLL0001', (req, res, helpers) =>
-      helpers.json(
-        { key: 'COLL0001', data: { key: 'COLL0001', name: 'Root' } },
-        { 'Zotero-Server-ID': 'S1' },
-      ),
+    serveJson(
+      mock,
+      `${apiPath()}/collections/COLL0001`,
+      collectionRow({ key: 'COLL0001', data: { name: 'Root' } }),
+      versionHeaders('S1'),
     )
     const result = await provider.browse({
       kind: 'collections',
@@ -227,30 +224,31 @@ describe('browse: collections', () => {
     ).toBe(true)
     // Both siblings share the parent: one cached ancestor GET serves both.
     expect(
-      mock.requests.filter((r) => r.pathname === '/api/users/0/collections/COLL0001'),
+      mock.requests.filter((r) => r.pathname === `${apiPath()}/collections/COLL0001`),
     ).toHaveLength(1)
   })
 
   it('walks multi-level ancestors for deep breadcrumbs', async () => {
-    mock.route('GET', '/api/users/0/collections/COLL0003/collections', (req, res, helpers) =>
-      helpers.json(
-        [
-          {
-            key: 'COLL0004',
-            data: { key: 'COLL0004', name: 'Leaf', parentCollection: 'COLL0002' },
-          },
-        ],
-        { 'Total-Results': '1' },
-      ),
+    serveJson(
+      mock,
+      `${apiPath()}/collections/COLL0003/collections`,
+      [
+        collectionRow({
+          key: 'COLL0004',
+          data: { name: 'Leaf', parentCollection: 'COLL0002' },
+        }),
+      ],
+      { 'Total-Results': '1' },
     )
-    mock.route('GET', '/api/users/0/collections/COLL0002', (req, res, helpers) =>
-      helpers.json({
-        key: 'COLL0002',
-        data: { key: 'COLL0002', name: 'Mid', parentCollection: 'COLL0001' },
-      }),
+    serveJson(
+      mock,
+      `${apiPath()}/collections/COLL0002`,
+      collectionRow({ key: 'COLL0002', data: { name: 'Mid', parentCollection: 'COLL0001' } }),
     )
-    mock.route('GET', '/api/users/0/collections/COLL0001', (req, res, helpers) =>
-      helpers.json({ key: 'COLL0001', data: { key: 'COLL0001', name: 'Root' } }),
+    serveJson(
+      mock,
+      `${apiPath()}/collections/COLL0001`,
+      collectionRow({ key: 'COLL0001', data: { name: 'Root' } }),
     )
     const result = await provider.browse({
       kind: 'collections',
@@ -262,20 +260,20 @@ describe('browse: collections', () => {
   })
 
   it('truncates breadcrumbs at a missing ancestor and guards self cycles', async () => {
-    mock.route('GET', '/api/users/0/collections/COLL0009/collections', (req, res, helpers) =>
-      helpers.json(
-        [
-          {
-            key: 'COLL0010',
-            data: { key: 'COLL0010', name: 'Orphan', parentCollection: 'MISSING1' },
-          },
-          {
-            key: 'COLL0011',
-            data: { key: 'COLL0011', name: 'Selfy', parentCollection: 'COLL0011' },
-          },
-        ],
-        { 'Total-Results': '2' },
-      ),
+    serveJson(
+      mock,
+      `${apiPath()}/collections/COLL0009/collections`,
+      [
+        collectionRow({
+          key: 'COLL0010',
+          data: { name: 'Orphan', parentCollection: 'MISSING1' },
+        }),
+        collectionRow({
+          key: 'COLL0011',
+          data: { name: 'Selfy', parentCollection: 'COLL0011' },
+        }),
+      ],
+      { 'Total-Results': '2' },
     )
     const result = await provider.browse({
       kind: 'collections',
@@ -317,20 +315,13 @@ describe('browse: collections', () => {
   })
 
   it('propagates non-404 ancestor failures instead of truncating silently', async () => {
-    mock.route('GET', '/api/users/0/collections/COLL0001/collections', (req, res, helpers) =>
-      helpers.json(
-        [
-          {
-            key: 'COLL0002',
-            data: { key: 'COLL0002', name: 'Child', parentCollection: 'COLL0001' },
-          },
-        ],
-        { 'Total-Results': '1' },
-      ),
+    serveJson(
+      mock,
+      `${apiPath()}/collections/COLL0001/collections`,
+      [collectionRow({ key: 'COLL0002', data: { name: 'Child', parentCollection: 'COLL0001' } })],
+      { 'Total-Results': '1' },
     )
-    mock.route('GET', '/api/users/0/collections/COLL0001', (req, res, helpers) =>
-      helpers.raw(500, { 'Content-Type': 'text/plain' }, 'boom'),
-    )
+    serveStatus(mock, `${apiPath()}/collections/COLL0001`, 500, 'boom')
     await zoteroError(
       provider.browse({
         kind: 'collections',
@@ -344,17 +335,18 @@ describe('browse: collections', () => {
   })
 
   it('supports group library', async () => {
-    const cols = [{ key: 'COLL0001', data: { key: 'COLL0001', name: 'G Root' } }]
-    mock.route('GET', '/api/groups/42/collections/top', (req, res, helpers) =>
-      helpers.json(cols, { 'Total-Results': '1', 'Zotero-Server-ID': 'S2' }),
-    )
+    const cols = [collectionRow({ key: 'COLL0001', data: { name: 'G Root' } })]
+    serveJson(mock, `${apiPath(GROUP_LIBRARY)}/collections/top`, cols, {
+      'Total-Results': '1',
+      'Zotero-Server-ID': 'S2',
+    })
     const result = await provider.browse({
       kind: 'collections',
       library: { type: 'group', id: 42 },
       offset: 0,
       limit: 10,
     })
-    expect(result.library).toEqual({ type: 'group', id: 42 })
+    expect(result.library).toEqual(GROUP_LIBRARY)
   })
 })
 
@@ -389,12 +381,8 @@ describe('browse: itemFields', () => {
   })
 
   it('paginates itemFields against the merged row list', async () => {
-    mock.route('GET', '/api/itemTypeFields', (req, res, helpers) =>
-      helpers.json([{ field: 'a' }, { field: 'b' }]),
-    )
-    mock.route('GET', '/api/itemTypeCreatorTypes', (req, res, helpers) =>
-      helpers.json([{ creatorType: 'author' }]),
-    )
+    serveJson(mock, '/api/itemTypeFields', [{ field: 'a' }, { field: 'b' }])
+    serveJson(mock, '/api/itemTypeCreatorTypes', [{ creatorType: 'author' }])
     const page = await provider.browse({
       kind: 'itemFields',
       itemType: 'journalArticle',
@@ -432,21 +420,21 @@ describe('browse: itemFields', () => {
       ZOTERO_INVALID_ARGUMENT,
       'itemType is only valid when kind="itemFields"',
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 })
 
 describe('browse: savedSearches', () => {
   const searches = [
-    {
+    savedSearchRow({
       key: 'SRCH0001',
-      data: { key: 'SRCH0001', name: 'Unread', conditions: [{ condition: 'unread' }] },
-    },
-    { key: 'SRCH0002', data: { key: 'SRCH0002', name: 'Recent' } },
-    { key: 'SRCH0003', data: { key: 'SRCH0003', name: 'Pinned' } },
+      data: { name: 'Unread', conditions: [{ condition: 'unread' }] },
+    }),
+    savedSearchRow({ key: 'SRCH0002', data: { name: 'Recent' } }),
+    savedSearchRow({ key: 'SRCH0003', data: { name: 'Pinned' } }),
   ]
   function routeSearches() {
-    mock.route('GET', '/api/users/0/searches', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/searches`, (req, res, helpers, search) => {
       const start = Number(search.get('start') ?? '0')
       const limit = Number(search.get('limit') ?? '10')
       helpers.json(searches.slice(start, start + limit), {
@@ -478,7 +466,7 @@ describe('browse: savedSearches', () => {
     expect(mock.requests[1]!.search.get('start')).toBe('2')
   })
   it('fails closed when Total-Results header is missing', async () => {
-    mock.route('GET', '/api/users/0/searches', (req, res, helpers) => helpers.json(searches))
+    serveJson(mock, `${apiPath()}/searches`, searches)
     await expect(provider.browse({ kind: 'savedSearches', offset: 0, limit: 10 })).rejects.toThrow(
       'Total-Results',
     )
@@ -492,7 +480,7 @@ describe('browse: tags', () => {
       { tag: 'beta' },
       { tag: 'alphabeta', numItems: 2 },
     ]
-    mock.route('GET', '/api/users/0/tags', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/tags`, (req, res, helpers, search) => {
       const q = search.get('q') ?? ''
       const qmode = search.get('qmode') ?? 'contains'
       let filtered = allTags
@@ -530,7 +518,7 @@ describe('browse: tags', () => {
   })
   it('paginates tags with exactly one request per page', async () => {
     const tags = Array.from({ length: 5 }, (_, i) => ({ tag: `t${i}` }))
-    mock.route('GET', '/api/users/0/tags', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/tags`, (req, res, helpers, search) => {
       const start = Number(search.get('start') ?? '0')
       const limit = Number(search.get('limit') ?? '10')
       const slice = tags.slice(start, start + limit)
@@ -541,27 +529,27 @@ describe('browse: tags', () => {
     expect(r.total).toBe(5)
     expect(r.nextOffset).toBe(4)
     // Each page is one server-paged request — never a whole-listing scan.
-    expect(mock.requests.filter((req) => req.pathname === '/api/users/0/tags')).toHaveLength(1)
+    expect(mock.requests.filter((req) => req.pathname === `${apiPath()}/tags`)).toHaveLength(1)
     await provider.browse({ kind: 'tags', offset: 4, limit: 2 })
-    expect(mock.requests.filter((req) => req.pathname === '/api/users/0/tags')).toHaveLength(2)
+    expect(mock.requests.filter((req) => req.pathname === `${apiPath()}/tags`)).toHaveLength(2)
   })
   it('fails closed when Total-Results header is missing', async () => {
-    mock.route('GET', '/api/users/0/tags', (req, res, helpers) => helpers.json([{ tag: 'a' }]))
+    serveJson(mock, `${apiPath()}/tags`, [{ tag: 'a' }])
     await expect(provider.browse({ kind: 'tags', offset: 0, limit: 10 })).rejects.toThrow(
       'Total-Results',
     )
   })
 
   it('counts scoped tags over a collection resolved by ref, with item query params', async () => {
-    mock.route('GET', '/api/users/0/collections/COLL1234', (req, res, helpers) =>
-      helpers.json(
-        { key: 'COLL1234', data: { key: 'COLL1234', name: 'LLM Papers' } },
-        { 'Zotero-Server-ID': 'S1' },
-      ),
+    serveJson(
+      mock,
+      `${apiPath()}/collections/${COLLECTION_KEY}`,
+      collectionRow(),
+      versionHeaders('S1'),
     )
     mock.route(
       'GET',
-      '/api/users/0/collections/COLL1234/items/top/tags',
+      `${apiPath()}/collections/${COLLECTION_KEY}/items/top/tags`,
       (req, res, helpers, search) => {
         expect(search.get('itemQ')).toBe('agent memory')
         expect(search.get('itemQMode')).toBe('titleCreatorYear')
@@ -577,7 +565,7 @@ describe('browse: tags', () => {
     )
     const result = await provider.browse({
       kind: 'tags',
-      scope: { kind: 'collection', refOrName: 'zotero://user/0/collection/COLL1234' },
+      scope: { kind: 'collection', refOrName: collectionRef() },
       itemQuery: 'agent memory',
       offset: 0,
       limit: 10,
@@ -591,14 +579,10 @@ describe('browse: tags', () => {
   })
 
   it('resolves a collection by name through the cached listing before the scoped tags call', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json([{ key: 'COLL1234', data: { key: 'COLL1234', name: 'LLM Papers' } }], {
-        'Zotero-Server-ID': 'S1',
-      }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top/tags', (req, res, helpers) =>
-      helpers.json([{ tag: 'rag' }], { 'Total-Results': '1' }),
-    )
+    serveJson(mock, `${apiPath()}/collections`, [collectionRow()], versionHeaders('S1'))
+    serveJson(mock, `${apiPath()}/collections/${COLLECTION_KEY}/items/top/tags`, [{ tag: 'rag' }], {
+      'Total-Results': '1',
+    })
     const result = await provider.browse({
       kind: 'tags',
       scope: { kind: 'collection', refOrName: 'LLM Papers' },
@@ -616,10 +600,10 @@ describe('browse: tags', () => {
         helpers.json([{ tag: 'x' }], { 'Total-Results': '1' })
       })
     }
-    route('/api/users/0/items/top/tags')
-    route('/api/users/0/items/tags')
-    route('/api/users/0/publications/items/top/tags')
-    route('/api/users/0/publications/items/tags')
+    route(`${apiPath()}/items/top/tags`)
+    route(`${apiPath()}/items/tags`)
+    route(`${apiPath()}/publications/items/top/tags`)
+    route(`${apiPath()}/publications/items/tags`)
 
     await provider.browse({ kind: 'tags', scope: { kind: 'library' }, offset: 0, limit: 5 })
     await provider.browse({
@@ -638,10 +622,10 @@ describe('browse: tags', () => {
       limit: 5,
     })
     expect(routed).toEqual([
-      '/api/users/0/items/top/tags',
-      '/api/users/0/items/tags',
-      '/api/users/0/publications/items/top/tags',
-      '/api/users/0/publications/items/tags',
+      `${apiPath()}/items/top/tags`,
+      `${apiPath()}/items/tags`,
+      `${apiPath()}/publications/items/top/tags`,
+      `${apiPath()}/publications/items/tags`,
     ])
   })
 
@@ -662,13 +646,13 @@ describe('browse: tags', () => {
 describe('browse: itemTypes', () => {
   it('lists item types', async () => {
     const types = [{ itemType: 'book', localized: 'Book' }, { itemType: 'journalArticle' }]
-    mock.route('GET', '/api/itemTypes', (req, res, helpers) => helpers.json(types))
+    serveJson(mock, '/api/itemTypes', types)
     const result = await provider.browse({ kind: 'itemTypes', offset: 0, limit: 10 })
     expect(result.total).toBe(2)
   })
   it('paginates itemTypes', async () => {
     const types = Array.from({ length: 5 }, (_, i) => ({ itemType: `type${i}` }))
-    mock.route('GET', '/api/itemTypes', (req, res, helpers) => helpers.json(types))
+    serveJson(mock, '/api/itemTypes', types)
     const r = await provider.browse({ kind: 'itemTypes', offset: 0, limit: 2 })
     expect(r.returned).toBe(2)
   })

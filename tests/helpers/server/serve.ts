@@ -7,17 +7,25 @@
  * them to drift, and a reader could not tell a deliberate variation from a
  * copy-paste edit.
  *
- * Two conventions run through this module:
+ * Three conventions run through this module:
  *
  * - An **absent** field takes the canonical default.
  * - A **`null`** field means "serve nothing here", so a test that depends on an
  *   endpoint answering 404 says so explicitly instead of relying on nobody
  *   having registered it.
+ * - A body or header that must **change between requests** is not expressible
+ *   here, because these installers capture what they are given. Those routes
+ *   call `mock.route` directly: a profile that switches mid-test is the
+ *   subject of its test and reads better as a handler than as an option.
+ *
+ * Payloads that are deliberately malformed stay inline for the same reason —
+ * a keyless row or a non-array listing is not an object the builders model.
  * @module tests/helpers/server/serve
  */
 
 import type { MockZotero } from '../mock-zotero.js'
-import { ATTACHMENT_KEY, SERVER_ID, apiPath, PERSONAL_LIBRARY, type TestLibrary } from './keys.js'
+import type { SupportedLocalLibrary } from '../../../src/types.js'
+import { ATTACHMENT_KEY, SERVER_ID, apiPath, PERSONAL_LIBRARY } from './keys.js'
 import {
   annotationRow,
   attachment,
@@ -28,18 +36,48 @@ import {
   type WireObject,
 } from './objects.js'
 
-/** A 200 JSON answer, with optional headers. */
+/**
+ * A 200 JSON answer, with optional headers. The path may be a pattern, which
+ * is how a listing that answers both `/items` and `/items/top` is served.
+ * @param mock - the server to register on.
+ * @param path - the pathname or pattern to answer.
+ * @param body - the JSON body.
+ * @param headers - the response headers; absent means none.
+ */
 export function serveJson(
   mock: MockZotero,
-  path: string,
+  path: string | RegExp,
   body: unknown,
   headers: Record<string, string> = {},
 ): void {
   mock.route('GET', path, (req, res, helpers) => helpers.json(body, headers))
 }
 
+/**
+ * A 200 plain-text answer. The Local API serves a few resources as text
+ * rather than JSON — the attachment file URL among them — and a test that
+ * served those as JSON would exercise a different branch than the real one.
+ * @param mock - the server to register on.
+ * @param path - the pathname or pattern to answer.
+ * @param body - the text body.
+ * @param headers - the response headers; absent means none.
+ */
+export function serveText(
+  mock: MockZotero,
+  path: string | RegExp,
+  body: string,
+  headers: Record<string, string> = {},
+): void {
+  mock.route('GET', path, (req, res, helpers) => helpers.text(body, headers))
+}
+
 /** A non-200 answer with a plain-text body, for the failure paths. */
-export function serveStatus(mock: MockZotero, path: string, status: number, body = ''): void {
+export function serveStatus(
+  mock: MockZotero,
+  path: string | RegExp,
+  status: number,
+  body = '',
+): void {
   mock.route('GET', path, (req, res, helpers) =>
     helpers.raw(status, { 'Content-Type': 'text/plain' }, body),
   )
@@ -60,7 +98,7 @@ export interface ItemGraphSpec {
   /** The instance the answers claim; `null` omits the header, for the builds that report none. */
   readonly serverId?: string | null
   /** The library the routes are served under. */
-  readonly library?: TestLibrary
+  readonly library?: SupportedLocalLibrary
 }
 
 /**
@@ -119,11 +157,17 @@ export function serveItemGraph(mock: MockZotero, spec: ItemGraphSpec = {}): void
 export interface SearchPageSpec {
   /** The rows the listing returns. */
   readonly items: readonly WireObject[]
-  /** The total the header reports; defaults to the row count. */
-  readonly total?: number
+  /**
+   * The total the header reports; defaults to the row count, and `null` omits
+   * the header entirely — the shape a build that does not report totals
+   * answers, which the paging contract must refuse rather than guess at.
+   */
+  readonly total?: number | null
   readonly serverId?: string | null
-  readonly library?: TestLibrary
-  /** The listing endpoint; defaults to the whole-library regex. */
+  readonly library?: SupportedLocalLibrary
+  /** Any further headers, merged over the ones above. */
+  readonly headers?: Record<string, string>
+  /** The listing endpoint; defaults to the whole-library pattern. */
   readonly path?: string | RegExp
 }
 
@@ -136,9 +180,11 @@ export interface SearchPageSpec {
 export function serveSearchPage(mock: MockZotero, spec: SearchPageSpec): void {
   const library = spec.library ?? PERSONAL_LIBRARY
   const path = spec.path ?? new RegExp(`${apiPath(library)}/items(/top)?$`)
+  const total = spec.total === undefined ? spec.items.length : spec.total
   const headers: Record<string, string> = {
-    'Total-Results': String(spec.total ?? spec.items.length),
+    ...(total === null ? {} : { 'Total-Results': String(total) }),
     ...(spec.serverId === null ? {} : versionHeaders(spec.serverId ?? SERVER_ID)),
+    ...spec.headers,
   }
   mock.route('GET', path, (req, res, helpers) => helpers.json([...spec.items], headers))
 }
@@ -156,7 +202,7 @@ export function serveFulltext(
   mock: MockZotero,
   key: string,
   payload: unknown = canonicalFulltext(),
-  library: TestLibrary = PERSONAL_LIBRARY,
+  library: SupportedLocalLibrary = PERSONAL_LIBRARY,
 ): void {
   serveJson(mock, `${apiPath(library)}/items/${key}/fulltext`, payload)
 }

@@ -19,7 +19,6 @@ import {
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import type { LocalApiLimits } from '../../src/local/limits.js'
 import { MockZotero } from '../helpers/mock-zotero.js'
-import { ITEM } from '../helpers/fixtures.js'
 import {
   createProvider,
   request,
@@ -28,6 +27,17 @@ import {
   zoteroError,
   type ProviderHarness,
 } from '../helpers/provider-harness.js'
+import { expectRequestCount, expectRequestPaths } from '../helpers/server/assert.js'
+import { COLLECTION_KEY, ITEM_KEY, SERVER_ID } from '../helpers/server/keys.js'
+import {
+  attachment,
+  collectionRow,
+  item,
+  noteRow,
+  savedSearchRow,
+  searchHit,
+} from '../helpers/server/objects.js'
+import { serveJson, serveSearchPage, serveStatus } from '../helpers/server/serve.js'
 
 let mock: MockZotero
 let provider: LocalApiProvider
@@ -48,14 +58,12 @@ function makeProvider(limits: Partial<LocalApiLimits> = {}): LocalApiProvider {
 }
 
 const COLLECTIONS = [
-  { key: 'COLL1234', version: 1, data: { key: 'COLL1234', version: 1, name: 'LLM Papers' } },
-  { key: 'COLL5678', version: 1, data: { key: 'COLL5678', version: 1, name: 'Llm Papers' } },
-  { key: 'COLL9012', version: 1, data: { key: 'COLL9012', version: 1, name: 'Reasoning' } },
+  collectionRow(),
+  collectionRow({ key: 'COLL5678', data: { name: 'Llm Papers' } }),
+  collectionRow({ key: 'COLL9012', data: { name: 'Reasoning' } }),
 ]
 
-const SEARCHES = [
-  { key: 'SRCH1234', version: 1, data: { key: 'SRCH1234', version: 1, name: 'Unread Papers' } },
-]
+const SEARCHES = [savedSearchRow()]
 
 describe('buildSearchParams', () => {
   it('omits q/qmode for a metadata query and serializes every explicit filter', () => {
@@ -130,9 +138,7 @@ describe('encodeExcludeTag', () => {
 
 describe('search: library scope', () => {
   it('searches /items/top with server-side pagination and a Total-Results header', async () => {
-    mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '25', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveSearchPage(mock, { items: [searchHit()], total: 25 })
     const result = await provider.search(request({ query: 'flash', offset: 10, limit: 5 }))
     const sent = mock.requests[0]!
     expect(sent.pathname).toBe('/api/users/0/items/top')
@@ -150,9 +156,11 @@ describe('search: library scope', () => {
   })
 
   it('searches My Publications through the publications scope', async () => {
-    mock.route('GET', '/api/users/0/publications/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '3', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 3,
+      path: '/api/users/0/publications/items/top',
+    })
     const result = await provider.search(request({ scope: { kind: 'publications' } }))
     expect(result.scope).toEqual({ kind: 'publications', library: { type: 'user', id: 0 } })
     expect(mock.requests[0]!.pathname).toBe('/api/users/0/publications/items/top')
@@ -161,9 +169,7 @@ describe('search: library scope', () => {
   })
 
   it('omits nextOffset when the page reaches the reported total', async () => {
-    mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1' }),
-    )
+    serveSearchPage(mock, { items: [searchHit()], total: 1, serverId: null })
     const result = await provider.search(request({ offset: 0, limit: 10 }))
     expect(result.total).toBe(1)
     expect(result.nextOffset).toBeUndefined()
@@ -173,7 +179,7 @@ describe('search: library scope', () => {
     // Pagination honesty is uniform: without an honest total the call
     // fails instead of guessing one from the body length.
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
-      helpers.json([ITEM]),
+      helpers.json([searchHit()]),
     )
     await zoteroError(
       provider.search(request({})),
@@ -181,18 +187,21 @@ describe('search: library scope', () => {
       'Total-Results header for items top listing',
     )
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': 'garbage' }),
+      helpers.json([searchHit()], { 'Total-Results': 'garbage' }),
     )
     await zoteroError(provider.search(request({})), 'ZOTERO_UNEXPECTED', 'Total-Results')
   })
 
   it('keeps the scope provenance when the items response omits the server id', async () => {
-    mock.route('GET', '/api/users/0/collections/COLL1234', (req, res, helpers) =>
-      helpers.json(COLLECTIONS[0], { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1' }),
-    )
+    serveJson(mock, '/api/users/0/collections/COLL1234', COLLECTIONS[0], {
+      'Zotero-Server-ID': SERVER_ID,
+    })
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      serverId: null,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     const result = await provider.search(
       request({
         scope: { kind: 'collection', refOrName: 'zotero://user/0/collection/COLL1234?server=S1' },
@@ -204,16 +213,16 @@ describe('search: library scope', () => {
 
 describe('search: collection scope', () => {
   it('resolves a collection name and searches its top-level items', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Zotero-Server-ID': SERVER_ID })
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     const result = await provider.search(
       request({ scope: { kind: 'collection', refOrName: 'LLM Papers' } }),
     )
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual([
+    expectRequestPaths(mock, [
       '/api/users/0/collections',
       '/api/users/0/collections/COLL1234/items/top',
     ])
@@ -225,18 +234,21 @@ describe('search: collection scope', () => {
   })
 
   it('reuses a collection ref without re-listing all collections', async () => {
-    mock.route('GET', '/api/users/0/collections/COLL1234', (req, res, helpers) =>
-      helpers.json(COLLECTIONS[0], { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1' }),
-    )
+    serveJson(mock, '/api/users/0/collections/COLL1234', COLLECTIONS[0], {
+      'Zotero-Server-ID': SERVER_ID,
+    })
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      serverId: null,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     const result = await provider.search(
       request({
         scope: { kind: 'collection', refOrName: 'zotero://user/0/collection/COLL1234?server=S1' },
       }),
     )
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual([
+    expectRequestPaths(mock, [
       '/api/users/0/collections/COLL1234',
       '/api/users/0/collections/COLL1234/items/top',
     ])
@@ -248,9 +260,7 @@ describe('search: collection scope', () => {
   })
 
   it('fails with SCOPE_AMBIGUOUS listing candidate refs for multiple matches', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Total-Results': '3' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Total-Results': '3' })
     const error = await zoteroError(
       provider.search(request({ scope: { kind: 'collection', refOrName: 'llm papers' } })),
       ZOTERO_SCOPE_AMBIGUOUS,
@@ -260,9 +270,7 @@ describe('search: collection scope', () => {
   })
 
   it('fails with NOT_FOUND and near candidates when nothing matches', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Total-Results': '3' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Total-Results': '3' })
     const error = await zoteroError(
       provider.search(request({ scope: { kind: 'collection', refOrName: 'reason' } })),
       ZOTERO_NOT_FOUND,
@@ -272,9 +280,7 @@ describe('search: collection scope', () => {
   })
 
   it('fails with NOT_FOUND without candidates when nothing is even close', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Total-Results': '3' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Total-Results': '3' })
     const error = await zoteroError(
       provider.search(request({ scope: { kind: 'collection', refOrName: 'quantization' } })),
       ZOTERO_NOT_FOUND,
@@ -283,12 +289,10 @@ describe('search: collection scope', () => {
   })
 
   it('reports ambiguous saved searches with the saved-search wording', async () => {
-    mock.route('GET', '/api/users/0/searches', (req, res, helpers) =>
-      helpers.json([
-        { key: 'SRCH1111', version: 1, data: { key: 'SRCH1111', version: 1, name: 'unread' } },
-        { key: 'SRCH2222', version: 1, data: { key: 'SRCH2222', version: 1, name: 'UNREAD' } },
-      ]),
-    )
+    serveJson(mock, '/api/users/0/searches', [
+      savedSearchRow({ key: 'SRCH1111', data: { name: 'unread' } }),
+      savedSearchRow({ key: 'SRCH2222', data: { name: 'UNREAD' } }),
+    ])
     const error = await zoteroError(
       provider.search(request({ scope: { kind: 'savedSearch', refOrName: 'Unread' } })),
       ZOTERO_SCOPE_AMBIGUOUS,
@@ -299,12 +303,13 @@ describe('search: collection scope', () => {
   })
 
   it('resolves a collection name without server provenance on pre-10 listings', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Total-Results': '3' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Total-Results': '3' })
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      serverId: null,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     const result = await provider.search(
       request({ scope: { kind: 'collection', refOrName: 'LLM Papers' } }),
     )
@@ -317,12 +322,13 @@ describe('search: collection scope', () => {
   })
 
   it('reuses the cached scope listing across searches by name', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Total-Results': '3' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Total-Results': '3' })
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      serverId: null,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     await provider.search(request({ scope: { kind: 'collection', refOrName: 'LLM Papers' } }))
     await provider.search(request({ scope: { kind: 'collection', refOrName: 'LLM Papers' } }))
     expect(
@@ -331,12 +337,13 @@ describe('search: collection scope', () => {
   })
 
   it('does not share the scope listing cache across provider instances', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Total-Results': '3' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Total-Results': '3' })
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      serverId: null,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     await provider.search(request({ scope: { kind: 'collection', refOrName: 'LLM Papers' } }))
     await makeProvider().search(request({ scope: { kind: 'collection', refOrName: 'LLM Papers' } }))
     expect(
@@ -345,9 +352,7 @@ describe('search: collection scope', () => {
   })
 
   it('treats a non-array items response as an empty result set', async () => {
-    mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
-      helpers.json({ key: 'ABCD1234' }, { 'Total-Results': '0' }),
-    )
+    serveJson(mock, '/api/users/0/items/top', { key: ITEM_KEY }, { 'Total-Results': '0' })
     const result = await provider.search(request({}))
     expect(result.items).toEqual([])
     expect(result.total).toBe(0)
@@ -355,9 +360,7 @@ describe('search: collection scope', () => {
   })
 
   it('treats a non-array scope listing as no matches', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json({ key: 'COLL1234' }),
-    )
+    serveJson(mock, '/api/users/0/collections', { key: COLLECTION_KEY })
     const error = await zoteroError(
       provider.search(request({ scope: { kind: 'collection', refOrName: 'LLM Papers' } })),
       ZOTERO_NOT_FOUND,
@@ -366,12 +369,13 @@ describe('search: collection scope', () => {
   })
 
   it('keeps the input ref provenance when the single-object response has no server id', async () => {
-    mock.route('GET', '/api/users/0/collections/COLL1234', (req, res, helpers) =>
-      helpers.json(COLLECTIONS[0]),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1' }),
-    )
+    serveJson(mock, '/api/users/0/collections/COLL1234', COLLECTIONS[0])
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      serverId: null,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     const result = await provider.search(
       request({
         scope: { kind: 'collection', refOrName: 'zotero://user/0/collection/COLL1234?server=S1' },
@@ -388,12 +392,12 @@ describe('search: collection scope', () => {
 
 describe('search: saved search scope', () => {
   it('resolves a saved search by name and executes it with the additional filters', async () => {
-    mock.route('GET', '/api/users/0/searches', (req, res, helpers) =>
-      helpers.json(SEARCHES, { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/searches/SRCH1234/items', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveJson(mock, '/api/users/0/searches', SEARCHES, { 'Zotero-Server-ID': SERVER_ID })
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      path: '/api/users/0/searches/SRCH1234/items',
+    })
     const result = await provider.search(
       request({
         scope: { kind: 'savedSearch', refOrName: 'Unread Papers' },
@@ -414,9 +418,7 @@ describe('search: saved search scope', () => {
 
 describe('search failures', () => {
   it('maps a missing collection to NOT_FOUND', async () => {
-    mock.route('GET', '/api/users/0/collections/COLL1234', (req, res, helpers) =>
-      helpers.raw(404, { 'Content-Type': 'text/plain' }, 'Not found'),
-    )
+    serveStatus(mock, '/api/users/0/collections/COLL1234', 404, 'Not found')
     await zoteroError(
       provider.search(
         request({
@@ -437,7 +439,7 @@ describe('search failures', () => {
       'ZOTERO_INVALID_REF',
       'user/0',
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 
   it('rejects mismatched library and ref libraries', async () => {
@@ -451,19 +453,24 @@ describe('search failures', () => {
       'ZOTERO_INVALID_ARGUMENT',
       'Library mismatch',
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 
   it('infers the group library from the scope ref when library is omitted', async () => {
-    mock.route('GET', '/api/groups/42/collections/COLL1234', (req, res, helpers) =>
-      helpers.json(
-        { key: 'COLL1234', data: { key: 'COLL1234', name: 'GCol' } },
-        { 'Zotero-Server-ID': 'S1' },
-      ),
+    serveJson(
+      mock,
+      '/api/groups/42/collections/COLL1234',
+      collectionRow({ data: { name: 'GCol' } }),
+      {
+        'Zotero-Server-ID': SERVER_ID,
+      },
     )
-    mock.route('GET', '/api/groups/42/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([], { 'Total-Results': '0' }),
-    )
+    serveSearchPage(mock, {
+      items: [],
+      total: 0,
+      serverId: null,
+      path: '/api/groups/42/collections/COLL1234/items/top',
+    })
     const result = await provider.search(
       request({
         scope: { kind: 'collection', refOrName: 'zotero://group/42/collection/COLL1234' },
@@ -478,19 +485,13 @@ describe('search failures', () => {
 })
 
 describe('search: note-content scan', () => {
-  const NOTE_HIT = {
-    key: 'NOTE1111',
-    data: { itemType: 'note', note: 'cascade failure chains in infrastructure' },
-  }
-  const NOTE_OTHER = {
-    key: 'NOTE2222',
-    data: { itemType: 'note', note: 'something unrelated entirely' },
-  }
+  const NOTE_HIT = noteRow({ data: { note: 'cascade failure chains in infrastructure' } })
+  const NOTE_OTHER = noteRow({ key: 'NOTE2222', data: { note: 'something unrelated entirely' } })
 
   it('lists body-matched notes as a first-page supplement beside the paged results', async () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') helpers.json([NOTE_HIT, NOTE_OTHER])
-      else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+      else helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
     })
     const result = await provider.search(request({ query: 'cascade infrastructure' }))
     expect(result.items.map((entry) => entry.ref)).toEqual([
@@ -517,12 +518,9 @@ describe('search: note-content scan', () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') {
         helpers.json([
-          {
-            key: 'NOTE3333',
-            data: { itemType: 'note', note: 'the café serves a séance study group' },
-          },
+          noteRow({ key: 'NOTE3333', data: { note: 'the café serves a séance study group' } }),
         ])
-      } else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+      } else helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
     })
     // Unaccented query, accented note: the server-side search matches that
     // pair, so the client-side scan must not be the one that misses it.
@@ -534,30 +532,22 @@ describe('search: note-content scan', () => {
 
   it('applies the literal tag filters to the note scan', async () => {
     const scanRows = [
-      {
+      noteRow({
         key: 'NOTE5555',
         data: {
-          itemType: 'note',
           note: 'cascade infrastructure notes',
           tags: [{ tag: 'reviewed' }, { tag: 'draft' }],
         },
-      },
-      {
+      }),
+      noteRow({
         key: 'NOTE6666',
-        data: {
-          itemType: 'note',
-          note: 'cascade infrastructure notes',
-          tags: [{ tag: 'draft' }],
-        },
-      },
-      {
-        key: 'NOTE7777',
-        data: { itemType: 'note', note: 'cascade infrastructure notes', tags: [] },
-      },
+        data: { note: 'cascade infrastructure notes', tags: [{ tag: 'draft' }] },
+      }),
+      noteRow({ key: 'NOTE7777', data: { note: 'cascade infrastructure notes', tags: [] } }),
     ]
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') helpers.json(scanRows)
-      else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+      else helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
     })
     const refsOf = (result: { supplemental?: { items: { ref: string }[] } }): string[] =>
       result.supplemental?.items.map((entry) => entry.ref) ?? []
@@ -579,8 +569,8 @@ describe('search: note-content scan', () => {
   it('scans trashed notes when includeTrashed asks for them', async () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') {
-        helpers.json([{ key: 'NOTE8888', data: { itemType: 'note', note: 'cascade trashed' } }])
-      } else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+        helpers.json([noteRow({ key: 'NOTE8888', data: { note: 'cascade trashed' } })])
+      } else helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
     })
     const result = await provider.search(request({ query: 'cascade', includeTrashed: true }))
     expect(result.supplemental?.items.map((entry) => entry.ref)).toEqual([
@@ -604,13 +594,15 @@ describe('search: note-content scan', () => {
       ZOTERO_INVALID_ARGUMENT,
       'includeTrashed is only allowed with library scope',
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 
   it('keeps the publications scan inside My Publications', async () => {
-    mock.route('GET', '/api/users/0/publications/items/top', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      path: '/api/users/0/publications/items/top',
+    })
     mock.route('GET', '/api/users/0/publications/items', (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') helpers.json([NOTE_HIT])
       else helpers.json([])
@@ -627,10 +619,7 @@ describe('search: note-content scan', () => {
   })
 
   it('synthesizes a title for the merged note and dedupes API-page overlap', async () => {
-    const titled = {
-      key: 'NOTE3333',
-      data: { itemType: 'note', note: '数据计算 notes about cascade risk' },
-    }
+    const titled = noteRow({ key: 'NOTE3333', data: { note: '数据计算 notes about cascade risk' } })
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') helpers.json([titled])
       else helpers.json([titled], { 'Total-Results': '1' })
@@ -643,13 +632,13 @@ describe('search: note-content scan', () => {
   })
 
   it('skips the scan for later pages, saved searches, empty queries, and non-note type filters', async () => {
-    mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/searches', (req, res, helpers) => helpers.json(SEARCHES))
-    mock.route('GET', '/api/users/0/searches/SRCH1234/items', (req, res, helpers) =>
-      helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveSearchPage(mock, { items: [searchHit()], total: 1 })
+    serveJson(mock, '/api/users/0/searches', SEARCHES)
+    serveSearchPage(mock, {
+      items: [searchHit()],
+      total: 1,
+      path: '/api/users/0/searches/SRCH1234/items',
+    })
     await provider.search(request({ query: 'cascade', offset: 10 }))
     await provider.search(request({ query: 'cascade', itemTypes: ['journalArticle'] }))
     await provider.search(request({ query: '' }))
@@ -660,43 +649,35 @@ describe('search: note-content scan', () => {
   })
 
   it('filters scanned notes by the resolved collection and literal tags', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' }),
-    )
-    const inCollection = {
-      key: 'NOTE1111',
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Zotero-Server-ID': SERVER_ID })
+    serveSearchPage(mock, {
+      items: [],
+      total: 0,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
+    const inCollection = noteRow({
       data: {
-        itemType: 'note',
         note: 'cascade risk note',
         collections: ['COLL1234'],
         tags: [{ tag: 'reviewed' }],
       },
-    }
-    const otherCollection = {
+    })
+    const otherCollection = noteRow({
       key: 'NOTE2222',
       data: {
-        itemType: 'note',
         note: 'cascade risk note',
         collections: ['OTHER123'],
         tags: [{ tag: 'reviewed' }],
       },
-    }
-    const missingTag = {
+    })
+    const missingTag = noteRow({
       key: 'NOTE3333',
-      data: {
-        itemType: 'note',
-        note: 'cascade risk note',
-        collections: ['COLL1234'],
-        tags: [],
-      },
-    }
+      data: { note: 'cascade risk note', collections: ['COLL1234'], tags: [] },
+    })
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note')
         helpers.json([inCollection, otherCollection, missingTag])
-      else helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' })
+      else helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': SERVER_ID })
     })
     const result = await provider.search(
       request({
@@ -714,45 +695,29 @@ describe('search: note-content scan', () => {
   })
 
   it('resolves child-note collection membership through the parent item', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Zotero-Server-ID': SERVER_ID })
+    serveSearchPage(mock, {
+      items: [],
+      total: 0,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     // Zotero child notes carry no `collections` of their own — membership
     // belongs to the parent bibliographic item.
-    const childIn = {
-      key: 'NOTE1111',
-      data: {
-        itemType: 'note',
-        note: 'cascade risk note',
-        parentItem: 'PARE1111',
-        collections: [],
-      },
-    }
-    const childOtherCollection = {
+    const childIn = noteRow({
+      data: { note: 'cascade risk note', parentItem: 'PARE1111', collections: [] },
+    })
+    const childOtherCollection = noteRow({
       key: 'NOTE2222',
-      data: {
-        itemType: 'note',
-        note: 'cascade risk note',
-        parentItem: 'PARE2222',
-        collections: [],
-      },
-    }
-    const childParentMissing = {
+      data: { note: 'cascade risk note', parentItem: 'PARE2222', collections: [] },
+    })
+    const childParentMissing = noteRow({
       key: 'NOTE3333',
-      data: {
-        itemType: 'note',
-        note: 'cascade risk note',
-        parentItem: 'PARE3333',
-        collections: [],
-      },
-    }
-    const standaloneIn = {
+      data: { note: 'cascade risk note', parentItem: 'PARE3333', collections: [] },
+    })
+    const standaloneIn = noteRow({
       key: 'NOTE4444',
-      data: { itemType: 'note', note: 'cascade risk note', collections: ['COLL1234'] },
-    }
+      data: { note: 'cascade risk note', collections: ['COLL1234'] },
+    })
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note')
         helpers.json([childIn, childOtherCollection, childParentMissing, standaloneIn])
@@ -760,11 +725,11 @@ describe('search: note-content scan', () => {
         // PARE3333 stays absent: an unfetchable parent (e.g. trashed) fails closed.
         // A row with no key names no parent at all and is ignored.
         helpers.json([
-          { key: 'PARE1111', data: { collections: ['COLL1234'] } },
-          { key: 'PARE2222', data: { collections: ['OTHER123'] } },
+          item({ key: 'PARE1111', data: { collections: ['COLL1234'] } }),
+          item({ key: 'PARE2222', data: { collections: ['OTHER123'] } }),
           { data: { collections: ['COLL1234'] } },
         ])
-      } else helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' })
+      } else helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': SERVER_ID })
     })
     const result = await provider.search(
       request({ query: 'cascade', scope: { kind: 'collection', refOrName: 'LLM Papers' } }),
@@ -779,23 +744,24 @@ describe('search: note-content scan', () => {
   })
 
   it('splits parent-membership lookups into itemKey batches of at most 50', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Zotero-Server-ID': SERVER_ID })
+    serveSearchPage(mock, {
+      items: [],
+      total: 0,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     // 60 matched child notes over 59 distinct parents — one parent shared by
     // two notes proves deduplication before batching.
-    const notes = Array.from({ length: 60 }, (_, i) => ({
-      key: `NOTE${String(i).padStart(4, '0')}`,
-      data: {
-        itemType: 'note',
-        note: 'cascade risk note',
-        parentItem: `PARE${String(i % 59).padStart(4, '0')}`,
-        collections: [],
-      },
-    }))
+    const notes = Array.from({ length: 60 }, (_, i) =>
+      noteRow({
+        key: `NOTE${String(i).padStart(4, '0')}`,
+        data: {
+          note: 'cascade risk note',
+          parentItem: `PARE${String(i % 59).padStart(4, '0')}`,
+          collections: [],
+        },
+      }),
+    )
     const parentFetches: string[][] = []
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') {
@@ -807,12 +773,12 @@ describe('search: note-content scan', () => {
         const keys = itemKey.split(',')
         parentFetches.push(keys)
         helpers.json(
-          keys.map((key) => ({ key, data: { collections: ['COLL1234'] } })),
-          { 'Zotero-Server-ID': 'S1' },
+          keys.map((key) => item({ key, data: { collections: ['COLL1234'] } })),
+          { 'Zotero-Server-ID': SERVER_ID },
         )
         return
       }
-      helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' })
+      helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': SERVER_ID })
     })
     const result = await provider.search(
       request({
@@ -834,9 +800,9 @@ describe('search: note-content scan', () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note')
         helpers.json([
-          { key: 'NOTE1111', data: { itemType: 'note', note: 'cascade one' } },
-          { key: 'NOTE2222', data: { itemType: 'note', note: 'cascade two' } },
-          { key: 'NOTE3333', data: { itemType: 'note', note: 'cascade three' } },
+          noteRow({ data: { note: 'cascade one' } }),
+          noteRow({ key: 'NOTE2222', data: { note: 'cascade two' } }),
+          noteRow({ key: 'NOTE3333', data: { note: 'cascade three' } }),
         ])
       else helpers.json([], { 'Total-Results': '0' })
     })
@@ -854,7 +820,7 @@ describe('search: note-content scan', () => {
   it('treats an empty scan response as no note matches', async () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') helpers.json({})
-      else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+      else helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
     })
     const result = await provider.search(request({ query: 'cascade' }))
     expect(result.items.map((entry) => entry.ref)).toEqual([
@@ -867,17 +833,13 @@ describe('search: note-content scan', () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note')
         helpers.json([
-          {
+          attachment({
             key: 'ATTACH1X',
-            data: {
-              itemType: 'attachment',
-              note: 'cascade infrastructure note',
-              tags: [{ tag: 'reviewed' }],
-            },
-          },
-          { key: 'NOTE4444', data: { itemType: 'note', note: 'cascade without the second term' } },
+            data: { note: 'cascade infrastructure note', tags: [{ tag: 'reviewed' }] },
+          }),
+          noteRow({ key: 'NOTE4444', data: { note: 'cascade without the second term' } }),
         ])
-      else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+      else helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
     })
     const result = await provider.search(
       request({ query: 'cascade infrastructure', tags: ['reviewed'] }),
@@ -890,17 +852,19 @@ describe('search: note-content scan', () => {
   it('pages the scan in batches up to the cap', async () => {
     const capped = makeProvider({ maxNoteScanRecords: 150 })
     const batch = (count: number) =>
-      Array.from({ length: count }, (_, i) => ({
-        key: `NOTE${String(i).padStart(4, '0')}`,
-        data: { itemType: 'note', note: 'unrelated note body' },
-      }))
+      Array.from({ length: count }, (_, i) =>
+        noteRow({
+          key: `NOTE${String(i).padStart(4, '0')}`,
+          data: { note: 'unrelated note body' },
+        }),
+      )
     let scanPage = 0
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') {
         scanPage += 1
         helpers.json(scanPage === 1 ? batch(100) : batch(30))
       } else {
-        helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+        helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
       }
     })
     const result = await capped.search(request({ query: 'cascade' }))
@@ -910,16 +874,14 @@ describe('search: note-content scan', () => {
     expect(mock.requests[1]!.search.get('limit')).toBe('100')
     expect(mock.requests[2]!.search.get('start')).toBe('100')
     expect(mock.requests[2]!.search.get('limit')).toBe('50')
-    expect(mock.requests).toHaveLength(3)
+    expectRequestCount(mock, 3)
   })
 
   it('requires every query term in the note body without filter interference', async () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note')
-        helpers.json([
-          { key: 'NOTE1111', data: { itemType: 'note', note: 'cascade without the second term' } },
-        ])
-      else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+        helpers.json([noteRow({ data: { note: 'cascade without the second term' } })])
+      else helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
     })
     // No tags or collection scope here: the only thing that can exclude the
     // note is the AND term matching itself.
@@ -932,9 +894,7 @@ describe('search: note-content scan', () => {
   it('matches note bodies case-insensitively', async () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note')
-        helpers.json([
-          { key: 'NOTE1111', data: { itemType: 'note', note: 'Cascade Risk Assessment' } },
-        ])
+        helpers.json([noteRow({ data: { note: 'Cascade Risk Assessment' } })])
       else helpers.json([], { 'Total-Results': '0' })
     })
     const result = await provider.search(request({ query: 'cascade' }))
@@ -944,10 +904,10 @@ describe('search: note-content scan', () => {
   })
 
   it('scans note bodies when note is among the requested item types', async () => {
-    const note = { key: 'NOTE1111', data: { itemType: 'note', note: 'cascade note body' } }
+    const note = noteRow({ data: { note: 'cascade note body' } })
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') helpers.json([note])
-      else helpers.json([ITEM], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' })
+      else helpers.json([searchHit()], { 'Total-Results': '1', 'Zotero-Server-ID': SERVER_ID })
     })
     const result = await provider.search(
       request({ query: 'cascade', itemTypes: ['journalArticle', 'note'] }),
@@ -979,7 +939,7 @@ describe('search: note-content scan', () => {
   it('does not merge notes when the API page already fills the limit', async () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') helpers.json([NOTE_HIT])
-      else helpers.json([ITEM, ITEM, ITEM], { 'Total-Results': '3' })
+      else helpers.json([searchHit(), searchHit(), searchHit()], { 'Total-Results': '3' })
     })
     const result = await provider.search(request({ query: 'cascade', limit: 3 }))
     expect(result.items).toHaveLength(3)
@@ -991,17 +951,14 @@ describe('search: note-content scan', () => {
   })
 
   it('caps note matches at the remaining limit headroom beside a partial primary page', async () => {
-    const NOTE_HIT_2 = {
+    const NOTE_HIT_2 = noteRow({
       key: 'NOTE2222',
-      data: { itemType: 'note', note: 'cascade chains in infrastructure too' },
-    }
-    const NOTE_HIT_3 = {
-      key: 'NOTE3333',
-      data: { itemType: 'note', note: 'cascade infrastructure again' },
-    }
+      data: { note: 'cascade chains in infrastructure too' },
+    })
+    const NOTE_HIT_3 = noteRow({ key: 'NOTE3333', data: { note: 'cascade infrastructure again' } })
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) => {
       if (search.get('itemType') === 'note') helpers.json([NOTE_HIT, NOTE_HIT_2, NOTE_HIT_3])
-      else helpers.json([ITEM], { 'Total-Results': '1' })
+      else helpers.json([searchHit()], { 'Total-Results': '1' })
     })
     const result = await provider.search(request({ query: 'cascade', limit: 3 }))
     expect(result.items.map((entry) => entry.ref)).toEqual(['zotero://user/0/item/ABCD1234'])
@@ -1015,16 +972,16 @@ describe('search: note-content scan', () => {
 
   it('re-fetches a scope listing once the TTL expires', async () => {
     const ttlProvider = createProvider(mock, {}, { scopeListingTtlMs: 30 })
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Zotero-Server-ID': SERVER_ID })
+    serveSearchPage(mock, {
+      items: [],
+      total: 0,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) =>
       search.get('itemType') === 'note'
         ? helpers.json([])
-        : helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' }),
+        : helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': SERVER_ID }),
     )
     const searchByName = () =>
       ttlProvider.search(
@@ -1041,9 +998,7 @@ describe('search: note-content scan', () => {
   })
 
   it('re-checks the scope listing once before failing an unknown collection name', async () => {
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(COLLECTIONS, { 'Zotero-Server-ID': 'S1' }),
-    )
+    serveJson(mock, '/api/users/0/collections', COLLECTIONS, { 'Zotero-Server-ID': SERVER_ID })
     await zoteroError(
       provider.search(
         request({ query: 'cascade', scope: { kind: 'collection', refOrName: 'Missing' } }),
@@ -1060,21 +1015,22 @@ describe('search: note-content scan', () => {
 
   it('finds a collection created after the cached listing via the miss re-check', async () => {
     let created = false
+    // The listing answers per request: the first read (a miss) and the
+    // re-check after `created` flips must see different bodies.
     mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(
-        created ? [{ key: 'COLL1234', data: { key: 'COLL1234', name: 'Brand New' } }] : COLLECTIONS,
-        {
-          'Zotero-Server-ID': 'S1',
-        },
-      ),
+      helpers.json(created ? [collectionRow({ data: { name: 'Brand New' } })] : COLLECTIONS, {
+        'Zotero-Server-ID': SERVER_ID,
+      }),
     )
-    mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
-      helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' }),
-    )
+    serveSearchPage(mock, {
+      items: [],
+      total: 0,
+      path: '/api/users/0/collections/COLL1234/items/top',
+    })
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers, search) =>
       search.get('itemType') === 'note'
         ? helpers.json([])
-        : helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': 'S1' }),
+        : helpers.json([], { 'Total-Results': '0', 'Zotero-Server-ID': SERVER_ID }),
     )
     await zoteroError(
       provider.search(

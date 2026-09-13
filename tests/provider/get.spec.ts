@@ -14,18 +14,40 @@ import { ZOTERO_FILE_MISSING, ZOTERO_NO_ATTACHMENT } from '../../src/errors.js'
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import type { LocalApiLimits } from '../../src/local/limits.js'
 import { parseRef } from '../../src/refs.js'
-import { MockZotero } from '../helpers/mock-zotero.js'
-import { ATTACHMENT_CHILD_ROWS, CHILD_ROWS } from '../helpers/fixtures.js'
 import {
   createProvider,
   getRequest,
   setupProvider,
   teardownProvider,
-  zoteroError,
   type ProviderHarness,
 } from '../helpers/provider-harness.js'
+import {
+  expectRequestCount,
+  expectRequestPaths,
+  requestPaths,
+  zoteroError,
+} from '../helpers/server/assert.js'
+import {
+  ATTACHMENT_KEY,
+  COLLECTION_KEY,
+  ITEM_KEY,
+  SECOND_ITEM_KEY,
+  apiPath,
+  attachmentRef,
+  itemRef,
+} from '../helpers/server/keys.js'
+import {
+  annotationRow,
+  attachment,
+  collectionRow,
+  item,
+  noteRow,
+  paperItem,
+  versionHeaders,
+} from '../helpers/server/objects.js'
+import { serveJson, serveText } from '../helpers/server/serve.js'
 
-let mock: MockZotero
+let mock: ProviderHarness['mock']
 let provider: LocalApiProvider
 let harness: ProviderHarness
 let tempDir: string
@@ -45,39 +67,26 @@ function makeProvider(limits: Partial<LocalApiLimits> = {}): LocalApiProvider {
   return createProvider(mock, limits)
 }
 
-const PARENT = {
-  key: 'ABCD1234',
-  version: 3,
-  links: {
-    self: { href: 'http://localhost:23119/api/users/0/items/ABCD1234', type: 'application/json' },
-    attachment: {
-      href: 'http://localhost:23119/api/users/0/items/WXYZ6789',
-      type: 'application/json',
-      attachmentType: 'application/pdf',
-    },
-  },
-  meta: { creatorSummary: 'Dao, Tri', parsedDate: '2023-07-28', numChildren: 2 },
-  data: {
-    itemType: 'journalArticle',
-    title: 'FlashAttention-2',
-    date: '2023-07-28',
-    creators: [{ creatorType: 'author', firstName: 'Tri', lastName: 'Dao' }],
-    publicationTitle: 'ICML',
-    tags: [{ tag: 'attention' }],
-    collections: ['COLL1234'],
-  },
-}
+/** The paper as the detail reads see it: one tag, one collection, two children. */
+const PARENT = paperItem({
+  meta: { numChildren: 2 },
+  data: { tags: [{ tag: 'attention' }], collections: [COLLECTION_KEY] },
+})
+
+/** The same paper with no collection membership, for the reads that must skip the listing. */
+const PARENT_WITHOUT_COLLECTIONS = paperItem({
+  meta: { numChildren: 2 },
+  data: { tags: [{ tag: 'attention' }] },
+})
+
+/** The canonical PDF as the location reads see it. */
+const FILE_ATTACHMENT = attachment()
 
 describe('getItem', () => {
   it('fetches only the parent when nothing is included', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(
-        { ...PARENT, data: { ...PARENT.data, collections: [] } },
-        { 'Zotero-Server-ID': 'S1' },
-      ),
-    )
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT_WITHOUT_COLLECTIONS, versionHeaders())
     const detail = await provider.getItem(getRequest())
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual(['/api/users/0/items/ABCD1234'])
+    expectRequestPaths(mock, ['/api/users/0/items/ABCD1234'])
     expect(detail.ref).toBe('zotero://user/0/item/ABCD1234?server=S1')
     expect(detail.children.total).toBe(2)
     expect(detail.notes).toBeUndefined()
@@ -89,24 +98,24 @@ describe('getItem', () => {
   })
 
   it('fetches children lazily and resolves collection names once', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(PARENT, { 'Zotero-Server-ID': 'S1' }),
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT, versionHeaders())
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ITEM_KEY}/children`,
+      [noteRow(), attachment()],
+      versionHeaders(),
     )
-    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
-      helpers.json(CHILD_ROWS, { 'Zotero-Server-ID': 'S1' }),
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}/children`,
+      [annotationRow()],
+      versionHeaders(),
     )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/children', (req, res, helpers) =>
-      helpers.json(ATTACHMENT_CHILD_ROWS, { 'Zotero-Server-ID': 'S1' }),
-    )
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json([
-        { key: 'COLL1234', version: 1, data: { key: 'COLL1234', version: 1, name: 'LLM Papers' } },
-      ]),
-    )
+    serveJson(mock, `${apiPath()}/collections`, [collectionRow()])
     const detail = await provider.getItem(getRequest(['notes', 'annotations', 'attachments']))
     // The parent, its children, the attachment-level annotation walk, and one
     // collections listing — the two independent arms may interleave.
-    const paths = mock.requests.map((entry) => entry.pathname)
+    const paths = requestPaths(mock)
     expect(paths[0]).toBe('/api/users/0/items/ABCD1234')
     expect(paths.slice(1).sort()).toEqual(
       [
@@ -135,68 +144,49 @@ describe('getItem', () => {
   })
 
   it('skips the collections listing for items without collections', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json({ ...PARENT, data: { ...PARENT.data, collections: [] } }),
-    )
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT_WITHOUT_COLLECTIONS)
     await provider.getItem(getRequest())
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual(['/api/users/0/items/ABCD1234'])
+    expectRequestPaths(mock, ['/api/users/0/items/ABCD1234'])
   })
 
   it('leaves collection names off when the listing lacks them', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) => helpers.json(PARENT))
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json([
-        { key: 'COLL9999', version: 1, data: { key: 'COLL9999', version: 1, name: 'Other' } },
-      ]),
-    )
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT)
+    serveJson(mock, `${apiPath()}/collections`, [
+      collectionRow({ key: 'COLL9999', data: { name: 'Other' } }),
+    ])
     const detail = await provider.getItem(getRequest())
     expect(detail.collections).toEqual([{ ref: 'zotero://user/0/collection/COLL1234' }])
   })
 
   it('treats a non-array children response as no children', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json({ ...PARENT, data: { ...PARENT.data, collections: [] } }),
-    )
-    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
-      helpers.json({ key: 'NOTE1111' }),
-    )
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT_WITHOUT_COLLECTIONS)
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}/children`, { key: 'NOTE1111' })
     const detail = await provider.getItem(getRequest(['notes']))
     expect(detail.notes).toEqual({ total: 0, returned: 0, items: [] })
   })
 
   it('applies the configured note and annotation record caps', async () => {
-    const notes = Array.from({ length: 7 }, (_, i) => ({
-      key: `NOTE${String(i).padStart(4, '0')}`,
-      data: { itemType: 'note', note: `note ${i}` },
-    }))
-    const annotations = Array.from({ length: 3 }, (_, i) => ({
-      key: `ANNO${String(i).padStart(4, '0')}`,
-      data: {
-        itemType: 'annotation',
-        annotationType: 'highlight',
-        annotationText: `a ${i}`,
-        annotationSortIndex: String(i).padStart(5, '0'),
-        parentItem: 'ATTA0001',
-      },
-    }))
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(
-        { ...PARENT, data: { ...PARENT.data, collections: [] } },
-        { 'Zotero-Server-ID': 'S1' },
-      ),
+    const notes = Array.from({ length: 7 }, (_, i) =>
+      noteRow({ key: `NOTE${String(i).padStart(4, '0')}`, data: { note: `note ${i}` } }),
     )
-    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
-      helpers.json(
-        [
-          ...notes,
-          { key: 'ATTA0001', data: { itemType: 'attachment', contentType: 'application/pdf' } },
-        ],
-        { 'Zotero-Server-ID': 'S1' },
-      ),
+    const annotations = Array.from({ length: 3 }, (_, i) =>
+      annotationRow({
+        key: `ANNO${String(i).padStart(4, '0')}`,
+        data: {
+          annotationText: `a ${i}`,
+          annotationSortIndex: String(i).padStart(5, '0'),
+          parentItem: 'ATTA0001',
+        },
+      }),
     )
-    mock.route('GET', '/api/users/0/items/ATTA0001/children', (req, res, helpers) =>
-      helpers.json(annotations, { 'Zotero-Server-ID': 'S1' }),
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT_WITHOUT_COLLECTIONS, versionHeaders())
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ITEM_KEY}/children`,
+      [...notes, attachment({ key: 'ATTA0001' })],
+      versionHeaders(),
     )
+    serveJson(mock, `${apiPath()}/items/ATTA0001/children`, annotations, versionHeaders())
     const capped = makeProvider({ maxNoteRecords: 2, maxAnnotationRecords: 1, maxNoteChars: 5 })
     const detail = await capped.getItem(getRequest(['notes', 'annotations']))
     expect(detail.notes).toMatchObject({ total: 7, returned: 2 })
@@ -206,10 +196,10 @@ describe('getItem', () => {
   })
 
   it('passes unconsumed data fields through under fields:"all"', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json({
-        key: 'ABCD1234',
-        version: 3,
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ITEM_KEY}`,
+      item({
         data: {
           itemType: 'dataset',
           title: 'Attention Is All You Need — replication data',
@@ -222,7 +212,7 @@ describe('getItem', () => {
       }),
     )
     const all = await provider.getItem({
-      ref: parseRef('zotero://user/0/item/ABCD1234'),
+      ref: parseRef(itemRef()),
       include: new Set(),
       fields: 'all',
     })
@@ -239,17 +229,24 @@ describe('getItem', () => {
   })
 
   it('reuses the cached collections listing across items', async () => {
-    const listing = [
-      { key: 'COLL1234', version: 1, data: { key: 'COLL1234', version: 1, name: 'LLM Papers' } },
-    ]
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) => helpers.json(PARENT))
-    mock.route('GET', '/api/users/0/items/EFGH5678', (req, res, helpers) =>
-      helpers.json({ ...PARENT, key: 'EFGH5678', data: { ...PARENT.data, key: 'EFGH5678' } }),
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT)
+    serveJson(
+      mock,
+      `${apiPath()}/items/${SECOND_ITEM_KEY}`,
+      paperItem({
+        key: SECOND_ITEM_KEY,
+        meta: { numChildren: 2 },
+        data: {
+          key: SECOND_ITEM_KEY,
+          tags: [{ tag: 'attention' }],
+          collections: [COLLECTION_KEY],
+        },
+      }),
     )
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) => helpers.json(listing))
+    serveJson(mock, `${apiPath()}/collections`, [collectionRow()])
     const first = await provider.getItem(getRequest())
     const second = await provider.getItem({
-      ref: parseRef('zotero://user/0/item/EFGH5678'),
+      ref: parseRef(itemRef(SECOND_ITEM_KEY)),
       include: new Set(),
     })
     expect(
@@ -264,41 +261,29 @@ describe('getItem', () => {
   it('rejects non-item refs before any request happens', async () => {
     await zoteroError(
       provider.getItem({
-        ref: parseRef('zotero://user/0/attachment/WXYZ6789'),
+        ref: parseRef(attachmentRef()),
         include: new Set(),
       }),
       'ZOTERO_INVALID_REF',
       'Expected a item reference',
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 })
 
 describe('getAttachmentLocation', () => {
-  const FILE_ATTACHMENT = {
-    key: 'WXYZ6789',
-    version: 1,
-    data: {
-      itemType: 'attachment',
-      title: 'Full Text PDF',
-      contentType: 'application/pdf',
-      linkMode: 'imported_file',
-    },
-  }
-
   it('resolves an imported file through /file/view/url and verifies it on disk', async () => {
     const filePath = join(tempDir, 'paper.pdf')
     writeFileSync(filePath, '%PDF stub')
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT, { 'Zotero-Server-ID': 'S1' }),
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT, versionHeaders())
+    // `/file/view/url` answers plain text, so it needs `serveText`, not `serveJson`.
+    serveText(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`,
+      pathToFileURL(filePath).href,
     )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text(pathToFileURL(filePath).href),
-    )
-    const location = await provider.getAttachmentLocation(
-      parseRef('zotero://user/0/attachment/WXYZ6789'),
-    )
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual([
+    const location = await provider.getAttachmentLocation(parseRef(attachmentRef()))
+    expectRequestPaths(mock, [
       '/api/users/0/items/WXYZ6789',
       '/api/users/0/items/WXYZ6789/file/view/url',
     ])
@@ -313,14 +298,10 @@ describe('getAttachmentLocation', () => {
 
   it('fails with FILE_MISSING when the reported file is gone', async () => {
     const missing = pathToFileURL(join(tempDir, 'gone.pdf')).href
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT),
-    )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text(missing),
-    )
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT)
+    serveText(mock, `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`, missing)
     const error = await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_FILE_MISSING,
       'missing from disk',
     )
@@ -328,22 +309,16 @@ describe('getAttachmentLocation', () => {
   })
 
   it('serves linked-URL attachments from data.url without touching /file/view/url', async () => {
-    const linked = {
-      key: 'WXYZ6789',
-      version: 1,
+    const linked = attachment({
       data: {
-        itemType: 'attachment',
         title: 'Preprint',
-        contentType: 'application/pdf',
         linkMode: 'linked_url',
         url: 'https://arxiv.org/pdf/2307.08691',
       },
-    }
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) => helpers.json(linked))
-    const location = await provider.getAttachmentLocation(
-      parseRef('zotero://user/0/attachment/WXYZ6789'),
-    )
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual(['/api/users/0/items/WXYZ6789'])
+    })
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, linked)
+    const location = await provider.getAttachmentLocation(parseRef(attachmentRef()))
+    expectRequestPaths(mock, ['/api/users/0/items/WXYZ6789'])
     expect(location).toEqual({
       ref: 'zotero://user/0/attachment/WXYZ6789',
       title: 'Preprint',
@@ -354,113 +329,95 @@ describe('getAttachmentLocation', () => {
   })
 
   it('fails with NO_ATTACHMENT when a linked-URL attachment reports no URL', async () => {
-    const linked = {
-      key: 'WXYZ6789',
-      version: 1,
-      data: { itemType: 'attachment', title: 'Preprint', linkMode: 'linked_url' },
-    }
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) => helpers.json(linked))
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}`,
+      attachment({ data: { title: 'Preprint', linkMode: 'linked_url' } }),
+    )
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'reported none',
     )
   })
 
   it('fails with NO_ATTACHMENT when the referenced object is not an attachment', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json({
-        key: 'WXYZ6789',
-        version: 1,
-        data: { itemType: 'note', note: 'not a file' },
-      }),
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}`,
+      noteRow({ key: ATTACHMENT_KEY, data: { note: 'not a file' } }),
     )
     const error = await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'not an attachment',
     )
     expect(error.message).toContain('note')
-    expect(mock.requests).toHaveLength(1)
+    expectRequestCount(mock, 1)
   })
 
   it('fails with NO_ATTACHMENT when /file/view/url reports no usable location', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT),
-    )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text('false'),
-    )
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT)
+    serveText(mock, `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`, 'false')
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'no usable file location',
     )
   })
 
   it('passes non-file URLs through as url locations', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT),
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT)
+    serveText(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`,
+      'https://example.com/paper.pdf',
     )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text('https://example.com/paper.pdf'),
-    )
-    const location = await provider.getAttachmentLocation(
-      parseRef('zotero://user/0/attachment/WXYZ6789'),
-    )
+    const location = await provider.getAttachmentLocation(parseRef(attachmentRef()))
     expect(location.kind).toBe('url')
     expect((location as { url: string }).url).toBe('https://example.com/paper.pdf')
   })
 
   it('rejects an ftp: location from /file/view/url', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT),
-    )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text('ftp://files.example.com/paper.pdf'),
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT)
+    serveText(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`,
+      'ftp://files.example.com/paper.pdf',
     )
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'unsupported protocol',
     )
   })
 
   it('rejects a javascript: location from /file/view/url', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT),
-    )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text('javascript:alert(1)'),
-    )
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT)
+    serveText(mock, `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`, 'javascript:alert(1)')
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'unsupported protocol',
     )
   })
 
   it('rejects a relative location from /file/view/url', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT),
-    )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text('relative/paper.pdf'),
-    )
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT)
+    serveText(mock, `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`, 'relative/paper.pdf')
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'no usable file location',
     )
   })
 
   it('rejects a linked-URL attachment with a non-http(s) target', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json({
-        key: 'WXYZ6789',
-        version: 1,
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}`,
+      attachment({
         data: {
-          itemType: 'attachment',
           title: 'Preprint',
           linkMode: 'linked_url',
           url: 'javascript:alert(1)',
@@ -468,19 +425,18 @@ describe('getAttachmentLocation', () => {
       }),
     )
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'unsupported protocol',
     )
   })
 
   it('rejects a linked-URL attachment pointing at a file: target', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json({
-        key: 'WXYZ6789',
-        version: 1,
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}`,
+      attachment({
         data: {
-          itemType: 'attachment',
           title: 'Preprint',
           linkMode: 'linked_url',
           url: 'file:///tmp/paper.pdf',
@@ -488,19 +444,18 @@ describe('getAttachmentLocation', () => {
       }),
     )
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'unsupported protocol',
     )
   })
 
   it('rejects a linked-URL attachment with an unparsable target', async () => {
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json({
-        key: 'WXYZ6789',
-        version: 1,
+    serveJson(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}`,
+      attachment({
         data: {
-          itemType: 'attachment',
           title: 'Preprint',
           linkMode: 'linked_url',
           url: 'not a web url',
@@ -508,7 +463,7 @@ describe('getAttachmentLocation', () => {
       }),
     )
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/attachment/WXYZ6789')),
+      provider.getAttachmentLocation(parseRef(attachmentRef())),
       ZOTERO_NO_ATTACHMENT,
       'not a usable web location',
     )
@@ -520,60 +475,31 @@ describe('getAttachmentLocation', () => {
       'ZOTERO_INVALID_REF',
       'user/0',
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 })
 
 describe('getItem collections edge cases', () => {
   it('treats a non-array collections listing as no names', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) => helpers.json(PARENT))
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json({ key: 'COLL1234' }),
-    )
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT)
+    serveJson(mock, `${apiPath()}/collections`, { key: 'COLL1234' })
     const detail = await provider.getItem(getRequest())
     expect(detail.collections).toEqual([{ ref: 'zotero://user/0/collection/COLL1234' }])
   })
 })
 describe('getAttachmentLocation via item refs', () => {
-  const FILE_ATTACHMENT = {
-    key: 'WXYZ6789',
-    version: 1,
-    data: {
-      itemType: 'attachment',
-      title: 'Full Text PDF',
-      contentType: 'application/pdf',
-      linkMode: 'imported_file',
-    },
-  }
-
   it("resolves an item ref through Zotero's best-attachment link", async () => {
     const filePath = join(tempDir, 'paper.pdf')
     writeFileSync(filePath, '%PDF stub')
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(
-        {
-          key: 'ABCD1234',
-          version: 3,
-          links: {
-            attachment: {
-              href: 'http://localhost:23119/api/users/0/items/WXYZ6789',
-              type: 'application/json',
-              attachmentType: 'application/pdf',
-            },
-          },
-          data: { itemType: 'journalArticle', title: 'FlashAttention-2' },
-        },
-        { 'Zotero-Server-ID': 'S1' },
-      ),
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, paperItem(), versionHeaders())
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT)
+    serveText(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`,
+      pathToFileURL(filePath).href,
     )
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT),
-    )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text(pathToFileURL(filePath).href),
-    )
-    const location = await provider.getAttachmentLocation(parseRef('zotero://user/0/item/ABCD1234'))
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual([
+    const location = await provider.getAttachmentLocation(parseRef(itemRef()))
+    expectRequestPaths(mock, [
       '/api/users/0/items/ABCD1234',
       '/api/users/0/items/WXYZ6789',
       '/api/users/0/items/WXYZ6789/file/view/url',
@@ -590,35 +516,19 @@ describe('getAttachmentLocation via item refs', () => {
   it('falls back to a PDF child when the item has no attachment link', async () => {
     const filePath = join(tempDir, 'paper.pdf')
     writeFileSync(filePath, '%PDF stub')
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json({
-        key: 'ABCD1234',
-        version: 3,
-        data: { itemType: 'journalArticle', title: 'T' },
-      }),
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, item({ data: { title: 'T' } }))
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}/children`, [
+      noteRow({ data: { note: 'n' } }),
+      attachment(),
+    ])
+    serveJson(mock, `${apiPath()}/items/${ATTACHMENT_KEY}`, FILE_ATTACHMENT)
+    serveText(
+      mock,
+      `${apiPath()}/items/${ATTACHMENT_KEY}/file/view/url`,
+      pathToFileURL(filePath).href,
     )
-    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
-      helpers.json([
-        { key: 'NOTE1111', data: { itemType: 'note', note: 'n' } },
-        {
-          key: 'WXYZ6789',
-          data: {
-            itemType: 'attachment',
-            title: 'Full Text PDF',
-            contentType: 'application/pdf',
-            linkMode: 'imported_file',
-          },
-        },
-      ]),
-    )
-    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-      helpers.json(FILE_ATTACHMENT),
-    )
-    mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
-      helpers.text(pathToFileURL(filePath).href),
-    )
-    const location = await provider.getAttachmentLocation(parseRef('zotero://user/0/item/ABCD1234'))
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual([
+    const location = await provider.getAttachmentLocation(parseRef(itemRef()))
+    expectRequestPaths(mock, [
       '/api/users/0/items/ABCD1234',
       '/api/users/0/items/ABCD1234/children',
       '/api/users/0/items/WXYZ6789',
@@ -628,37 +538,20 @@ describe('getAttachmentLocation via item refs', () => {
   })
 
   it('fails with NO_ATTACHMENT when the item has no attachment', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json({
-        key: 'ABCD1234',
-        version: 3,
-        data: { itemType: 'journalArticle', title: 'T' },
-      }),
-    )
-    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
-      helpers.json([{ key: 'NOTE1111', data: { itemType: 'note', note: 'only a note' } }]),
-    )
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, item({ data: { title: 'T' } }))
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}/children`, [
+      noteRow({ data: { note: 'only a note' } }),
+    ])
     await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/item/ABCD1234')),
+      provider.getAttachmentLocation(parseRef(itemRef())),
       ZOTERO_NO_ATTACHMENT,
       'no attachment',
     )
   })
 
   it('fails with NO_ATTACHMENT on a non-array children fallback', async () => {
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json({
-        key: 'ABCD1234',
-        version: 3,
-        data: { itemType: 'journalArticle', title: 'T' },
-      }),
-    )
-    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
-      helpers.json({ key: 'NOTE1111' }),
-    )
-    await zoteroError(
-      provider.getAttachmentLocation(parseRef('zotero://user/0/item/ABCD1234')),
-      ZOTERO_NO_ATTACHMENT,
-    )
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, item({ data: { title: 'T' } }))
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}/children`, { key: 'NOTE1111' })
+    await zoteroError(provider.getAttachmentLocation(parseRef(itemRef())), ZOTERO_NO_ATTACHMENT)
   })
 })

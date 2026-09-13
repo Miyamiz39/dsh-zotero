@@ -10,15 +10,24 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import { parseRef } from '../../src/refs.js'
-import { MockZotero } from '../helpers/mock-zotero.js'
 import {
   createProvider,
   setupProvider,
   teardownProvider,
   type ProviderHarness,
 } from '../helpers/provider-harness.js'
+import {
+  COLLECTION_KEY,
+  GROUP_LIBRARY,
+  ITEM_KEY,
+  apiPath,
+  itemRef,
+  refOf,
+} from '../helpers/server/keys.js'
+import { collectionRow, item, versionHeaders } from '../helpers/server/objects.js'
+import { serveJson, serveStatus } from '../helpers/server/serve.js'
 
-let mock: MockZotero
+let mock: ProviderHarness['mock']
 let provider: LocalApiProvider
 let harness: ProviderHarness
 
@@ -33,40 +42,28 @@ afterEach(async () => {
 })
 
 /** The parent item fixture; its collection membership drives name resolution. */
-const PARENT = {
-  key: 'ABCD1234',
-  version: 3,
-  meta: { numChildren: 0 },
-  data: {
-    itemType: 'journalArticle',
-    title: 'FlashAttention-2',
-    collections: ['COLL1234'],
-  },
-}
+const PARENT = item({ meta: { numChildren: 0 }, data: { collections: [COLLECTION_KEY] } })
 
+/** The canonical collection row, renamed to say which instance served it. */
 function collectionListing(instance: 'A' | 'B'): unknown[] {
-  return [
-    {
-      key: 'COLL1234',
-      version: 1,
-      data: { key: 'COLL1234', version: 1, name: `${instance} Papers` },
-    },
-  ]
+  return [collectionRow({ data: { name: `${instance} Papers` } })]
 }
 
 describe('Server-ID cache identity', () => {
   it('re-fetches a claimed listing served by another instance inside the TTL', async () => {
     let instance: 'A' | 'B' = 'A'
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(PARENT, { 'Zotero-Server-ID': instance }),
+    // Both routes answer as the current instance, which flips before the
+    // second read; a serve* helper would freeze the first response.
+    mock.route('GET', `${apiPath()}/items/${ITEM_KEY}`, (req, res, helpers) =>
+      helpers.json(PARENT, versionHeaders(instance)),
     )
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(collectionListing(instance), { 'Zotero-Server-ID': instance }),
+    mock.route('GET', `${apiPath()}/collections`, (req, res, helpers) =>
+      helpers.json(collectionListing(instance), versionHeaders(instance)),
     )
 
     // First read pins instance A's listing in the TTL cache.
     const first = await provider.getItem({
-      ref: parseRef('zotero://user/0/item/ABCD1234'),
+      ref: parseRef(itemRef()),
       include: new Set(),
     })
     expect(first.collections).toEqual([
@@ -92,21 +89,22 @@ describe('Server-ID cache identity', () => {
 
   it('keeps serving the TTL cache for reads without an identity claim', async () => {
     let instance: 'A' | 'B' = 'A'
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(PARENT, { 'Zotero-Server-ID': instance }),
-    )
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(collectionListing(instance), { 'Zotero-Server-ID': instance }),
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT, versionHeaders(instance))
+    serveJson(
+      mock,
+      `${apiPath()}/collections`,
+      collectionListing(instance),
+      versionHeaders(instance),
     )
 
     await provider.getItem({
-      ref: parseRef('zotero://user/0/item/ABCD1234'),
+      ref: parseRef(itemRef()),
       include: new Set(),
     })
     // A second unclaimed read rides the cached listing — no identity claim,
     // so the entry's own TTL governs staleness as before.
     await provider.getItem({
-      ref: parseRef('zotero://user/0/item/ABCD1234'),
+      ref: parseRef(itemRef()),
       include: new Set(),
     })
     expect(
@@ -118,24 +116,20 @@ describe('Server-ID cache identity', () => {
     // First response carries no Server-ID (pre-Zotero-10 behavior).
     let sendId = false
     let servedName = 'A Papers'
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(PARENT, sendId ? { 'Zotero-Server-ID': 'B' } : {}),
+    // Both values change before the claiming read; a serve* helper would
+    // freeze the anonymous first answer.
+    mock.route('GET', `${apiPath()}/items/${ITEM_KEY}`, (req, res, helpers) =>
+      helpers.json(PARENT, sendId ? versionHeaders('B') : {}),
     )
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
+    mock.route('GET', `${apiPath()}/collections`, (req, res, helpers) =>
       helpers.json(
-        [
-          {
-            key: 'COLL1234',
-            version: 1,
-            data: { key: 'COLL1234', version: 1, name: servedName },
-          },
-        ],
-        sendId ? { 'Zotero-Server-ID': 'B' } : {},
+        [collectionRow({ data: { name: servedName } })],
+        sendId ? versionHeaders('B') : {},
       ),
     )
 
     await provider.getItem({
-      ref: parseRef('zotero://user/0/item/ABCD1234'),
+      ref: parseRef(itemRef()),
       include: new Set(),
     })
     // A claiming read cannot prove the anonymous entry matches; re-fetch.
@@ -155,25 +149,27 @@ describe('Server-ID cache identity', () => {
 
   it('serves group listings under their own library partition', async () => {
     let instance: 'A' | 'B' = 'A'
-    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(PARENT, { 'Zotero-Server-ID': instance }),
+    serveJson(mock, `${apiPath()}/items/${ITEM_KEY}`, PARENT, versionHeaders(instance))
+    serveJson(
+      mock,
+      `${apiPath()}/collections`,
+      collectionListing(instance),
+      versionHeaders(instance),
     )
-    mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
-      helpers.json(collectionListing(instance), { 'Zotero-Server-ID': instance }),
-    )
-    mock.route('GET', '/api/groups/42/items/ABCD1234', (req, res, helpers) =>
-      helpers.json(PARENT, { 'Zotero-Server-ID': instance }),
-    )
-    mock.route('GET', '/api/groups/42/collections', (req, res, helpers) =>
-      helpers.json(collectionListing(instance), { 'Zotero-Server-ID': instance }),
+    serveJson(mock, `${apiPath(GROUP_LIBRARY)}/items/${ITEM_KEY}`, PARENT, versionHeaders(instance))
+    serveJson(
+      mock,
+      `${apiPath(GROUP_LIBRARY)}/collections`,
+      collectionListing(instance),
+      versionHeaders(instance),
     )
 
     const personal = await provider.getItem({
-      ref: parseRef('zotero://user/0/item/ABCD1234'),
+      ref: parseRef(itemRef()),
       include: new Set(),
     })
     const group = await provider.getItem({
-      ref: parseRef('zotero://group/42/item/ABCD1234'),
+      ref: parseRef(refOf('item', ITEM_KEY, GROUP_LIBRARY)),
       include: new Set(),
     })
     expect(personal.collections[0]!.ref).toContain('user/0')
@@ -191,9 +187,7 @@ describe('Server-ID cache identity', () => {
   })
 
   it('carries the error code in the status diagnosis so callers can route on it', async () => {
-    mock.route('GET', '/api/', (req, res, helpers) =>
-      helpers.raw(403, { 'Content-Type': 'text/plain' }, 'forbidden'),
-    )
+    serveStatus(mock, '/api/', 403, 'forbidden')
     const status = await provider.status()
     expect(status.connected).toBe(false)
     expect(status.diagnosis).toContain('ZOTERO_API_DISABLED')

@@ -14,6 +14,13 @@
  * @module tests/helpers/server/keys
  */
 
+import type {
+  GroupLibrary,
+  PersonalLibrary,
+  SupportedLocalLibrary,
+  ZoteroLibraryRef,
+} from '../../../src/types.js'
+
 /** The instance id every fixture response reports unless a test says otherwise. */
 export const SERVER_ID = 'S1'
 
@@ -48,24 +55,24 @@ export const COLLECTION_KEY = 'COLL1234'
 /** The canonical saved search, `Unread Papers`. */
 export const SAVED_SEARCH_KEY = 'SRCH1234'
 
-/** A library as the canonical-ref helpers and the `library` tool argument name it. */
-export interface TestLibrary {
-  readonly type: 'user' | 'group'
-  readonly id: number
-}
-
-/** The personal library, the default every fixture response is served under. */
-export const PERSONAL_LIBRARY: TestLibrary = { type: 'user', id: 0 }
+/**
+ * The personal library, the default every fixture response is served under.
+ * Typed as the domain's own `PersonalLibrary` rather than as a loose
+ * `{type, id}` pair, so the fixture values can be passed straight into a
+ * provider request without a cast: a cast at the call site is exactly where a
+ * wrong library id would hide.
+ */
+export const PERSONAL_LIBRARY: PersonalLibrary = { type: 'user', id: 0 }
 
 /** The group library {@link GROUP_ID} names. */
-export const GROUP_LIBRARY: TestLibrary = { type: 'group', id: GROUP_ID }
+export const GROUP_LIBRARY: GroupLibrary = { type: 'group', id: GROUP_ID }
 
 /**
  * The API path prefix for one library: `/api/users/0` or `/api/groups/42`.
  * `MockZotero.route` matches pathnames exactly, so every route registration
  * and every request assertion goes through here.
  */
-export function apiPath(library: TestLibrary = PERSONAL_LIBRARY): string {
+export function apiPath(library: SupportedLocalLibrary = PERSONAL_LIBRARY): string {
   return library.type === 'user' ? `/api/users/${library.id}` : `/api/groups/${library.id}`
 }
 
@@ -74,8 +81,21 @@ export function apiPath(library: TestLibrary = PERSONAL_LIBRARY): string {
  * `src/refs.ts`. The fixtures state the wire format independently of the code
  * that parses it: a ref helper that called `formatRef` would agree with a bug
  * in `formatRef` and pin nothing.
+ *
+ * The library is the wide `ZoteroLibraryRef`, not the supported subset: refs
+ * naming a library this plugin refuses are exactly what several specs feed in
+ * to prove the refusal, and a signature that could not express them would
+ * force a cast at the call site.
+ * @param kind - the object kind in the ref grammar.
+ * @param key - the object key.
+ * @param library - the library the ref names.
+ * @returns the ref string.
  */
-export function refOf(kind: string, key: string, library: TestLibrary = PERSONAL_LIBRARY): string {
+export function refOf(
+  kind: string,
+  key: string,
+  library: ZoteroLibraryRef = PERSONAL_LIBRARY,
+): string {
   const scope = library.type === 'user' ? `user/${library.id}` : `group/${library.id}`
   return `zotero://${scope}/${kind}/${key}`
 }

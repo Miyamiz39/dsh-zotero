@@ -11,15 +11,17 @@ import { ZOTERO_INVALID_ARGUMENT, ZOTERO_INVALID_REF } from '../../src/errors.js
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import { parseRef } from '../../src/refs.js'
 import type { ZoteroChildrenRequest } from '../../src/types.js'
-import { MockZotero } from '../helpers/mock-zotero.js'
 import {
   setupProvider,
   teardownProvider,
-  zoteroError,
   type ProviderHarness,
 } from '../helpers/provider-harness.js'
+import { expectRequestCount, expectRequestPaths, zoteroError } from '../helpers/server/assert.js'
+import { ATTACHMENT_KEY, ITEM_KEY, attachmentRef, itemRef } from '../helpers/server/keys.js'
+import { annotationRow, attachment, item, noteRow } from '../helpers/server/objects.js'
+import { serveItemGraph } from '../helpers/server/serve.js'
 
-let mock: MockZotero
+let mock: ProviderHarness['mock']
 let provider: LocalApiProvider
 let harness: ProviderHarness
 
@@ -33,67 +35,43 @@ afterEach(async () => {
   await teardownProvider(harness)
 })
 
-const PARENT = {
-  key: 'ABCD1234',
-  version: 3,
-  meta: { numChildren: 2 },
-  data: { itemType: 'journalArticle', title: 'FlashAttention-2' },
-}
+/** The paper as this graph walk reads it: identity and a child count, nothing else. */
+const PARENT = item({ meta: { numChildren: 2 } })
 
-const ATTACHMENT_ROW = {
-  key: 'WXYZ6789',
-  data: {
-    itemType: 'attachment',
-    title: 'Full Text PDF',
-    contentType: 'application/pdf',
-    linkMode: 'imported_file',
-  },
-}
+/** The parent's direct children: one note and the PDF. */
+const CHILDREN_ROWS = [noteRow({ data: { parentItem: ITEM_KEY } }), attachment()]
 
-const CHILDREN_ROWS = [
-  { key: 'NOTE1111', data: { itemType: 'note', note: 'my note', parentItem: 'ABCD1234' } },
-  ATTACHMENT_ROW,
-]
-
+/**
+ * Two annotations under the PDF, declared out of order on purpose: the merged
+ * walk must return them by Zotero's sort index, not by arrival.
+ */
 const ANNOTATION_ROWS = [
-  {
+  annotationRow({
     key: 'ANNO0002',
-    data: {
-      itemType: 'annotation',
-      annotationType: 'highlight',
-      annotationText: 'second',
-      annotationSortIndex: '00002',
-      parentItem: 'WXYZ6789',
-    },
-  },
-  {
+    data: { annotationType: 'highlight', annotationText: 'second', annotationSortIndex: '00002' },
+  }),
+  annotationRow({
     key: 'ANNO0001',
     data: {
-      itemType: 'annotation',
       annotationType: 'underline',
       annotationText: 'first',
       annotationSortIndex: '00001',
       annotationPageLabel: '3',
-      parentItem: 'WXYZ6789',
     },
-  },
+  }),
 ]
 
+/**
+ * Serve the graph. `serverId` is omitted by the specs that only assert paths,
+ * which is also how a build that reports no instance answers.
+ */
 function routeGraph(serverId?: string): void {
-  const headers: Record<string, string> =
-    serverId === undefined ? {} : { 'Zotero-Server-ID': serverId }
-  mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
-    helpers.json(PARENT, headers),
-  )
-  mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
-    helpers.json(CHILDREN_ROWS, headers),
-  )
-  mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
-    helpers.json(ATTACHMENT_ROW, headers),
-  )
-  mock.route('GET', '/api/users/0/items/WXYZ6789/children', (req, res, helpers) =>
-    helpers.json(ANNOTATION_ROWS, headers),
-  )
+  serveItemGraph(mock, {
+    parent: PARENT,
+    children: CHILDREN_ROWS,
+    attachmentChildren: ANNOTATION_ROWS,
+    serverId: serverId ?? null,
+  })
 }
 
 function childrenRequest(
@@ -106,7 +84,7 @@ function childrenRequest(
 describe('children', () => {
   it('returns an item graph: direct notes, attachments, and merged sorted annotations', async () => {
     routeGraph('S1')
-    const result = await provider.children(childrenRequest('zotero://user/0/item/ABCD1234'))
+    const result = await provider.children(childrenRequest(itemRef()))
     expect(result.ref).toBe('zotero://user/0/item/ABCD1234?server=S1')
     expect(result.itemType).toBe('journalArticle')
     expect(result.serverId).toBe('S1')
@@ -140,10 +118,8 @@ describe('children', () => {
 
   it('walks the second level only when annotations are requested', async () => {
     routeGraph()
-    await provider.children(
-      childrenRequest('zotero://user/0/item/ABCD1234', ['notes', 'attachments']),
-    )
-    expect(mock.requests.map((entry) => entry.pathname)).toEqual([
+    await provider.children(childrenRequest(itemRef(), ['notes', 'attachments']))
+    expectRequestPaths(mock, [
       '/api/users/0/items/ABCD1234',
       '/api/users/0/items/ABCD1234/children',
     ])
@@ -151,9 +127,7 @@ describe('children', () => {
 
   it('respects a single-kind include', async () => {
     routeGraph()
-    const result = await provider.children(
-      childrenRequest('zotero://user/0/item/ABCD1234', ['annotations']),
-    )
+    const result = await provider.children(childrenRequest(itemRef(), ['annotations']))
     expect(result.notes).toBeUndefined()
     expect(result.attachments).toBeUndefined()
     expect(result.annotations?.total).toBe(2)
@@ -161,9 +135,7 @@ describe('children', () => {
 
   it('returns an attachment ref own annotations without a second walk', async () => {
     routeGraph('S1')
-    const result = await provider.children(
-      childrenRequest('zotero://user/0/attachment/WXYZ6789?server=S1'),
-    )
+    const result = await provider.children(childrenRequest(attachmentRef()))
     expect(result.ref).toBe('zotero://user/0/attachment/WXYZ6789?server=S1')
     expect(result.itemType).toBe('attachment')
     expect(result.notes).toBeUndefined()
@@ -172,8 +144,10 @@ describe('children', () => {
       'first',
       'second',
     ])
-    const paths = mock.requests.map((entry) => entry.pathname)
-    expect(paths).toEqual(['/api/users/0/items/WXYZ6789', '/api/users/0/items/WXYZ6789/children'])
+    expectRequestPaths(mock, [
+      `/api/users/0/items/${ATTACHMENT_KEY}`,
+      `/api/users/0/items/${ATTACHMENT_KEY}/children`,
+    ])
   })
 
   it('fails closed when an attachment ref names a non-attachment object', async () => {
@@ -191,6 +165,6 @@ describe('children', () => {
       ZOTERO_INVALID_REF,
       'Expected a item or attachment reference',
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 })

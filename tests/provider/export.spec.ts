@@ -15,17 +15,26 @@ import {
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import type { LocalApiLimits } from '../../src/local/limits.js'
 import { parseRef } from '../../src/refs.js'
-import { MockZotero } from '../helpers/mock-zotero.js'
 import {
   createProvider,
   exportRequest,
   setupProvider,
   teardownProvider,
-  zoteroError,
   type ProviderHarness,
 } from '../helpers/provider-harness.js'
+import { expectRequestCount, zoteroError } from '../helpers/server/assert.js'
+import {
+  ITEM_KEY,
+  SECOND_ITEM_KEY,
+  apiPath,
+  attachmentRef,
+  itemRef,
+  refOf,
+} from '../helpers/server/keys.js'
+import { citationRow } from '../helpers/server/objects.js'
+import { serveJson, serveText } from '../helpers/server/serve.js'
 
-let mock: MockZotero
+let mock: ProviderHarness['mock']
 let provider: LocalApiProvider
 let harness: ProviderHarness
 
@@ -45,17 +54,15 @@ function makeProvider(limits: Partial<LocalApiLimits> = {}): LocalApiProvider {
 
 describe('export', () => {
   it('pairs per-item citations with requested refs in one request', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([
-        { key: 'BBBB1234', citation: '<span>B, 2021</span>' },
-        { key: 'ABCD1234', citation: '<span>A, 2023</span>' },
-      ]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [
+      citationRow(SECOND_ITEM_KEY, '<span>B, 2021</span>'),
+      citationRow(ITEM_KEY, '<span>A, 2023</span>'),
+    ])
     const result = await provider.export(
       exportRequest({ style: 'chicago-note-bibliography', locale: 'fr-FR' }),
     )
     const sent = mock.requests[0]!
-    expect(sent.pathname).toBe('/api/users/0/items')
+    expect(sent.pathname).toBe(`${apiPath()}/items`)
     expect(sent.search.get('itemKey')).toBe('ABCD1234,BBBB1234')
     expect(sent.search.get('include')).toBe('citation')
     expect(sent.search.get('style')).toBe('chicago-note-bibliography')
@@ -72,12 +79,10 @@ describe('export', () => {
   })
 
   it('applies the configured defaults for style and locale', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([
-        { key: 'ABCD1234', citation: 'x' },
-        { key: 'BBBB1234', citation: 'y' },
-      ]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [
+      citationRow(ITEM_KEY, 'x'),
+      citationRow(SECOND_ITEM_KEY, 'y'),
+    ])
     const result = await provider.export(exportRequest())
     const sent = mock.requests[0]!
     expect(sent.search.get('style')).toBe('apa')
@@ -88,15 +93,15 @@ describe('export', () => {
   })
 
   it('fails with NOT_FOUND when a requested key is missing from the citation response', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([{ key: 'ABCD1234', citation: 'x' }]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [citationRow(ITEM_KEY, 'x')])
     await zoteroError(provider.export(exportRequest()), ZOTERO_NOT_FOUND, 'BBBB1234')
   })
 
   it('fetches a joined bibliography with format=bib', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.text('<div class="csl-entry">A</div>\n<div class="csl-entry">B</div>'),
+    serveText(
+      mock,
+      `${apiPath()}/items`,
+      '<div class="csl-entry">A</div>\n<div class="csl-entry">B</div>',
     )
     const result = await provider.export(exportRequest({ format: 'bibliography' }))
     const sent = mock.requests[0]!
@@ -112,7 +117,7 @@ describe('export', () => {
   })
 
   it('passes translator export bodies through and itemizes every ref', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text(`exported-as-${search.get('format')}`)
@@ -145,7 +150,7 @@ describe('export', () => {
       '@article{batchPan2022,\n  title = {Carbon price forecasting},\n}\n\n' +
       '@article{batchZheng2025,\n  title = {Insight into heterogeneous risks},\n}\n'
     const secondStart = batchText.indexOf('@article{batchZheng2025,')
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text(batchText)
@@ -181,7 +186,7 @@ describe('export', () => {
     ])
     // The merged body stays one batch request; each ref then gets its own
     // single-key request, so the pairing never indexes the batch's order.
-    expect(mock.requests).toHaveLength(3)
+    expectRequestCount(mock, 3)
     expect(mock.requests[0]!.search.get('itemKey')).toBe('ABCD1234,BBBB1234')
     expect(mock.requests[0]!.search.get('format')).toBe('bibtex')
     const perItem = mock.requests.slice(1)
@@ -192,7 +197,7 @@ describe('export', () => {
   })
 
   it('fails with NOT_FOUND when a single-item export comes back empty', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text('@article{a1}\n@article{b1}\n')
@@ -209,7 +214,7 @@ describe('export', () => {
 
   it('fails with OUTPUT_TOO_LARGE instead of truncating oversized exports', async () => {
     const narrow = makeProvider({ maxExportChars: 10 })
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) => helpers.text('01234567890'))
+    serveText(mock, `${apiPath()}/items`, '01234567890')
     await zoteroError(
       narrow.export(exportRequest({ format: 'bibtex' })),
       'ZOTERO_OUTPUT_TOO_LARGE',
@@ -219,23 +224,19 @@ describe('export', () => {
 
   it('applies the output cap to citation pairs too', async () => {
     const narrow = makeProvider({ maxExportChars: 10 })
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([
-        { key: 'ABCD1234', citation: '01234567890' },
-        { key: 'BBBB1234', citation: 'short' },
-      ]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [
+      citationRow(ITEM_KEY, '01234567890'),
+      citationRow(SECOND_ITEM_KEY, 'short'),
+    ])
     await zoteroError(narrow.export(exportRequest()), 'ZOTERO_OUTPUT_TOO_LARGE')
   })
 
   it('accepts citation output that lands exactly on the output cap', async () => {
     const narrow = makeProvider({ maxExportChars: 10 })
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([
-        { key: 'ABCD1234', citation: '12345' },
-        { key: 'BBBB1234', citation: '67890' },
-      ]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [
+      citationRow(ITEM_KEY, '12345'),
+      citationRow(SECOND_ITEM_KEY, '67890'),
+    ])
     // Export text is never mid-truncated, so an output that fits the cap
     // exactly must pass; an off-by-one (>=) would reject it.
     const result = await narrow.export(exportRequest())
@@ -252,7 +253,7 @@ describe('export', () => {
 
   it('accepts a raw export body that lands exactly on the output cap', async () => {
     const narrow = makeProvider({ maxExportChars: 20 })
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text('0123456789')
@@ -271,18 +272,13 @@ describe('export', () => {
   })
 
   it("sends the first ref's server provenance on the export request", async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([
-        { key: 'ABCD1234', citation: 'x' },
-        { key: 'BBBB1234', citation: 'y' },
-      ]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [
+      citationRow(ITEM_KEY, 'x'),
+      citationRow(SECOND_ITEM_KEY, 'y'),
+    ])
     await provider.export(
       exportRequest({
-        refs: [
-          parseRef('zotero://user/0/item/ABCD1234?server=S1'),
-          parseRef('zotero://user/0/item/BBBB1234'),
-        ],
+        refs: [parseRef(`${itemRef()}?server=S1`), parseRef(itemRef(SECOND_ITEM_KEY))],
       }),
     )
     expect(mock.requests[0]!.headers['zotero-server-id']).toBe('S1')
@@ -290,29 +286,31 @@ describe('export', () => {
 
   it('rejects non-item and non-zero user refs before any request happens', async () => {
     await zoteroError(
-      provider.export(exportRequest({ refs: [parseRef('zotero://user/0/attachment/WXYZ6789')] })),
+      provider.export(exportRequest({ refs: [parseRef(attachmentRef())] })),
       'ZOTERO_INVALID_REF',
       'Expected a item reference',
     )
     await zoteroError(
-      provider.export(exportRequest({ refs: [parseRef('zotero://user/123/item/ABCD1234')] })),
+      provider.export(
+        exportRequest({ refs: [parseRef(refOf('item', ITEM_KEY, { type: 'user', id: 123 }))] }),
+      ),
       'ZOTERO_INVALID_REF',
       'user/0',
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 
   it('batches citation requests at the API key cap and merges in request order', async () => {
     const refs = Array.from({ length: 51 }, (_, i) =>
       parseRef(`zotero://user/0/item/${String(i).padStart(4, '0')}ABCD`),
     )
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) =>
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) =>
       helpers.json(
         (search.get('itemKey') ?? '').split(',').map((key) => ({ key, citation: `c-${key}` })),
       ),
     )
     const result = await provider.export(exportRequest({ refs, format: 'citation' }))
-    const batchRequests = mock.requests.filter((entry) => entry.pathname === '/api/users/0/items')
+    const batchRequests = mock.requests.filter((entry) => entry.pathname === `${apiPath()}/items`)
     expect(batchRequests).toHaveLength(2)
     expect(batchRequests[0]!.search.get('itemKey')!.split(',')).toHaveLength(50)
     expect(batchRequests[1]!.search.get('itemKey')!.split(',')).toHaveLength(1)
@@ -327,11 +325,11 @@ describe('export', () => {
     const refs = Array.from({ length: 50 }, (_, i) =>
       parseRef(`zotero://user/0/item/${String(i).padStart(4, '0')}ABCD`),
     )
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) =>
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) =>
       helpers.json((search.get('itemKey') ?? '').split(',').map((key) => ({ key, citation: 'c' }))),
     )
     const result = await provider.export(exportRequest({ refs, format: 'citation' }))
-    expect(mock.requests).toHaveLength(1)
+    expectRequestCount(mock, 1)
     if (result.format !== 'citation') throw new Error('unreachable')
     expect(result.citations).toHaveLength(50)
   })
@@ -347,7 +345,7 @@ describe('export', () => {
         '50',
       )
     }
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 
   it('counts unique items against the batch-breaking cap', async () => {
@@ -355,7 +353,7 @@ describe('export', () => {
       parseRef(`zotero://user/0/item/${String(i).padStart(4, '0')}ABCD`),
     )
     refs.push(refs[0]!)
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text(keys.map((key) => `TY  - JOUR\nID  - ${key}\nER  -\n`).join('\n'))
@@ -366,12 +364,12 @@ describe('export', () => {
     // 51 refs with one duplicate are 50 unique items, so the export proceeds.
     const result = await provider.export(exportRequest({ refs, format: 'ris' }))
     if (result.format !== 'ris') throw new Error('unreachable')
-    expect(mock.requests).toHaveLength(51)
+    expectRequestCount(mock, 51)
     expect(result.items).toHaveLength(50)
   })
 
   it('fetches each unique item once when refs repeat', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text(
@@ -384,17 +382,13 @@ describe('export', () => {
     const result = await provider.export(
       exportRequest({
         format: 'ris',
-        refs: [
-          parseRef('zotero://user/0/item/ABCD1234'),
-          parseRef('zotero://user/0/item/BBBB1234'),
-          parseRef('zotero://user/0/item/ABCD1234'),
-        ],
+        refs: [parseRef(itemRef()), parseRef(itemRef(SECOND_ITEM_KEY)), parseRef(itemRef())],
       }),
     )
     if (result.format !== 'ris') throw new Error('unreachable')
     // The batch request carries the deduplicated keys, and each unique item
     // is fetched once — the repeated ref never becomes a second request.
-    expect(mock.requests).toHaveLength(3)
+    expectRequestCount(mock, 3)
     expect(mock.requests[0]!.search.get('itemKey')).toBe('ABCD1234,BBBB1234')
     const perItem = mock.requests.slice(1)
     expect(new Set(perItem.map((entry) => entry.search.get('itemKey')))).toEqual(
@@ -404,7 +398,7 @@ describe('export', () => {
   })
 
   it('itemizes a full 50-ref translator export through the bounded pool', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text(keys.map((key) => `TY  - JOUR\nID  - ${key}\nER  -\n`).join('\n'))
@@ -417,7 +411,7 @@ describe('export', () => {
     )
     const result = await provider.export(exportRequest({ refs, format: 'ris' }))
     if (result.format !== 'ris') throw new Error('unreachable')
-    expect(mock.requests).toHaveLength(51)
+    expectRequestCount(mock, 51)
     expect(result.items).toHaveLength(50)
     // Every item locates its batch record, in the requested ref order.
     expect(result.items.every((item) => item.start !== undefined && item.end !== undefined)).toBe(
@@ -431,7 +425,7 @@ describe('export', () => {
   it('limits the single-item requests to a bounded concurrency', async () => {
     let inFlight = 0
     let maxInFlight = 0
-    mock.route('GET', '/api/users/0/items', async (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, async (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text('batch')
@@ -453,7 +447,7 @@ describe('export', () => {
   })
 
   it('stops the pool when one single-item export fails', async () => {
-    mock.route('GET', '/api/users/0/items', async (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, async (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text('batch')
@@ -490,7 +484,7 @@ describe('export', () => {
 
   it('applies the output cap to the per-document exports too', async () => {
     const narrow = makeProvider({ maxExportChars: 20 })
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text('small batch body')
@@ -508,7 +502,7 @@ describe('export', () => {
   })
 
   it('propagates an abort while the per-document requests are in flight', async () => {
-    mock.route('GET', '/api/users/0/items', async (req, res, helpers, search) => {
+    mock.route('GET', `${apiPath()}/items`, async (req, res, helpers, search) => {
       const keys = (search.get('itemKey') ?? '').split(',')
       if (keys.length > 1) {
         helpers.text('batch')
@@ -529,7 +523,7 @@ describe('export', () => {
     const refs = Array.from({ length: 51 }, (_, i) =>
       parseRef(`zotero://user/0/item/${String(i).padStart(4, '0')}ABCD`),
     )
-    mock.route('GET', '/api/users/0/items', (req, res, helpers, search) =>
+    mock.route('GET', `${apiPath()}/items`, (req, res, helpers, search) =>
       helpers.json(
         (search.get('itemKey') ?? '').split(',').map((key) => ({ key, citation: 'xx' })),
       ),
@@ -541,36 +535,30 @@ describe('export', () => {
   })
 
   it('fails closed when export refs mix Zotero instances', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([{ key: 'ABCD1234', citation: 'x' }]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [citationRow(ITEM_KEY, 'x')])
     await zoteroError(
       provider.export(
         exportRequest({
           refs: [
-            parseRef('zotero://user/0/item/ABCD1234?server=S1'),
-            parseRef('zotero://user/0/item/BBBB1234?server=S2'),
+            parseRef(`${itemRef()}?server=S1`),
+            parseRef(`${itemRef(SECOND_ITEM_KEY)}?server=S2`),
           ],
         }),
       ),
       ZOTERO_SERVER_MISMATCH,
     )
-    expect(mock.requests).toEqual([])
+    expectRequestCount(mock, 0)
   })
 })
 
 describe('export tolerances', () => {
   it('treats a non-array citation response as missing items', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json({ key: 'ABCD1234' }),
-    )
+    serveJson(mock, `${apiPath()}/items`, { key: ITEM_KEY })
     await zoteroError(provider.export(exportRequest()), ZOTERO_NOT_FOUND, 'ABCD1234')
   })
 
   it('fails loud on a citation row without a valid key', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([{ citation: 'x' }]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [{ citation: 'x' }])
     await zoteroError(
       provider.export(exportRequest()),
       ZOTERO_UNEXPECTED,
@@ -579,9 +567,10 @@ describe('export tolerances', () => {
   })
 
   it('tolerates rows without a citation string', async () => {
-    mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
-      helpers.json([{ key: 'ABCD1234' }, { key: 'BBBB1234', citation: 'y' }]),
-    )
+    serveJson(mock, `${apiPath()}/items`, [
+      { key: ITEM_KEY },
+      { key: SECOND_ITEM_KEY, citation: 'y' },
+    ])
     const result = await provider.export(exportRequest())
     expect(result).toEqual({
       format: 'citation',
