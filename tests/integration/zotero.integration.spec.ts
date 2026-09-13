@@ -283,6 +283,20 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     expect(Array.isArray(diff.changed.items)).toBe(true)
   })
 
+  it('reports the tombstone kind this build does not serve, with that reason', async () => {
+    // Zotero 10.0.2-beta.9 has no /deleted route. The diff must say so instead
+    // of leaving removals looking like "nothing was deleted", and the cursor
+    // still stands: removals were never observable on this build.
+    const baseline = await provider.changes({})
+    const diff = await provider.changes({
+      since: baseline.cursor!,
+      include: new Set(['items', 'deleted']),
+    })
+    expect(diff.deleted).toBeUndefined()
+    expect(diff.unobservable).toContainEqual({ kind: 'deleted', reason: 'not-served' })
+    expect(diff.cursor).toBeDefined()
+  })
+
   it('refuses a cursor minted by another instance', async () => {
     // The claim travels as Zotero-Server-ID, so the live server itself rejects
     // a cursor from a different database with 412 instead of diffing this one's

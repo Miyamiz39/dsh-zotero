@@ -12,6 +12,8 @@ export const ZOTERO_API_VERSION = 'ZOTERO_API_VERSION'
 export const ZOTERO_SERVER_MISMATCH = 'ZOTERO_SERVER_MISMATCH'
 /** The referenced item, collection, or saved search does not exist. */
 export const ZOTERO_NOT_FOUND = 'ZOTERO_NOT_FOUND'
+/** The server does not keep change history back to the requested version (409). */
+export const ZOTERO_RANGE_UNSUPPORTED = 'ZOTERO_RANGE_UNSUPPORTED'
 /** The item has no attachment of the requested kind. */
 export const ZOTERO_NO_ATTACHMENT = 'ZOTERO_NO_ATTACHMENT'
 /** The attachment has no indexed full text. */
@@ -43,6 +45,7 @@ const ZOTERO_ERROR_CODES = [
   ZOTERO_API_VERSION,
   ZOTERO_SERVER_MISMATCH,
   ZOTERO_NOT_FOUND,
+  ZOTERO_RANGE_UNSUPPORTED,
   ZOTERO_NO_ATTACHMENT,
   ZOTERO_NO_FULLTEXT,
   ZOTERO_FILE_MISSING,
@@ -93,6 +96,15 @@ export const NO_FULLTEXT_MESSAGE =
   'if needed, right-click the attachment in Zotero and choose "Reindex Item". ' +
   'You can also use zotero_attachment to access the original file.'
 
+/**
+ * Shown when Zotero refuses a version range it cannot reach back to. Zotero's
+ * own sync client reads a 409 on a versioned read as "the delete log does not
+ * go back that far", i.e. a fact about the range rather than a fault.
+ */
+export const RANGE_UNSUPPORTED_MESSAGE =
+  'Zotero does not keep change history back to that version, so it cannot be read. ' +
+  'Take a fresh reading and continue from there.'
+
 const UNREACHABLE_CODES = new Set([
   'ECONNREFUSED',
   'ECONNRESET',
@@ -136,6 +148,11 @@ export function errnoCodeOf(error: unknown): string | undefined {
 /** True for a translated 404 domain error, which specific endpoints reinterpret. */
 export function isNotFoundError(error: unknown): boolean {
   return error instanceof ZoteroError && error.code === ZOTERO_NOT_FOUND
+}
+
+/** True for a translated 409: the server cannot serve the requested version range. */
+export function isRangeUnsupportedError(error: unknown): boolean {
+  return error instanceof ZoteroError && error.code === ZOTERO_RANGE_UNSUPPORTED
 }
 
 /** True when an error's cause carries a network code meaning the Zotero instance is unreachable. */

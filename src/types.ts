@@ -591,11 +591,39 @@ export interface ZoteroChangedObject {
   version: number
 }
 
+/** Why a kind this call included contributed nothing to the diff. */
+export type ZoteroChangesUnobservableReason =
+  /**
+   * The build does not serve the endpoint (it answered 404). The kind is not
+   * observable in any range on this build, so no cursor could ever account for
+   * it and withholding one would not recover anything.
+   */
+  | 'not-served'
+  /**
+   * The build serves the kind but not back to `fromVersion` (Zotero's delete
+   * log starts later and answered 409). Removals in this range are lost; a
+   * fresh baseline covers them from here on.
+   */
+  | 'range-not-covered'
+  /**
+   * The response arrived but did not carry the documented shape, so this call
+   * cannot know what changed. Unlike the two above, the data exists and this
+   * call failed to read it — which is why this reason withholds the cursor.
+   */
+  | 'unreadable'
+
+/** A kind this call included that contributed nothing, and the reason why. */
+export interface ZoteroChangesUnobservable {
+  kind: ZoteroChangesInclude
+  reason: ZoteroChangesUnobservableReason
+}
+
 /**
  * The true changed-object counts per resource, as the server reported them.
  * A listing under `changed` / `deleted` may be capped for the model; these are
  * the totals behind it, and they are also what tells a caller how much of a
- * capped listing it is not seeing.
+ * capped listing it is not seeing. A count is present exactly when its kind
+ * was read, so presence — not the value — is the coverage statement.
  */
 export interface ZoteroChangesTotals {
   items?: number
@@ -606,6 +634,10 @@ export interface ZoteroChangesTotals {
   deletedItems?: number
   deletedCollections?: number
   deletedSavedSearches?: number
+  /** Tombstoned tags (names, not keys). */
+  deletedTags?: number
+  /** Tombstoned entries of kinds this plugin does not model. */
+  deletedOther?: number
 }
 
 export interface ZoteroChangesResult {
@@ -619,6 +651,11 @@ export interface ZoteroChangesResult {
    * and the instance answering is known, which is what makes it safe to pass
    * back as `since`. Absent means the caller must not advance from this
    * result. The version inside is the one the diff read through.
+   *
+   * A kind that is `not-served` or `range-not-covered` does not withhold the
+   * cursor: those changes were never observable, so no version could account
+   * for them. An `unreadable` kind does, because there the rows exist and this
+   * call failed to read them.
    */
   cursor?: ZoteroChangesCursor
   /**
@@ -647,19 +684,25 @@ export interface ZoteroChangesResult {
      */
     fulltextAttachments?: ZoteroChangedObject[]
   }
+  /**
+   * Tombstoned objects, keyed by kind. Present exactly when the tombstone read
+   * was observed — an empty object is the positive statement "nothing was
+   * removed in this range", which is why it is never omitted for brevity.
+   */
   deleted?: {
     items: string[]
     collections: string[]
     savedSearches: string[]
+    /** Tombstoned tag names; the endpoint lists names, not keys. */
+    tags: string[]
   }
   /** The uncapped changed counts behind `changed` and `deleted`. */
   totals?: ZoteroChangesTotals
   /**
-   * Resource kinds this call included but the Zotero build does not serve
-   * (its endpoint answered 404). They contribute nothing to the diff, and
-   * `cursor` therefore does not account for them.
+   * Resource kinds this call included that contributed nothing, each with the
+   * reason. Absence from this list is the statement that the kind was read.
    */
-  unsupported?: ZoteroChangesInclude[]
+  unobservable?: ZoteroChangesUnobservable[]
   /** True when a listing was capped at the configured display bound. */
   truncated?: boolean
 }

@@ -1431,6 +1431,26 @@ describe('zotero_export tool', () => {
 })
 
 describe('zotero_changes tool', () => {
+  /**
+   * Serve the two item endpoints beside `/items/top` as empty listings at
+   * `version`: the item kind reads all three, so a diff over items needs them
+   * even when only the top-level listing carries rows.
+   */
+  const routeEmptySides = (version: string, prefix = '/api/users/0', serverId = 'S1'): void => {
+    for (const path of [`${prefix}/items`, `${prefix}/items/trash`]) {
+      mock.route('GET', path, (req, res, helpers) =>
+        helpers.json(
+          {},
+          {
+            'Total-Results': '0',
+            'Last-Modified-Version': version,
+            'Zotero-Server-ID': serverId,
+          },
+        ),
+      )
+    }
+  }
+
   it('registers and exposes its schema to the assembly', () => {
     expect(ctx.tools.get('zotero_changes')).toBeDefined()
     expect(ctx.tools.schemas().some((schema) => schema.name === 'zotero_changes')).toBe(true)
@@ -1478,6 +1498,7 @@ describe('zotero_changes tool', () => {
     const baseline = await runTool('zotero_changes', {})
     if (baseline.isError) throw new Error('unreachable')
     const cursor = (baseline.value as { cursor: unknown }).cursor
+    routeEmptySides('50')
     mock.requests.length = 0
     const diff = await runTool('zotero_changes', { since: cursor, include: ['items'] })
     expect(diff.isError).toBe(false)
@@ -1516,6 +1537,11 @@ describe('zotero_changes tool', () => {
   })
 
   it('diffs from a cursor and renders per-resource sections', async () => {
+    const bodies: Record<string, Record<string, number>> = {
+      '/api/users/0/items/top': { ABCD1234: 44 },
+      '/api/users/0/items': { ABCD1234: 44, NOTE1234: 45 },
+      '/api/users/0/items/trash': { TRSH1234: 46 },
+    }
     mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
       // The pre-read version probe and the items diff share this path.
       if (search.get('limit') === '1') {
@@ -1524,11 +1550,22 @@ describe('zotero_changes tool', () => {
       }
       expect(search.get('since')).toBe('42')
       expect(search.get('format')).toBe('versions')
-      helpers.json({ ABCD1234: 44 }, { 'Total-Results': '1', 'Last-Modified-Version': '50' })
+      helpers.json(bodies['/api/users/0/items/top']!, {
+        'Total-Results': '1',
+        'Last-Modified-Version': '50',
+      })
     })
+    for (const path of ['/api/users/0/items', '/api/users/0/items/trash']) {
+      mock.route('GET', path, (req, res, helpers) =>
+        helpers.json(bodies[path]!, {
+          'Total-Results': String(Object.keys(bodies[path]!).length),
+          'Last-Modified-Version': '50',
+        }),
+      )
+    }
     mock.route('GET', '/api/users/0/deleted', (req, res, helpers, search) => {
       expect(search.get('since')).toBe('42')
-      helpers.json({ items: ['EEEE0001'], collections: [], searches: [] })
+      helpers.json({ items: ['EEEE0001'], collections: [], searches: [], tags: ['obsolete'] })
     })
     const result = await runTool('zotero_changes', {
       since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
@@ -1539,20 +1576,22 @@ describe('zotero_changes tool', () => {
     const value = result.value as {
       fromVersion?: number
       cursor?: { version: number }
-      deleted?: { items?: string[] }
-      totals?: { items?: number; deletedItems?: number; deletedSavedSearches?: number }
+      changed: { items?: unknown[] }
+      deleted?: { items?: string[]; tags?: string[] }
+      totals?: { items?: number; childItems?: number; deletedItems?: number }
     }
     expect(value.fromVersion).toBe(42)
     expect(value.cursor?.version).toBe(50)
     expect(value.deleted?.items).toEqual(['EEEE0001'])
+    expect(value.deleted?.tags).toEqual(['obsolete'])
     expect(value.totals?.items).toBe(1)
     expect(value.totals?.deletedItems).toBe(1)
-    expect(value.totals?.deletedSavedSearches).toBe(0)
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('Changes 42 → 50')
     expect(text).toContain('- ABCD1234 (v44)')
     expect(text).toContain('Items: 1 changed')
     expect(text).toContain('Deleted items: 1')
+    expect(text).toContain('Deleted tags: 1')
   })
 
   it('diffs a group library through its own prefix and pins the cursor to it', async () => {
@@ -1563,6 +1602,7 @@ describe('zotero_changes tool', () => {
       }
       helpers.json({ ABCD1234: 7 }, { 'Total-Results': '1', 'Last-Modified-Version': '9' })
     })
+    routeEmptySides('9', '/api/groups/42', 'S2')
     const result = await runTool('zotero_changes', {
       library: { type: 'group', id: 42 },
       since: { serverId: 'S2', library: { type: 'group', id: 42 }, version: 3 },
@@ -1584,7 +1624,7 @@ describe('zotero_changes tool', () => {
 
   it('diffs the default resource set without the full-text listing', async () => {
     // The fulltext endpoint answers in the index's own version counter, so a
-    // plain diff must not read it: a 404 there would surface as `unsupported`.
+    // plain diff must not read it: a 404 there would surface as `unobservable`.
     mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
       if (search.get('limit') === '1') {
         helpers.json([], { 'Last-Modified-Version': '50', 'Zotero-Server-ID': 'S1' })
@@ -1592,13 +1632,14 @@ describe('zotero_changes tool', () => {
       }
       helpers.json({ ABCD1234: 44 }, { 'Total-Results': '1', 'Last-Modified-Version': '50' })
     })
+    routeEmptySides('50')
     for (const path of ['/api/users/0/collections', '/api/users/0/searches']) {
       mock.route('GET', path, (req, res, helpers) =>
         helpers.json({}, { 'Total-Results': '0', 'Last-Modified-Version': '50' }),
       )
     }
     mock.route('GET', '/api/users/0/deleted', (req, res, helpers) =>
-      helpers.json({ items: [], collections: [], searches: [] }),
+      helpers.json({ items: [], collections: [], searches: [], tags: [] }),
     )
     const result = await runTool('zotero_changes', {
       since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
@@ -1606,15 +1647,46 @@ describe('zotero_changes tool', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('unreachable')
     const value = result.value as {
-      unsupported?: string[]
+      unobservable?: unknown[]
+      deleted?: { items: string[]; tags: string[] }
       changed: { fulltextAttachments?: unknown }
       cursor?: { version: number }
     }
     expect(value.changed.fulltextAttachments).toBeUndefined()
-    // Every kind the diff did read was served, so nothing is named unavailable.
-    expect(value.unsupported).toBeUndefined()
+    // Every kind the diff did read was served, so nothing is named unobservable.
+    expect(value.unobservable).toBeUndefined()
+    // An empty tombstone read is a finding, not a gap: the lists are present.
+    expect(value.deleted).toEqual({ items: [], collections: [], savedSearches: [], tags: [] })
     expect(value.cursor?.version).toBe(50)
     expect(mock.requests.some((request) => request.pathname.endsWith('/fulltext'))).toBe(false)
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('Deletions: none in this range.')
+  })
+
+  it('names an unserved kind and an older-than-history range apart in the render', async () => {
+    mock.route('GET', '/api/users/0/items/top', (req, res, helpers, search) => {
+      if (search.get('limit') === '1') {
+        helpers.json([], { 'Last-Modified-Version': '50', 'Zotero-Server-ID': 'S1' })
+        return
+      }
+      helpers.json({}, { 'Total-Results': '0', 'Last-Modified-Version': '50' })
+    })
+    routeEmptySides('50')
+    mock.route('GET', '/api/users/0/deleted', (req, res, helpers) =>
+      helpers.raw(409, { 'Content-Type': 'text/plain' }, 'Conflict'),
+    )
+    const result = await runTool('zotero_changes', {
+      since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
+      include: ['items', 'deleted'],
+    })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('unreachable')
+    const value = result.value as { unobservable?: unknown[]; deleted?: unknown }
+    expect(value.deleted).toBeUndefined()
+    expect(value.unobservable).toEqual([{ kind: 'deleted', reason: 'range-not-covered' }])
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('Older than the change history this build keeps')
+    expect(text).toContain('deleted')
   })
 
   it('rejects an invalid library shape before any request', async () => {
@@ -1640,10 +1712,10 @@ describe('zotero_changes tool', () => {
     expect(mock.requests).toEqual([])
   })
 
-  it('renders digests, withheld cursors, and unserved resources honestly', () => {
+  it('renders digests, withheld cursors, and unobservable kinds honestly', () => {
     // Three baseline outcomes, three texts: a cursor, a version without an
-    // instance, and no version at all. The last one names the cause instead of
-    // leaving the model to guess why no cursor came back.
+    // instance, and no version at all. None of them is a bare "Baseline
+    // reading." that leaves the model guessing why no cursor came back.
     const noVersion = renderChanges({}, { changed: {}, versionUnavailable: true } as never)
     expect((noVersion[0] as { text: string }).text).toContain(
       'this Zotero build reports no library version',
@@ -1658,16 +1730,6 @@ describe('zotero_changes tool', () => {
     } as never)
     expect((based[0] as { text: string }).text).toContain(
       'Baseline reading: library is at version 42 on instance S1',
-    )
-
-    // A diff whose build reported no version says so instead of blaming the range.
-    const noVersionDiff = renderChanges({}, {
-      fromVersion: 1,
-      changed: {},
-      versionUnavailable: true,
-    } as never)
-    expect((noVersionDiff[0] as { text: string }).text).toContain(
-      'this Zotero build reported no library version for this read',
     )
 
     // A capped listing is a digest: the cursor still stands and totals carries
@@ -1715,11 +1777,14 @@ describe('zotero_changes tool', () => {
       fromVersion: 1,
       libraryChanged: true,
       changed: { items: [] },
-      unsupported: ['deleted'],
+      unobservable: [{ kind: 'deleted', reason: 'not-served' }],
     } as never)
     const movedText = (moved[0] as { text: string }).text
     expect(movedText).toContain('the library changed while this call was reading — re-run')
-    expect(movedText).toContain('Not served by this Zotero build: deleted')
+    expect(movedText).toContain(
+      'Not served by this Zotero build (not observable here, removals included)',
+    )
+    expect(movedText).toContain('deleted')
 
     const cappedDeleted = renderChanges({}, {
       fromVersion: 1,
@@ -1729,11 +1794,57 @@ describe('zotero_changes tool', () => {
         items: Array.from({ length: 50 }, (_, i) => `GONE${String(i).padStart(4, '0')}`),
         collections: [],
         savedSearches: [],
+        tags: ['obsolete'],
       },
-      totals: { deletedItems: 540 },
+      totals: { deletedItems: 540, deletedTags: 1, deletedOther: 3 },
       truncated: true,
     } as never)
-    expect((cappedDeleted[0] as { text: string }).text).toContain('Deleted items: 540 — 50 listed')
+    const cappedText = (cappedDeleted[0] as { text: string }).text
+    expect(cappedText).toContain('Deleted items: 540 — 50 listed')
+    expect(cappedText).toContain('Deleted tags: 1')
+    expect(cappedText).toContain('Other deleted objects: 3 (kinds this tool does not report)')
+    expect(cappedText).not.toContain('Deletions: none in this range')
+
+    // An observed, empty tombstone read is stated positively.
+    const nothingRemoved = renderChanges({}, {
+      fromVersion: 1,
+      cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 220 },
+      changed: { items: [] },
+      deleted: { items: [], collections: [], savedSearches: [], tags: [] },
+      totals: { deletedItems: 0, deletedCollections: 0, deletedSavedSearches: 0, deletedTags: 0 },
+    } as never)
+    expect((nothingRemoved[0] as { text: string }).text).toContain('Deletions: none in this range.')
+
+    // A diff whose build reported no version says so instead of blaming the range.
+    const noVersionDiff = renderChanges({}, {
+      fromVersion: 1,
+      changed: {},
+      versionUnavailable: true,
+    } as never)
+    expect((noVersionDiff[0] as { text: string }).text).toContain(
+      'this Zotero build reported no library version for this read',
+    )
+
+    // Each unobservable reason reads as its own remedy.
+    const reasons = renderChanges({}, {
+      fromVersion: 1,
+      libraryChanged: false,
+      changed: {},
+      unobservable: [
+        { kind: 'deleted', reason: 'not-served' },
+        { kind: 'collections', reason: 'range-not-covered' },
+        { kind: 'fulltext', reason: 'unreadable' },
+      ],
+    } as never)
+    const reasonsText = (reasons[0] as { text: string }).text
+    expect(reasonsText).toContain(
+      'Not served by this Zotero build (not observable here, removals included)',
+    )
+    expect(reasonsText).toContain('Older than the change history this build keeps')
+    expect(reasonsText).toContain('could not read it (re-run)')
+    expect(reasonsText).toContain('deleted')
+    expect(reasonsText).toContain('collections')
+    expect(reasonsText).toContain('fulltext')
 
     const fulltext = renderChanges({}, {
       fromVersion: 1,

@@ -35,17 +35,22 @@ import type {
   ZoteroChangesCursor,
   ZoteroChangesInclude,
   ZoteroChangesRequest,
+  ZoteroChangesUnobservableReason,
   SupportedLocalLibrary,
 } from '../types.js'
 import type { ZoteroService } from '../service.js'
 
-const ALL_INCLUDES: ZoteroChangesInclude[] = [
+const ALL_INCLUDES = [
   'items',
   'collections',
   'savedSearches',
   'fulltext',
   'deleted',
-]
+] as const satisfies readonly ZoteroChangesInclude[]
+
+/** Host kinds the tool's include enum does not offer; a non-empty union fails the build. */
+type MissingInclude = Exclude<ZoteroChangesInclude, (typeof ALL_INCLUDES)[number]>
+const _includesComplete: MissingInclude extends never ? true : never = true
 
 /**
  * The kinds a call covers when the model names none. `fulltext` is excluded:
@@ -97,7 +102,7 @@ const CHANGES_PARAMETERS = {
     items: { type: 'string', enum: [...ALL_INCLUDES] },
     default: DEFAULT_INCLUDES,
     description:
-      'Resource kinds to diff; defaults to everything but fulltext. deleted lists tombstoned keys. fulltext is a separate listing: its endpoint answers in the full-text index\u2019s own version counter, so its rows are not a delta on the library version and it is left out unless named explicitly.',
+      'Resource kinds to diff; defaults to everything but fulltext. deleted lists tombstoned items, collections, saved searches and tag names. fulltext is a separate listing: its endpoint answers in the full-text index\u2019s own version counter, so its rows are not a delta on the library version and it is left out unless named explicitly.',
   },
 } as const
 
@@ -109,6 +114,47 @@ const CHANGED_OBJECT = {
   properties: {
     key: { type: 'string', required: true },
     version: { type: 'integer', required: true },
+  },
+} as const
+
+/**
+ * The ways a kind this call included can contribute nothing, each with the
+ * line the model reads. The reasons are kept apart because the remedy differs:
+ * a missing endpoint is permanent, a range older than the build's history is
+ * fixed by re-baselining, and an unreadable answer is fixed by running the
+ * call again. The schema's enum is derived from these keys, so a new reason
+ * cannot reach the wire unrendered.
+ */
+const UNOBSERVABLE_HEADLINES = [
+  ['not-served', 'Not served by this Zotero build (not observable here, removals included)'],
+  [
+    'range-not-covered',
+    'Older than the change history this build keeps (take a fresh baseline to track it from here)',
+  ],
+  [
+    'unreadable',
+    'The answer did not carry the documented shape, so this call could not read it (re-run)',
+  ],
+] as const satisfies readonly (readonly [ZoteroChangesUnobservableReason, string])[]
+
+/** DTO reasons this tool never renders; a non-empty union fails the build. */
+type UnrenderedReason = Exclude<
+  ZoteroChangesUnobservableReason,
+  (typeof UNOBSERVABLE_HEADLINES)[number][0]
+>
+const _reasonsRendered: UnrenderedReason extends never ? true : never = true
+
+/** The reasons the wire schema admits, in render order. */
+const UNOBSERVABLE_REASONS: readonly ZoteroChangesUnobservableReason[] = UNOBSERVABLE_HEADLINES.map(
+  ([reason]) => reason,
+)
+
+const UNOBSERVABLE_ENTRY = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    kind: { type: 'string', enum: [...ALL_INCLUDES], required: true },
+    reason: { type: 'string', enum: [...UNOBSERVABLE_REASONS], required: true },
   },
 } as const
 
@@ -140,6 +186,7 @@ const CHANGES_OUTPUT_SCHEMA = {
         items: { type: 'array', required: true, items: { type: 'string' } },
         collections: { type: 'array', required: true, items: { type: 'string' } },
         savedSearches: { type: 'array', required: true, items: { type: 'string' } },
+        tags: { type: 'array', required: true, items: { type: 'string' } },
       },
     },
     totals: {
@@ -153,9 +200,11 @@ const CHANGES_OUTPUT_SCHEMA = {
         deletedItems: { type: 'integer' },
         deletedCollections: { type: 'integer' },
         deletedSavedSearches: { type: 'integer' },
+        deletedTags: { type: 'integer' },
+        deletedOther: { type: 'integer' },
       },
     },
-    unsupported: { type: 'array', items: { type: 'string', enum: [...ALL_INCLUDES] } },
+    unobservable: { type: 'array', items: UNOBSERVABLE_ENTRY },
     truncated: { type: 'boolean' },
   },
 } as const
@@ -263,7 +312,17 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
       ['Deleted items', value.deleted.items, totals?.deletedItems],
       ['Deleted collections', value.deleted.collections, totals?.deletedCollections],
       ['Deleted saved searches', value.deleted.savedSearches, totals?.deletedSavedSearches],
+      ['Deleted tags', value.deleted.tags, totals?.deletedTags],
     ]
+    // The tombstone read answered, so "nothing was removed" is a finding, not
+    // a gap: it is stated rather than left to the absence of a listing.
+    const removed = deletedSections.reduce(
+      (sum, [, keys, total]) => sum + (total ?? keys?.length ?? 0),
+      0,
+    )
+    if (removed === 0) {
+      lines.push('Deletions: none in this range.')
+    }
     for (const [label, keys, total] of deletedSections) {
       if (keys === undefined || keys.length === 0) continue
       const count = total ?? keys.length
@@ -272,11 +331,16 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
       for (const key of printed) lines.push(`  - ${key}`)
       if (count > printed.length) lines.push(`  … ${count - printed.length} more`)
     }
+    const other = totals?.deletedOther ?? 0
+    if (other > 0) {
+      lines.push(`Other deleted objects: ${other} (kinds this tool does not report).`)
+    }
   }
-  if (value.unsupported !== undefined && value.unsupported.length > 0) {
-    lines.push(
-      `Not served by this Zotero build: ${value.unsupported.join(', ')} — changes of that kind (including removals) are not observable.`,
-    )
+  for (const [reason, headline] of UNOBSERVABLE_HEADLINES) {
+    const kinds = (value.unobservable ?? [])
+      .filter((entry) => entry.reason === reason)
+      .map((entry) => entry.kind)
+    if (kinds.length > 0) lines.push(`${headline} ${kinds.join(', ')}`)
   }
   return [{ type: 'text', text: lines.join('\n') }]
 }
@@ -340,7 +404,8 @@ export function registerChangesTool(ctx: Context, service: ZoteroService): void 
       description: [
         'See what changed in the Zotero library since a version: new/edited items, collections, saved searches, reindexed full text, and deletions.',
         'Call without since first to take a baseline reading, then pass the cursor it returns back as since — fully local, no cloud.',
-        'Listings are capped digests; totals reports the true counts behind them. A returned cursor always accounts for every change in the range it reports, so it is safe to pass back as since; a result without one is not. The cursor is pinned to the instance and library it came from, and a cursor from another database is refused instead of diffed against this one. versionUnavailable means the build reports no library version at all, so no diff can be taken from it.',
+        'Listings are capped digests; totals reports the true counts behind them. A returned cursor always accounts for every change in the range it reports, so it is safe to pass back as since; a result without one is not. The cursor is pinned to the instance and library it came from, and a cursor from another database is refused instead of diffed against this one.',
+        'unobservable names every kind this call could not cover, with the reason: a build that does not serve it, a range older than the history the build keeps, or an answer it could not read. Never read an absent listing as "nothing changed" before checking that list; deleted is present exactly when removals were actually observed. versionUnavailable means the build reports no library version at all, so no diff can be taken from it.',
       ].join(' '),
       parameters: CHANGES_PARAMETERS,
       output: {

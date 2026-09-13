@@ -14,11 +14,13 @@ import { ZOTERO_SERVER_ID_HEADER } from './constants.js'
 import {
   API_DISABLED_MESSAGE,
   NOT_RUNNING_MESSAGE,
+  RANGE_UNSUPPORTED_MESSAGE,
   SERVER_MISMATCH_MESSAGE,
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
   ZOTERO_NOT_FOUND,
   ZOTERO_NOT_RUNNING,
+  ZOTERO_RANGE_UNSUPPORTED,
   ZOTERO_RESPONSE_TOO_LARGE,
   ZOTERO_SERVER_MISMATCH,
   ZOTERO_TIMEOUT,
@@ -104,6 +106,13 @@ function translateHttpStatus(response: Response): never {
     }
     case 404:
       throw new ZoteroError('Zotero did not find the requested object.', ZOTERO_NOT_FOUND)
+    case 409:
+      // A versioned read older than the history the server keeps. Zotero's own
+      // sync client reads a 409 on `/deleted` the same way ("'since' value is
+      // earlier than the beginning of the delete log"), so it is a fact about
+      // the range rather than a fault; the domain that made the request decides
+      // what to make of it.
+      throw new ZoteroError(RANGE_UNSUPPORTED_MESSAGE, ZOTERO_RANGE_UNSUPPORTED)
     default:
       throw new ZoteroError(`Zotero local API returned HTTP ${response.status}.`, ZOTERO_UNEXPECTED)
   }

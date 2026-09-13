@@ -1,15 +1,14 @@
 /**
  * The `zotero_changes` domain: baseline version readings and `?since=` diffs
- * over the versions-format endpoints, with tombstones from /deleted. A
- * resource this Zotero build cannot serve degrades to absence — and is named
- * in `unsupported` — instead of failing the whole read. A build that reports
- * no library version at all cannot be diffed, and says so
- * (`versionUnavailable`) instead of handing back a cursor pinned to nothing.
+ * over the versions-format endpoints, with tombstones from /deleted. A kind
+ * this Zotero build cannot serve (or cannot serve for the requested range)
+ * degrades to absence — and is named, with the reason, in `unobservable` —
+ * instead of failing the whole read.
  *
  * Every versions resource is read unbounded (no `limit`): the local API
  * returns the whole changed set for such a request, which is what lets the
  * version the response reports be a cursor a caller may resume from, while
- * `maxChangesResults` only shortens the listing the model sees.
+ * `maxChangesResults` only shortens the listings the model sees.
  *
  * A cursor is more than a number: it carries the instance and the library it
  * describes. The claim travels with every request (`Zotero-Server-ID`), so a
@@ -25,8 +24,9 @@ import type { ZoteroHttpClient } from '../http-client.js'
 import {
   SERVER_MISMATCH_MESSAGE,
   ZOTERO_INVALID_ARGUMENT,
-  ZOTERO_NOT_FOUND,
   ZOTERO_SERVER_MISMATCH,
+  isNotFoundError,
+  isRangeUnsupportedError,
 } from '../errors.js'
 import { asRecord, isObjectKey } from '../json.js'
 import { libraryPrefix, PERSONAL_LIBRARY, sameLibrary } from '../refs.js'
@@ -39,17 +39,10 @@ import type {
   ZoteroChangedObject,
   ZoteroChangesResult,
   ZoteroChangesTotals,
+  ZoteroChangesUnobservable,
+  ZoteroChangesUnobservableReason,
   SupportedLocalLibrary,
 } from '../types.js'
-
-/** Every resource kind this domain can read, in request order (also gates `unsupported`). */
-const ZOTERO_CHANGES_INCLUDES: readonly ZoteroChangesInclude[] = [
-  'items',
-  'collections',
-  'savedSearches',
-  'fulltext',
-  'deleted',
-]
 
 /**
  * The kinds a diff covers when the caller names none. `fulltext` is left out
@@ -67,10 +60,43 @@ const DEFAULT_CHANGES_INCLUDES: readonly ZoteroChangesInclude[] = [
   'deleted',
 ]
 
+/** The tombstone payload's documented lists; anything else is counted, not read. */
+const TOMBSTONE_LISTS = ['items', 'collections', 'searches', 'tags'] as const
+
+/** One versions resource as this module reads it: an answer, or why none came. */
+type ResourceRead =
+  | { status: 'ok'; value: VersionsPage }
+  | { status: 'failed'; reason: ZoteroChangesUnobservableReason }
+
+/** One successful versions read, before its verdict is folded into the call. */
+interface VersionsPage {
+  readonly entries: ZoteroChangedObject[]
+  readonly total: number
+  /** The read covered the whole range rather than a build-imposed slice of it. */
+  readonly complete: boolean
+  readonly serverId?: string
+  readonly version?: number
+}
+
+/** The tombstone payload as this domain reads it. */
+interface Tombstones {
+  readonly items: string[]
+  readonly collections: string[]
+  readonly savedSearches: string[]
+  readonly tags: string[]
+  /** Entries in lists outside the documented four — counted, never interpreted. */
+  readonly other: number
+}
+
 /** A non-negative integer header reading, or undefined when absent or malformed. */
 function numericHeader(headers: Headers, name: string): number | undefined {
   const raw = headers.get(name)?.trim()
   return raw !== undefined && raw !== '' && /^\d+$/.test(raw) ? Number(raw) : undefined
+}
+
+/** True for a version counter reading: a non-negative integer, never a string. */
+function isVersion(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
 }
 
 /** `user/0` or `group/42`, the way the model names a library. */
@@ -103,11 +129,14 @@ function assertSameInstance(observed: string | undefined, expected: string): voi
 }
 
 /**
- * Diff the library against a local transaction version. Zotero 10+ versions
- * are local transactions: any edit, sync, or local-API write advances them,
- * so `?since=` answers "what changed here" without the cloud and without a
- * background watcher. Without `since` this is a baseline reading — just the
- * current version for the next call to diff from. `format=versions`
+ * Diff the library against a local transaction version. On the verified build
+ * (Zotero 10.0.2-beta.9) versions are local transactions: every object save
+ * advances the library's counter and stamps the object, so `?since=` answers
+ * "what changed here" without the cloud and without a background watcher. The
+ * domain never assumes that from a build number — no response header names the
+ * build, and one that reports no library version is reported as
+ * `versionUnavailable` instead. Without `since` this is a baseline reading —
+ * just the current version for the next call to diff from. `format=versions`
  * responses are key→version maps; `/deleted` returns tombstone key lists.
  * Each listing is capped at `maxChangesResults` entries with its true count
  * in `totals` and an honest `truncated` flag.
@@ -136,23 +165,37 @@ export async function changes(
     )
   }
 
-  // The instance this call is pinned to: the caller's claim when it passed a
-  // cursor, otherwise the first response that names one. Every request carries
-  // it, so the server itself refuses a foreign database with 412.
+  const unobservable: ZoteroChangesUnobservable[] = []
+  const changed: ZoteroChangesResult['changed'] = {}
+  const totals: ZoteroChangesTotals = {}
+  let truncated = false
+
   /**
-   * A diff resource this Zotero build does not serve (some local-API
-   * versions 404 on `/deleted`, for example) contributes nothing instead
-   * of failing the whole read — degradation matches the plugin's honest-
-   * absence contract everywhere else, and the caller is told which kinds
-   * the diff could not cover.
+   * Run a read that the local API can answer with "not here": 404 for an
+   * endpoint this build does not serve, 409 for one whose history does not
+   * reach back to the requested version (the documented answer for a `since`
+   * older than the tombstone log). Both are facts about the range, not faults,
+   * and both mean the kind contributed nothing to this diff; every other
+   * failure is a real fault and propagates.
    */
-  const optional = async <T>(run: () => Promise<T>): Promise<T | undefined> => {
+  const attempt = async <T>(
+    run: () => Promise<T>,
+  ): Promise<
+    { status: 'ok'; value: T } | { status: 'failed'; reason: ZoteroChangesUnobservableReason }
+  > => {
     try {
-      return await run()
+      return { status: 'ok', value: await run() }
     } catch (error) {
-      if (error instanceof ZoteroError && error.code === ZOTERO_NOT_FOUND) return undefined
+      if (isNotFoundError(error)) return { status: 'failed', reason: 'not-served' }
+      if (isRangeUnsupportedError(error)) return { status: 'failed', reason: 'range-not-covered' }
       throw error
     }
+  }
+
+  /** The display listing for one read: at most `cap` rows, with the cap noted. */
+  const display = <T>(rows: readonly T[]): T[] => {
+    if (rows.length > cap) truncated = true
+    return rows.slice(0, cap)
   }
 
   /**
@@ -181,9 +224,9 @@ export async function changes(
     // that reports none — no items read, or no version header on it — has no
     // changes story to tell, and the result says so rather than handing back a
     // cursor pinned to nothing.
-    const probe = await optional(() => probeVersion())
-    const observed = probe?.serverId
-    const version = probe?.version
+    const probe = await attempt(() => probeVersion())
+    const observed = probe.status === 'ok' ? probe.value.serverId : undefined
+    const version = probe.status === 'ok' ? probe.value.version : undefined
     const cursor = cursorFor(observed, library, version)
     return {
       library,
@@ -204,9 +247,10 @@ export async function changes(
   // library's *current* version in `Last-Modified-Version` — not the newest
   // version on its page — so any other reading means a write landed while this
   // call was reading, and the range cannot be attributed to one version.
-  const probe = await optional(() => probeVersion(instance))
-  assertSameInstance(probe?.serverId, instance)
-  const snapshot = probe?.version
+  const probe = await attempt(() => probeVersion(instance))
+  const probeValue = probe.status === 'ok' ? probe.value : undefined
+  assertSameInstance(probeValue?.serverId, instance)
+  const snapshot = probeValue?.version
   let complete = snapshot !== undefined
   let libraryChanged = false
 
@@ -216,154 +260,197 @@ export async function changes(
    * header promises means this build capped the response and the read is not
    * the whole range. Without the header the unbounded request is trusted to be
    * whole — a short page is complete, and nothing more is knowable here.
+   *
+   * A body that is not a key→version map is a different matter: it is not a
+   * short answer but an unreadable one, so it is reported as such (no listing,
+   * no count, nothing for the cursor to certify) instead of being read as
+   * "nothing changed".
    */
-  const readVersions = async (
-    path: string,
-  ): Promise<{
-    entries: ZoteroChangedObject[]
-    total: number
-    complete: boolean
-    serverId?: string
-    version?: number
-  }> => {
-    const params = new URLSearchParams()
-    params.set('since', String(since.version))
-    params.set('format', 'versions')
-    // Deliberately no `limit`: the local API answers an unbounded request in
-    // full, and a capped read could not be resumed (the API has no version
-    // upper bound, and the reported version would already sit past the rows
-    // the cap hid).
-    const { json, headers } = await deps.client.getJson<unknown>(path, params, {
-      signal,
-      serverId: instance,
+  const readResource = async (path: string): Promise<ResourceRead> => {
+    const payload = await attempt(async () => {
+      const params = new URLSearchParams()
+      params.set('since', String(since.version))
+      params.set('format', 'versions')
+      // Deliberately no `limit`: the local API answers an unbounded request in
+      // full, and a capped read could not be resumed (the API has no version
+      // upper bound, and the reported version would already sit past the rows
+      // the cap hid).
+      return await deps.client.getJson<unknown>(path, params, { signal, serverId: instance })
     })
-    const observed = headers.get('zotero-server-id') ?? undefined
+    if (payload.status === 'failed') return payload
+    const { json, headers } = payload.value
     const map = asRecord(json)
-    const rawKeys = map === undefined ? [] : Object.keys(map)
-    const entries = Object.entries(map ?? {})
-      .filter(([key, version]) => isObjectKey(key) && typeof version === 'number')
-      .map(([key, version]) => ({ key, version: version as number }))
-      .sort((a, b) => b.version - a.version || a.key.localeCompare(b.key))
+    const rows = map === undefined ? undefined : Object.entries(map)
+    if (rows === undefined || !rows.every(([key, value]) => isObjectKey(key) && isVersion(value))) {
+      return { status: 'failed', reason: 'unreadable' }
+    }
+    const observed = headers.get('zotero-server-id') ?? undefined
     const headerTotal = numericHeader(headers, 'total-results')
     const version = numericHeader(headers, 'last-modified-version')
     return {
-      entries,
-      total: headerTotal ?? rawKeys.length,
-      // A non-map body read as "no changes" would be a silent lie, so it counts
-      // as an incomplete read instead.
-      complete: map !== undefined && (headerTotal === undefined || headerTotal === rawKeys.length),
-      ...(observed !== undefined ? { serverId: observed } : {}),
-      ...(version !== undefined ? { version } : {}),
+      status: 'ok',
+      value: {
+        entries: rows
+          .map(([key, value]) => ({ key, version: value as number }))
+          .sort((a, b) => b.version - a.version || a.key.localeCompare(b.key)),
+        total: headerTotal ?? rows.length,
+        // A shape we cannot read is not a shape we can vouch for, so the
+        // header check only speaks once the body was readable.
+        complete: headerTotal === undefined || headerTotal === rows.length,
+        ...(observed !== undefined ? { serverId: observed } : {}),
+        ...(version !== undefined ? { version } : {}),
+      },
     }
   }
 
-  const changed: {
-    items?: ZoteroChangedObject[]
-    collections?: ZoteroChangedObject[]
-    savedSearches?: ZoteroChangedObject[]
-    fulltextAttachments?: ZoteroChangedObject[]
-  } = {}
-  const totals: ZoteroChangesTotals = {}
-  const unsupported: ZoteroChangesInclude[] = []
-  let truncated = false
+  /**
+   * Record a kind this call could not observe — once per kind, which is what
+   * every caller does: a kind whose endpoint is read more than once (the item
+   * space) collapses its reads to one verdict before calling this. An
+   * unreadable read also withholds the cursor: unlike a missing endpoint, the
+   * rows exist and this call failed to read them, so advancing would step over
+   * them.
+   */
+  const recordUnobservable = (
+    kind: ZoteroChangesInclude,
+    reason: ZoteroChangesUnobservableReason,
+  ): void => {
+    unobservable.push({ kind, reason })
+    if (reason === 'unreadable') complete = false
+  }
 
   /**
-   * Read one versions resource into the result: record its true count, fold
-   * its completeness and snapshot reading into the call's verdict, and return
-   * the capped listing for the model.
+   * Fold one successful read into the call: assert the answering instance,
+   * fold its completeness and snapshot reading in, and keep its true count.
    */
-  const readKind = async (
-    kind: { include: ZoteroChangesInclude; key: keyof ZoteroChangesTotals },
-    path: string,
-  ): Promise<ZoteroChangedObject[] | undefined> => {
-    const result = await optional(() => readVersions(path))
-    if (result === undefined) {
-      unsupported.push(kind.include)
-      return undefined
-    }
-    assertSameInstance(result.serverId, instance)
-    if (snapshot !== undefined && result.version !== undefined && result.version !== snapshot) {
+  const foldRead = (page: VersionsPage): void => {
+    assertSameInstance(page.serverId, instance)
+    if (snapshot !== undefined && page.version !== undefined && page.version !== snapshot) {
       // A write landed while this call was reading, so no single version
       // describes the range this result reports.
       libraryChanged = true
       complete = false
     }
-    complete = complete && result.complete
-    totals[kind.key] = result.total
-    if (result.entries.length > cap) truncated = true
-    return result.entries.slice(0, cap)
+    complete = complete && page.complete
+  }
+
+  /** Read one single-endpoint kind into its listing, its count, or its absence. */
+  const readKind = async (
+    kind: ZoteroChangesInclude,
+    path: string,
+    totalKey: keyof ZoteroChangesTotals,
+  ): Promise<ZoteroChangedObject[] | undefined> => {
+    const read = await readResource(path)
+    if (read.status === 'failed') {
+      recordUnobservable(kind, read.reason)
+      return undefined
+    }
+    foldRead(read.value)
+    totals[totalKey] = read.value.total
+    return display(read.value.entries)
   }
 
   if (include.has('items')) {
-    const entries = await readKind({ include: 'items', key: 'items' }, `${prefix}/items/top`)
+    const entries = await readKind('items', `${prefix}/items/top`, 'items')
     if (entries !== undefined) changed.items = entries
   }
   if (include.has('collections')) {
-    const entries = await readKind(
-      { include: 'collections', key: 'collections' },
-      `${prefix}/collections`,
-    )
+    const entries = await readKind('collections', `${prefix}/collections`, 'collections')
     if (entries !== undefined) changed.collections = entries
   }
   if (include.has('savedSearches')) {
-    const entries = await readKind(
-      { include: 'savedSearches', key: 'savedSearches' },
-      `${prefix}/searches`,
-    )
+    const entries = await readKind('savedSearches', `${prefix}/searches`, 'savedSearches')
     if (entries !== undefined) changed.savedSearches = entries
   }
   if (include.has('fulltext')) {
     // The index listing, read only when asked for: unbounded and unversioned,
     // it answers in the full-text counter's own namespace, so its rows are a
     // listing for this library version rather than a delta on it.
-    const entries = await readKind(
-      { include: 'fulltext', key: 'fulltextAttachments' },
-      `${prefix}/fulltext`,
-    )
+    const entries = await readKind('fulltext', `${prefix}/fulltext`, 'fulltextAttachments')
     if (entries !== undefined) changed.fulltextAttachments = entries
   }
 
-  // When the tombstone read succeeds, all three lists exist together
-  // (possibly empty) — matching the wire contract's required keys. The
-  // endpoint pages nothing and carries no version of its own, so it can never
-  // make the read incomplete: it only shortens what is listed below.
-  const deleted: { items: string[]; collections: string[]; savedSearches: string[] } = {
-    items: [],
-    collections: [],
-    savedSearches: [],
+  /**
+   * Parse the tombstone payload. Zotero documents four lists — items,
+   * collections, searches, tags — and its own sync reader walks whichever keys
+   * the response carries, so a list the payload omits means "nothing of that
+   * kind was removed", while a payload that is not the documented shape is
+   * unreadable: removals are then unknown, never zero. Keys outside the
+   * documented four (Zotero also syncs a list of settings) are counted in
+   * `deletedOther` so nothing the response carried is dropped in silence.
+   */
+  const parseTombstones = (json: unknown): Tombstones | undefined => {
+    const record = asRecord(json)
+    if (record === undefined) return undefined
+    /** One documented list: absent means empty, anything else has to be strings. */
+    const strings = (field: string): string[] | undefined => {
+      const value = record[field]
+      if (value === undefined) return []
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+        return undefined
+      }
+      return value as string[]
+    }
+    const keys = (field: string): string[] | undefined => {
+      const list = strings(field)
+      return list === undefined || list.some((key) => !isObjectKey(key)) ? undefined : list
+    }
+    const items = keys('items')
+    const collections = keys('collections')
+    const savedSearches = keys('searches')
+    // Tag names are not object keys; a blank one would be an entry the model
+    // cannot act on, so it counts as a malformed payload like any other.
+    const tags = strings('tags')
+    if (
+      items === undefined ||
+      collections === undefined ||
+      savedSearches === undefined ||
+      tags === undefined ||
+      tags.some((tag) => tag.trim() === '')
+    ) {
+      return undefined
+    }
+    let other = 0
+    for (const [field, value] of Object.entries(record)) {
+      if ((TOMBSTONE_LISTS as readonly string[]).includes(field)) continue
+      if (Array.isArray(value)) other += value.length
+    }
+    return { items, collections, savedSearches, tags, other }
   }
+
+  // When the tombstone read succeeds every list exists, possibly empty — the
+  // positive statement "nothing was removed in this range", which is why it is
+  // never omitted for brevity. The endpoint carries no version of its own, so
+  // it can never make the read incomplete: it only shortens what is listed.
+  let deleted: ZoteroChangesResult['deleted']
   if (include.has('deleted')) {
-    const payload = await optional(async () => {
+    const read = await attempt(async () => {
       const params = new URLSearchParams()
       params.set('since', String(since.version))
-      return await deps.client.getJson<unknown>(`${prefix}/deleted`, params, {
+      const payload = await deps.client.getJson<unknown>(`${prefix}/deleted`, params, {
         signal,
         serverId: instance,
       })
-    })
-    if (payload === undefined) {
-      unsupported.push('deleted')
-    } else {
       assertSameInstance(payload.headers.get('zotero-server-id') ?? undefined, instance)
-      const record = asRecord(payload.json)
-      const keysOf = (field: string): string[] =>
-        (Array.isArray(record?.[field]) ? (record![field] as unknown[]) : []).filter(
-          (key): key is string => typeof key === 'string' && isObjectKey(key),
-        )
-      const served = {
-        items: keysOf('items'),
-        collections: keysOf('collections'),
-        savedSearches: keysOf('searches'),
+      return parseTombstones(payload.json)
+    })
+    const tombstones = read.status === 'ok' ? read.value : undefined
+    if (read.status === 'failed') {
+      recordUnobservable('deleted', read.reason)
+    } else if (tombstones === undefined) {
+      recordUnobservable('deleted', 'unreadable')
+    } else {
+      deleted = {
+        items: display(tombstones.items),
+        collections: display(tombstones.collections),
+        savedSearches: display(tombstones.savedSearches),
+        tags: display(tombstones.tags),
       }
-      deleted.items = served.items.slice(0, cap)
-      deleted.collections = served.collections.slice(0, cap)
-      deleted.savedSearches = served.savedSearches.slice(0, cap)
-      totals.deletedItems = served.items.length
-      totals.deletedCollections = served.collections.length
-      totals.deletedSavedSearches = served.savedSearches.length
-      for (const keys of Object.values(served)) {
-        if (keys.length > cap) truncated = true
-      }
+      totals.deletedItems = tombstones.items.length
+      totals.deletedCollections = tombstones.collections.length
+      totals.deletedSavedSearches = tombstones.savedSearches.length
+      totals.deletedTags = tombstones.tags.length
+      if (tombstones.other > 0) totals.deletedOther = tombstones.other
     }
   }
 
@@ -381,13 +468,9 @@ export async function changes(
     ...(libraryChanged ? { libraryChanged } : {}),
     ...(snapshot === undefined ? { versionUnavailable: true } : {}),
     changed,
-    ...(deleted.items.length > 0 ||
-    deleted.collections.length > 0 ||
-    deleted.savedSearches.length > 0
-      ? { deleted }
-      : {}),
+    ...(deleted !== undefined ? { deleted } : {}),
     ...(served ? { totals } : {}),
-    ...(unsupported.length > 0 ? { unsupported } : {}),
+    ...(unobservable.length > 0 ? { unobservable } : {}),
     ...(truncated ? { truncated } : {}),
   }
 }
