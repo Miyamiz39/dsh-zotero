@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { renderGet } from '../../src/tools/get.js'
-import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
+import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { annotationRow, attachment, collectionRow, noteRow } from '../helpers/server/objects.js'
 
 let lane: HostLane
@@ -67,9 +67,10 @@ describe('zotero_get tool', () => {
         { 'Zotero-Server-ID': 'S1' },
       ),
     )
-    const result = await runTool('zotero_get', { ref: 'zotero://user/0/item/ABCD1234' })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_get', { ref: 'zotero://user/0/item/ABCD1234' }),
+      'zotero_get',
+    )
     expect(mock.requests.map((request) => request.pathname)).toEqual([
       '/api/users/0/items/ABCD1234',
     ])
@@ -107,12 +108,13 @@ describe('zotero_get tool', () => {
         },
       }),
     )
-    const result = await runTool('zotero_get', {
-      ref: 'zotero://user/0/item/ABCD1234',
-      fields: 'all',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_get', {
+        ref: 'zotero://user/0/item/ABCD1234',
+        fields: 'all',
+      }),
+      'zotero_get',
+    )
     const value = result.value as { extraFields?: Record<string, unknown> }
     expect(value.extraFields).toEqual({ repository: 'Zenodo', libraryCatalog: 'Zotero' })
     const text = (result.content[0] as { text: string }).text
@@ -126,9 +128,10 @@ describe('zotero_get tool', () => {
         data: { itemType: 'journalArticle', title: 'Bare' },
       }),
     )
-    const result = await runTool('zotero_get', { ref: 'zotero://user/0/item/ABCD1234' })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_get', { ref: 'zotero://user/0/item/ABCD1234' }),
+      'zotero_get',
+    )
     expect((result.content[0] as { text: string }).text).toBe(
       'zotero://user/0/item/ABCD1234 — Bare [journalArticle]\nChildren: 0 total',
     )
@@ -147,12 +150,13 @@ describe('zotero_get tool', () => {
     mock.route('GET', '/api/users/0/collections', (req, res, helpers) =>
       helpers.json([collectionRow()]),
     )
-    const result = await runTool('zotero_get', {
-      ref: 'zotero://user/0/item/ABCD1234',
-      include: ['notes', 'annotations', 'attachments'],
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_get', {
+        ref: 'zotero://user/0/item/ABCD1234',
+        include: ['notes', 'annotations', 'attachments'],
+      }),
+      'zotero_get',
+    )
     // The parent, its children, the attachment-level annotation walk, and one
     // collections listing — the two independent arms may interleave.
     const paths = mock.requests.map((request) => request.pathname)
@@ -217,9 +221,10 @@ describe('zotero_get tool', () => {
         },
       }),
     )
-    const result = await runTool('zotero_get', { ref: 'zotero://user/0/item/ABCD1234' })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_get', { ref: 'zotero://user/0/item/ABCD1234' }),
+      'zotero_get',
+    )
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('Abstract (truncated): ')
     expect(text).toContain('Best attachment: zotero://user/0/attachment/WXYZ6789 (unknown type)')

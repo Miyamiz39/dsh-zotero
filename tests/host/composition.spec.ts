@@ -20,6 +20,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ZoteroService from '../../src/index.js'
+import { expectValue } from '../helpers/lanes/host-lane.js'
 import { MockZotero } from '../helpers/mock-zotero.js'
 import { StubCommands } from '../helpers/stub-commands.js'
 import { ZOTERO_TOOL_NAMES } from '../helpers/tool-names.js'
@@ -113,14 +114,15 @@ describe('the shipped bundle patch through a real Loader composition', () => {
         { 'Total-Results': '1' },
       ),
     )
-    const result = await context.tools.execute({
-      callId: ToolCallId('composition-search'),
-      name: 'zotero_search',
-      arguments: { query: 'flash', limit: 5 },
-      signal: new AbortController().signal,
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await context.tools.execute({
+        callId: ToolCallId('composition-search'),
+        name: 'zotero_search',
+        arguments: { query: 'flash', limit: 5 },
+        signal: new AbortController().signal,
+      }),
+      'zotero_search',
+    )
     expect(result.value).toMatchObject({ total: 1, returned: 1 })
 
     // Disposal unwinds every registration owned by the composed tree.

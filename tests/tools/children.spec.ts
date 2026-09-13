@@ -11,7 +11,7 @@ import {
   CHILDREN_NONE_REQUESTED_MESSAGE,
   renderChildren,
 } from '../../src/tools/children.js'
-import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
+import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { annotationRow, attachment, noteRow } from '../helpers/server/objects.js'
 
 let lane: HostLane
@@ -47,12 +47,13 @@ describe('zotero_children tool', () => {
     mock.route('GET', '/api/users/0/items/WXYZ6789/children', (req, res, helpers) =>
       helpers.json([annotationRow()]),
     )
-    const result = await runTool('zotero_children', {
-      ref: 'zotero://user/0/item/ABCD1234',
-      include: ['notes', 'attachments', 'annotations'],
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_children', {
+        ref: 'zotero://user/0/item/ABCD1234',
+        include: ['notes', 'attachments', 'annotations'],
+      }),
+      'zotero_children',
+    )
     const value = result.value as {
       annotations?: { total: number; items: { parentRef?: string }[] }
       itemType?: string
@@ -81,11 +82,10 @@ describe('zotero_children tool', () => {
     mock.route('GET', '/api/users/0/items/WXYZ6789/children', (req, res, helpers) =>
       helpers.json([annotationRow()]),
     )
-    const result = await runTool('zotero_children', {
-      ref: 'zotero://user/0/attachment/WXYZ6789',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_children', { ref: 'zotero://user/0/attachment/WXYZ6789' }),
+      'zotero_children',
+    )
     const value = result.value as { itemType?: string; notes?: unknown; annotations?: unknown }
     expect(value.itemType).toBe('attachment')
     expect(value.notes).toBeUndefined()

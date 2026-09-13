@@ -17,6 +17,7 @@ import {
   TAG_SCOPE_COLLECTION_MESSAGE,
 } from '../../src/tools/browse.js'
 import { nonBlankArgumentMessage } from '../../src/tools/validate.js'
+import { expectValue } from '../helpers/lanes/host-lane.js'
 import { MockZotero } from '../helpers/mock-zotero.js'
 
 let mock: MockZotero
@@ -73,9 +74,10 @@ describe('registry integration: zotero_get schema + render', () => {
     mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
       helpers.json(parent, { 'Zotero-Server-ID': 'S1' }),
     )
-    const result = await run('zotero_get', { ref: 'zotero://user/0/item/ABCD1234' })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await run('zotero_get', { ref: 'zotero://user/0/item/ABCD1234' }),
+      'zotero_get',
+    )
     // canonical output should contain relations and not be rejected by schema (additionalProperties:false)
     expect((result.value as { relations: unknown[] }).relations).toBeDefined()
     expect(
@@ -114,12 +116,13 @@ describe('registry integration: zotero_get schema + render', () => {
     mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
       helpers.json([child]),
     )
-    const result = await run('zotero_get', {
-      ref: 'zotero://user/0/item/ABCD1234',
-      include: ['annotations'],
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await run('zotero_get', {
+        ref: 'zotero://user/0/item/ABCD1234',
+        include: ['annotations'],
+      }),
+      'zotero_get',
+    )
     const annotations = (result.value as { annotations: { items: Array<{ parentRef?: string }> } })
       .annotations
     expect(annotations.items[0]?.parentRef).toBe('zotero://user/0/attachment/WXYZ6789')
@@ -135,9 +138,7 @@ describe('registry integration: zotero_browse libraries Native identity', () => 
     mock.route('GET', '/api/users/0/groups', (req, res, helpers) =>
       helpers.json([{ id: 123456, name: 'Research Group' }], { 'Zotero-Server-ID': 'S1' }),
     )
-    const result = await run('zotero_browse', { kind: 'libraries' })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(await run('zotero_browse', { kind: 'libraries' }), 'zotero_browse')
     // canonical should have library objects
     const items = (
       result.value as { items: Array<{ library: { type: string; id: number }; name: string }> }
@@ -159,9 +160,10 @@ describe('registry integration: zotero_browse libraries Native identity', () => 
     mock.route('GET', '/api/users/0/collections/top', (req, res, helpers) =>
       helpers.json(cols, { 'Total-Results': String(cols.length) }),
     )
-    const result = await run('zotero_browse', { kind: 'collections', limit: 35 })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await run('zotero_browse', { kind: 'collections', limit: 35 }),
+      'zotero_browse',
+    )
     expect((result.value as { returned: number }).returned).toBe(35)
     const text = (result.content[0] as { text: string }).text
     // should contain 35 lines, not truncated to 20
@@ -219,9 +221,10 @@ describe('registry integration: zotero_browse libraries Native identity', () => 
     mock.route('GET', '/api/itemTypeCreatorTypes', (req, res, helpers) =>
       helpers.json([{ creatorType: 'author', localized: 'Author' }]),
     )
-    const result = await run('zotero_browse', { kind: 'itemFields', itemType: 'dataset' })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await run('zotero_browse', { kind: 'itemFields', itemType: 'dataset' }),
+      'zotero_browse',
+    )
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('1. field repository (Repository)')
     expect(text).toContain('2. creatorType author (Author)')
@@ -236,9 +239,7 @@ describe('registry integration: browse render exposes structured fields', () => 
         'Zotero-Server-ID': 'S1',
       }),
     )
-    const top = await run('zotero_browse', { kind: 'collections' })
-    expect(top.isError).toBe(false)
-    if (top.isError) throw new Error('unreachable')
+    const top = expectValue(await run('zotero_browse', { kind: 'collections' }), 'zotero_browse')
     const topText = (top.content[0] as { text: string }).text
     // The root keeps its single-segment path (its own name).
     expect(topText).toContain('1. Methods — zotero://user/0/collection/COLL0001?server=S1')
@@ -261,12 +262,13 @@ describe('registry integration: browse render exposes structured fields', () => 
         { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' },
       ),
     )
-    const children = await run('zotero_browse', {
-      kind: 'collections',
-      parentRef: 'zotero://user/0/collection/COLL0001?server=S1',
-    })
-    expect(children.isError).toBe(false)
-    if (children.isError) throw new Error('unreachable')
+    const children = expectValue(
+      await run('zotero_browse', {
+        kind: 'collections',
+        parentRef: 'zotero://user/0/collection/COLL0001?server=S1',
+      }),
+      'zotero_browse',
+    )
     const text = (children.content[0] as { text: string }).text
     expect(text).toContain('Methods / RAG — zotero://user/0/collection/COLL0002?server=S1')
   })
@@ -336,9 +338,10 @@ describe('registry integration: browseTags server pagination', () => {
       const slice = filtered.slice(start, start + limit)
       helpers.json(slice, { 'Total-Results': String(filtered.length) })
     })
-    const r = await run('zotero_browse', { kind: 'tags', q: 'alp', match: 'contains', limit: 10 })
-    expect(r.isError).toBe(false)
-    if (r.isError) throw new Error('unreachable')
+    const r = expectValue(
+      await run('zotero_browse', { kind: 'tags', q: 'alp', match: 'contains', limit: 10 }),
+      'zotero_browse',
+    )
     expect((r.value as { total: number }).total).toBe(1)
     expect((r.content[0] as { text: string }).text).toContain('alpha')
     // verify the request actually sent qmode

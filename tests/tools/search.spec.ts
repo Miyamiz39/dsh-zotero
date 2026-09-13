@@ -23,7 +23,7 @@ import {
   intRangeArgumentMessage,
   PERSONAL_LIBRARY_MESSAGE,
 } from '../../src/tools/validate.js'
-import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
+import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { collectionRow, searchHit } from '../helpers/server/objects.js'
 
 let lane: HostLane
@@ -68,9 +68,10 @@ describe('zotero_search tool', () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
       helpers.json([HIT], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' }),
     )
-    const result = await runTool('zotero_search', { query: 'flash attention', limit: 5 })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_search', { query: 'flash attention', limit: 5 }),
+      'zotero_search',
+    )
     expect(result.value).toEqual({
       scope: { kind: 'library', library: { type: 'user', id: 0 } },
       items: [
@@ -158,11 +159,12 @@ describe('zotero_search tool', () => {
     mock.route('GET', '/api/users/0/collections/COLL1234/items/top', (req, res, helpers) =>
       helpers.json([HIT], { 'Total-Results': '1', 'Zotero-Server-ID': 'S1' }),
     )
-    const first = await runTool('zotero_search', {
-      scope: { kind: 'collection', refOrName: 'LLM Papers' },
-    })
-    expect(first.isError).toBe(false)
-    if (first.isError) throw new Error('unreachable')
+    const first = expectValue(
+      await runTool('zotero_search', {
+        scope: { kind: 'collection', refOrName: 'LLM Papers' },
+      }),
+      'zotero_search',
+    )
     const scope = (first.value as { scope: { kind: string; ref: string } }).scope
     expect(scope).toEqual({
       kind: 'collection',
@@ -226,9 +228,7 @@ describe('zotero_search tool', () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
       helpers.json([HIT], { 'Total-Results': '25' }),
     )
-    const result = await runTool('zotero_search', { limit: 5 })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(await runTool('zotero_search', { limit: 5 }), 'zotero_search')
     expect((result.content[0] as { text: string }).text).toContain(searchMoreMessage(1))
   })
 
@@ -255,12 +255,13 @@ describe('zotero_search tool', () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
       helpers.json([withPdf], { 'Total-Results': '1' }),
     )
-    const result = await runTool('zotero_search', {
-      itemTypes: ['journalArticle', 'conferencePaper'],
-      query: 'x',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_search', {
+        itemTypes: ['journalArticle', 'conferencePaper'],
+        query: 'x',
+      }),
+      'zotero_search',
+    )
     expect(mock.requests[0]!.search.get('itemType')).toBe('journalArticle || conferencePaper')
     expect((result.content[0] as { text: string }).text).toContain(' — PDF')
   })
@@ -270,7 +271,7 @@ describe('zotero_search tool', () => {
       helpers.json([], { 'Total-Results': '0' }),
     )
     const blankQuery = await runTool('zotero_search', { query: '   ' })
-    expect(blankQuery.isError).toBe(false)
+    expectValue(blankQuery, 'zotero_search')
     expect(mock.requests[0]!.search.has('q')).toBe(false)
 
     const zeroLimit = await runTool('zotero_search', { limit: 0 })
@@ -302,9 +303,7 @@ describe('zotero_search tool', () => {
     mock.route('GET', /^\/api\/users\/0\/items(\/top)?$/, (req, res, helpers) =>
       helpers.json([bare], { 'Total-Results': '1' }),
     )
-    const result = await runTool('zotero_search', { query: 'x' })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(await runTool('zotero_search', { query: 'x' }), 'zotero_search')
     expect((result.content[0] as { text: string }).text).toBe(
       'Found 1 of 1 results:\n1. zotero://user/0/item/ABCD1234 — FlashAttention-2 [conferencePaper]',
     )

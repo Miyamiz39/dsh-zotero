@@ -9,7 +9,8 @@
  * `afterEach`: the wiring is visible at the call site that depends on it.
  * `runTool` keeps the call-id scheme the tool specs were written against
  * (`tool-<n>`, counted per lane), so `ctx.tools` sees the assembly it always
- * did.
+ * did. {@link expectValue} lives here too: it settles the success arm of one
+ * `runTool` result, which is the one assertion every tool spec needs.
  *
  * The optional compositions are the seams the host specs exercise beyond the
  * tool lane. Each one mounts before the plugin, because the plugin resolves
@@ -22,7 +23,12 @@
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { type ToolDefinition, type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, {
+  type ToolDefinition,
+  type ToolExecutionFailure,
+  type ToolExecutionResult,
+  type ToolExecutionSuccess,
+} from '@deepseek-ai/dsh-tools'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import type { Config } from '../../../src/config.js'
 import ZoteroService from '../../../src/index.js'
@@ -109,4 +115,46 @@ export async function setupHostLane(
       await mock.close()
     },
   }
+}
+
+/**
+ * Assert one tool call succeeded, then hand the result back narrowed to its
+ * success arm. This is the `expect(result.isError).toBe(false)` plus
+ * `if (result.isError) throw new Error('unreachable')` pair the tool specs
+ * spelled out at every call, in one place: the call site keeps reading
+ * `.value`, `.content`, and `.meta` off the same binding, and the compiler
+ * still sees the arm that carries them.
+ *
+ * The returned result is the input object itself. A failure throws instead of
+ * returning, so every assertion after the call runs only on a success — and
+ * the thrown message names the tool and carries the text a reader would
+ * otherwise have to fetch from the result by hand: the registry's failure
+ * message, its `{ name, code }` when the tool threw a `HarnessError`, and the
+ * model-facing content blocks.
+ * @param result - a settled `ctx.tools.execute` result.
+ * @param tool - the tool name the call used, for the failure message.
+ * @returns the same result, typed as its success arm.
+ */
+export function expectValue(result: ToolExecutionResult, tool: string): ToolExecutionSuccess {
+  if (!result.isError) return result
+  throw new Error(`${tool} failed${failureCode(result)}: ${failureText(result)}`)
+}
+
+/** ` [ZoteroError: ZOTERO_NOT_RUNNING]`, when the tool threw a `HarnessError`. */
+function failureCode(result: ToolExecutionFailure): string {
+  const info = result.error.info
+  return info === undefined ? '' : ` [${info.name}: ${info.code}]`
+}
+
+/**
+ * The failure text a spec would inspect: the registry's message, plus the
+ * model-facing blocks when they say more than the `Error: ` envelope the
+ * registry derives from that same message.
+ */
+function failureText(result: ToolExecutionFailure): string {
+  const blocks = result.content
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('\n')
+  if (blocks === '' || blocks === `Error: ${result.error.message}`) return result.error.message
+  return `${result.error.message}\n${blocks}`
 }

@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FILE_ENVIRONMENT_MESSAGE } from '../../src/tools/attachment.js'
-import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
+import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 
 let lane: HostLane
 let mock: HostLane['mock']
@@ -57,11 +57,10 @@ describe('zotero_attachment tool', () => {
       mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
         helpers.text(pathToFileURL(filePath).href),
       )
-      const result = await runTool('zotero_attachment', {
-        ref: 'zotero://user/0/attachment/WXYZ6789',
-      })
-      expect(result.isError).toBe(false)
-      if (result.isError) throw new Error('unreachable')
+      const result = expectValue(
+        await runTool('zotero_attachment', { ref: 'zotero://user/0/attachment/WXYZ6789' }),
+        'zotero_attachment',
+      )
       expect(result.value).toEqual({
         ref: 'zotero://user/0/attachment/WXYZ6789',
         title: 'Full Text PDF',
@@ -121,9 +120,10 @@ describe('zotero_attachment tool', () => {
       mock.route('GET', '/api/users/0/items/WXYZ6789/file/view/url', (req, res, helpers) =>
         helpers.text(pathToFileURL(filePath).href),
       )
-      const result = await runTool('zotero_attachment', { ref: 'zotero://user/0/item/ABCD1234' })
-      expect(result.isError).toBe(false)
-      if (result.isError) throw new Error('unreachable')
+      const result = expectValue(
+        await runTool('zotero_attachment', { ref: 'zotero://user/0/item/ABCD1234' }),
+        'zotero_attachment',
+      )
       expect(mock.requests.map((request) => request.pathname)).toEqual([
         '/api/users/0/items/ABCD1234',
         '/api/users/0/items/WXYZ6789',
@@ -155,11 +155,10 @@ describe('zotero_attachment tool', () => {
         },
       }),
     )
-    const result = await runTool('zotero_attachment', {
-      ref: 'zotero://user/0/attachment/WXYZ6789',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_attachment', { ref: 'zotero://user/0/attachment/WXYZ6789' }),
+      'zotero_attachment',
+    )
     expect(mock.requests).toHaveLength(1)
     expect(result.value).toEqual({
       ref: 'zotero://user/0/attachment/WXYZ6789',
@@ -181,11 +180,10 @@ describe('zotero_attachment tool', () => {
         data: { itemType: 'attachment', linkMode: 'linked_url', url: 'https://example.com/doc' },
       }),
     )
-    const result = await runTool('zotero_attachment', {
-      ref: 'zotero://user/0/attachment/WXYZ6789',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_attachment', { ref: 'zotero://user/0/attachment/WXYZ6789' }),
+      'zotero_attachment',
+    )
     expect((result.content[0] as { text: string }).text).toBe(
       'zotero://user/0/attachment/WXYZ6789 unknown type → https://example.com/doc',
     )

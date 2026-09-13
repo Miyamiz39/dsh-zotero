@@ -24,7 +24,7 @@ import {
   UNOBSERVABLE_UNREADABLE_MESSAGE,
 } from '../../src/tools/changes.js'
 import { PERSONAL_LIBRARY_MESSAGE } from '../../src/tools/validate.js'
-import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
+import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 
 let lane: HostLane
 let mock: HostLane['mock']
@@ -71,9 +71,7 @@ describe('zotero_changes tool', () => {
       expect(search.get('limit')).toBe('1')
       helpers.json([], { 'Last-Modified-Version': '42', 'Zotero-Server-ID': 'S1' })
     })
-    const result = await runTool('zotero_changes', {})
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(await runTool('zotero_changes', {}), 'zotero_changes')
     const value = result.value as {
       cursor?: { serverId: string; library: unknown; version: number }
       changed: Record<string, unknown>
@@ -105,14 +103,14 @@ describe('zotero_changes tool', () => {
       expect(search.get('since')).toBe('42')
       helpers.json({ ABCD1234: 44 }, { 'Total-Results': '1', 'Last-Modified-Version': '50' })
     })
-    const baseline = await runTool('zotero_changes', {})
-    if (baseline.isError) throw new Error('unreachable')
+    const baseline = expectValue(await runTool('zotero_changes', {}), 'zotero_changes')
     const cursor = (baseline.value as { cursor: unknown }).cursor
     routeEmptySides('50')
     mock.requests.length = 0
-    const diff = await runTool('zotero_changes', { since: cursor, include: ['items'] })
-    expect(diff.isError).toBe(false)
-    if (diff.isError) throw new Error('unreachable')
+    const diff = expectValue(
+      await runTool('zotero_changes', { since: cursor, include: ['items'] }),
+      'zotero_changes',
+    )
     const value = diff.value as { fromVersion?: number; cursor?: { version: number } }
     expect(value.fromVersion).toBe(42)
     expect(value.cursor?.version).toBe(50)
@@ -177,12 +175,13 @@ describe('zotero_changes tool', () => {
       expect(search.get('since')).toBe('42')
       helpers.json({ items: ['EEEE0001'], collections: [], searches: [], tags: ['obsolete'] })
     })
-    const result = await runTool('zotero_changes', {
-      since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
-      include: ['items', 'deleted'],
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_changes', {
+        since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
+        include: ['items', 'deleted'],
+      }),
+      'zotero_changes',
+    )
     const value = result.value as {
       fromVersion?: number
       cursor?: { version: number }
@@ -219,13 +218,14 @@ describe('zotero_changes tool', () => {
       helpers.json({ ABCD1234: 7 }, { 'Total-Results': '1', 'Last-Modified-Version': '9' })
     })
     routeEmptySides('9', '/api/groups/42', 'S2')
-    const result = await runTool('zotero_changes', {
-      library: { type: 'group', id: 42 },
-      since: { serverId: 'S2', library: { type: 'group', id: 42 }, version: 3 },
-      include: ['items'],
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_changes', {
+        library: { type: 'group', id: 42 },
+        since: { serverId: 'S2', library: { type: 'group', id: 42 }, version: 3 },
+        include: ['items'],
+      }),
+      'zotero_changes',
+    )
     const value = result.value as {
       library?: { type: string; id: number }
       cursor?: { serverId: string; library: { type: string; id: number }; version: number }
@@ -257,11 +257,12 @@ describe('zotero_changes tool', () => {
     mock.route('GET', '/api/users/0/deleted', (req, res, helpers) =>
       helpers.json({ items: [], collections: [], searches: [], tags: [] }),
     )
-    const result = await runTool('zotero_changes', {
-      since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_changes', {
+        since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
+      }),
+      'zotero_changes',
+    )
     const value = result.value as {
       unobservable?: unknown[]
       deleted?: { items: string[]; tags: string[] }
@@ -291,12 +292,13 @@ describe('zotero_changes tool', () => {
     mock.route('GET', '/api/users/0/deleted', (req, res, helpers) =>
       helpers.raw(409, { 'Content-Type': 'text/plain' }, 'Conflict'),
     )
-    const result = await runTool('zotero_changes', {
-      since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
-      include: ['items', 'deleted'],
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_changes', {
+        since: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
+        include: ['items', 'deleted'],
+      }),
+      'zotero_changes',
+    )
     const value = result.value as { unobservable?: unknown[]; deleted?: unknown }
     expect(value.deleted).toBeUndefined()
     expect(value.unobservable).toEqual([{ kind: 'deleted', reason: 'range-not-covered' }])

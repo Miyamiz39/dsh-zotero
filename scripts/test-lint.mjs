@@ -3,17 +3,18 @@
  * the way a reviewer cannot check them by hand across 55 files.
  *
  * Every check here exists because this repository actually hit the failure it
- * catches. `tests/client/SourcesTab.spec.tsx` once carried two raw NUL bytes
- * inside a string literal, which made the file binary to every text tool:
- * `Read` refused it, `grep` skipped it without `-a`, and `file(1)` reported
- * `data`. `tests/tools.spec.ts` grew to 2534 lines one review round at a time,
- * and two spec files existed purely to raise a coverage number. None of those
- * were visible in a diff, and none of them failed a test.
+ * catches. The SourcesTab spec (since split into `SourcesTab.*.spec.tsx`) once
+ * carried two raw NUL bytes inside a string literal, which made the file
+ * binary to every text tool: the Read tool refused it, `grep` skipped it
+ * without `-a`, and `file(1)` reported `data`. `tests/tools.spec.ts` grew to
+ * 2534 lines one review round at a time before becoming `tests/tools/*`, and
+ * two spec files existed purely to raise a coverage number. None of those were
+ * visible in a diff, and none of them failed a test.
  *
- * The size and lane limits are **ratchets**: they start at the values the
- * suite carries today and only ever move down as the test refactor progresses.
- * A ratchet that never tightens is a comment; one that tightens by itself
- * would fail on the next unrelated commit, so the numbers are reviewed here.
+ * The size and lane limits are **ratchets**: they are set from the values the
+ * suite carries at the time and only ever move down. A ratchet that never
+ * tightens is a comment; one that tightens by itself would fail on the next
+ * unrelated commit, so the numbers are reviewed here.
  * @module scripts/test-lint
  */
 

@@ -66,11 +66,11 @@ never in a file named after a number or a function.
 `npm run lint:test` (also the first step of `npm test`) enforces four
 mechanical rules; each one exists because this repository hit it:
 
-- no raw control bytes in source or prose — `tests/client/SourcesTab.spec.tsx`
-  once carried NUL bytes, which made the file binary to `grep`, the Read tool
-  and `file(1)`;
+- no raw control bytes in source or prose — the SourcesTab spec (since split
+  into `SourcesTab.*.spec.tsx`) once carried NUL bytes, which made the file
+  binary to `grep`, the Read tool and `file(1)`;
 - no spec over the size ratchet — `tests/tools.spec.ts` reached 2534 lines one
-  review round at a time;
+  review round at a time before it became `tests/tools/*`;
 - every spec inside a declared lane;
 - no `.only`, `.skip` or `.todo` (gate a suite with `.runIf` instead).
 

@@ -12,7 +12,7 @@ import {
   EXPORT_STYLE_BLANK_MESSAGE,
   exportRefsOverCapMessage,
 } from '../../src/tools/export.js'
-import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
+import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { citationRow } from '../helpers/server/objects.js'
 
 let lane: HostLane
@@ -42,12 +42,13 @@ describe('zotero_export tool', () => {
         citationRow('ABCD1234', '<span>A, 2023</span>'),
       ]),
     )
-    const result = await runTool('zotero_export', {
-      refs: ['zotero://user/0/item/ABCD1234', 'zotero://user/0/item/BBBB1234'],
-      format: 'citation',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_export', {
+        refs: ['zotero://user/0/item/ABCD1234', 'zotero://user/0/item/BBBB1234'],
+        format: 'citation',
+      }),
+      'zotero_export',
+    )
     expect(result.value).toEqual({
       format: 'citation',
       style: 'apa',
@@ -69,14 +70,15 @@ describe('zotero_export tool', () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers) =>
       helpers.json([citationRow('ABCD1234', 'x')]),
     )
-    const result = await runTool('zotero_export', {
-      refs: ['zotero://user/0/item/ABCD1234'],
-      format: 'citation',
-      style: 'chicago-note-bibliography',
-      locale: 'de-DE',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_export', {
+        refs: ['zotero://user/0/item/ABCD1234'],
+        format: 'citation',
+        style: 'chicago-note-bibliography',
+        locale: 'de-DE',
+      }),
+      'zotero_export',
+    )
     expect(mock.requests[0]!.search.get('style')).toBe('chicago-note-bibliography')
     expect(mock.requests[0]!.search.get('locale')).toBe('de-DE')
     expect(result.value).toEqual({
@@ -89,12 +91,13 @@ describe('zotero_export tool', () => {
 
   it('renders opaque bibliography text verbatim', async () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers) => helpers.text('entry-a\nentry-b'))
-    const result = await runTool('zotero_export', {
-      refs: ['zotero://user/0/item/ABCD1234'],
-      format: 'bibliography',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_export', {
+        refs: ['zotero://user/0/item/ABCD1234'],
+        format: 'bibliography',
+      }),
+      'zotero_export',
+    )
     expect((result.content[0] as { text: string }).text).toBe('entry-a\nentry-b')
   })
 
@@ -117,12 +120,13 @@ describe('zotero_export tool', () => {
           : '@article{singleZheng2025,\n  title = {Insight into heterogeneous risks},\n}\n',
       )
     })
-    const result = await runTool('zotero_export', {
-      refs: ['zotero://user/0/item/ABCD1234', 'zotero://user/0/item/BBBB1234'],
-      format: 'bibtex',
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_export', {
+        refs: ['zotero://user/0/item/ABCD1234', 'zotero://user/0/item/BBBB1234'],
+        format: 'bibtex',
+      }),
+      'zotero_export',
+    )
     expect(result.value).toEqual({
       format: 'bibtex',
       text: batchText,
@@ -201,9 +205,10 @@ describe('zotero_export tool', () => {
     mock.route('GET', '/api/users/0/items', (req, res, helpers, search) =>
       helpers.json((search.get('itemKey') ?? '').split(',').map((key) => citationRow(key, 'x'))),
     )
-    const result = await runTool('zotero_export', { refs, format: 'citation' })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_export', { refs, format: 'citation' }),
+      'zotero_export',
+    )
     expect((result.value as { citations: unknown[] }).citations).toHaveLength(50)
   })
 

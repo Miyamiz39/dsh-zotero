@@ -22,7 +22,7 @@ import {
   silentAttachmentsMessage,
 } from '../../src/tools/retrieve.js'
 import { intRangeArgumentMessage } from '../../src/tools/validate.js'
-import { type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
+import { expectValue, type HostLane, setupHostLane } from '../helpers/lanes/host-lane.js'
 import { searchHit } from '../helpers/server/objects.js'
 
 let lane: HostLane
@@ -108,13 +108,14 @@ describe('zotero_retrieve tool', () => {
         totalChars: 100,
       }),
     )
-    const result = await runTool('zotero_retrieve', {
-      ref: 'zotero://user/0/item/ABCD1234',
-      query: 'flash attention',
-      passages: 3,
-    })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_retrieve', {
+        ref: 'zotero://user/0/item/ABCD1234',
+        query: 'flash attention',
+        passages: 3,
+      }),
+      'zotero_retrieve',
+    )
     const value = result.value as {
       evidence: { source: string; text: string }[]
       coverage: { complete: boolean }
@@ -132,9 +133,10 @@ describe('zotero_retrieve tool', () => {
     mock.route('GET', '/api/users/0/publications/items/top', (req, res, helpers) =>
       helpers.json([searchHit()], { 'Total-Results': '1' }),
     )
-    const result = await runTool('zotero_search', { scope: { kind: 'publications' } })
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('unreachable')
+    const result = expectValue(
+      await runTool('zotero_search', { scope: { kind: 'publications' } }),
+      'zotero_search',
+    )
     expect(mock.requests[0]!.pathname).toBe('/api/users/0/publications/items/top')
     const value = result.value as { scope: { kind: string } }
     expect(value.scope.kind).toBe('publications')
