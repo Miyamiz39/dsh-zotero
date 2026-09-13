@@ -79,6 +79,16 @@ export const ZOTERO_GRAPH_CONCURRENCY = 4
 export const ZOTERO_SCOPE_LISTING_TTL_MS = 30_000
 
 /**
+ * How many Zotero data requests one plugin instance keeps in flight. Each
+ * domain pool bounds its own fan-out at 4, but pools multiply with every
+ * concurrent tool call, so the HTTP client holds this process-wide slot
+ * count as the real bound on what Zotero is asked to serve at once. Twice a
+ * pool: two calls run at full width, and a burst of calls queues instead of
+ * stacking its requests on the local server.
+ */
+export const ZOTERO_MAX_INFLIGHT_REQUESTS = 8
+
+/**
  * How many attachments one `zotero_retrieve` call may rank full text from.
  * Each member costs a metadata read and a full-text read, and all of their
  * text enters one ranking — a bound on the call's own work, not on what a

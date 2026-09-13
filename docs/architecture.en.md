@@ -44,6 +44,7 @@ User → Agent → dsh Zotero Tools → ZoteroService → Provider → 127.0.0.1
 - Pure loopback fetch, fixed API version (`Zotero-API-Version: 3`)
 - Instance identity protection (`Zotero-Server-ID` header)
 - Stream response byte limit (`maxResponseBytes`)
+- A per-instance in-flight request bound (`ZOTERO_MAX_INFLIGHT_REQUESTS`, default 8): each domain pool only bounds one call's fan-out and concurrent tool calls multiply it, so the HTTP client holds the slots itself — for the whole request, connection and streamed body included. A queued request is cancellable, and its deadline starts once it holds a slot, so waiting in the queue is never reported as Zotero timing out
 - No redirect following, no connection pooling, no background work
 - Timeout via deadline fusion with caller cancellation
 

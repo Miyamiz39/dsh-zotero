@@ -284,6 +284,86 @@ describe('body handling', () => {
   })
 })
 
+describe('in-flight bound', () => {
+  /** Count requests the mock is serving at once, up to and including the response write. */
+  function routeCounting(peak: { value: number }, ms: number): void {
+    let active = 0
+    mock.route('GET', /^\/api\/users\/0\/items\/[A-Z0-9]+$/, (req, res, helpers) => {
+      active += 1
+      peak.value = Math.max(peak.value, active)
+      res.on('finish', () => {
+        active -= 1
+      })
+      helpers.delayJson({ ok: true }, ms)
+    })
+  }
+
+  it('keeps no more than the configured requests in flight', async () => {
+    const gate = new ZoteroHttpClient({
+      baseUrl: mock.baseUrl,
+      timeoutMs: 5000,
+      maxResponseBytes: 1024,
+      maxInFlight: 2,
+    })
+    const peak = { value: 0 }
+    routeCounting(peak, 20)
+    await Promise.all(
+      ['AAAA0001', 'AAAA0002', 'AAAA0003', 'AAAA0004', 'AAAA0005'].map((key) =>
+        gate.getJson(`users/0/items/${key}`),
+      ),
+    )
+    // Five requests, two slots: the extra three waited instead of all five
+    // reaching the local server at once.
+    expect(peak.value).toBe(2)
+    expect(mock.requests).toHaveLength(5)
+  })
+
+  it('cancels a request that is still queued, without sending it', async () => {
+    const gate = new ZoteroHttpClient({
+      baseUrl: mock.baseUrl,
+      timeoutMs: 5000,
+      maxResponseBytes: 1024,
+      maxInFlight: 1,
+    })
+    const peak = { value: 0 }
+    routeCounting(peak, 60)
+    const controller = new AbortController()
+    const holding = gate.getJson('users/0/items/AAAA0001')
+    const queued = gate.getJson('users/0/items/AAAA0002', undefined, {
+      signal: controller.signal,
+    })
+    setTimeout(() => controller.abort(), 10).unref()
+    await expectZoteroError(queued, TOOL_ABORTED, 'aborted')
+    await holding
+    // The aborted request never reached the server, and its slot was not lost:
+    // the first request still completed normally.
+    expect(mock.requests.map((entry) => entry.pathname)).toEqual(['/api/users/0/items/AAAA0001'])
+  })
+
+  it('starts the request deadline after the slot, so queueing is not a timeout', async () => {
+    const gate = new ZoteroHttpClient({
+      baseUrl: mock.baseUrl,
+      timeoutMs: 60,
+      maxResponseBytes: 1024,
+      maxInFlight: 1,
+    })
+    // The first request holds the only slot past its own deadline; the one
+    // queued behind it is answered in 5 ms once it starts.
+    mock.route('GET', '/api/users/0/items/AAAA0001', (req, res, helpers) =>
+      helpers.delayJson({ ok: true }, 150),
+    )
+    mock.route('GET', '/api/users/0/items/AAAA0002', (req, res, helpers) =>
+      helpers.delayJson({ ok: true }, 5),
+    )
+    const holding = gate.getJson('users/0/items/AAAA0001')
+    const queued = gate.getJson('users/0/items/AAAA0002')
+    await expect(holding).rejects.toBeInstanceOf(HarnessError)
+    // The queued request has now waited past the 60 ms deadline and still
+    // succeeds: its clock starts when Zotero's request does.
+    await expect(queued).resolves.toBeDefined()
+  })
+})
+
 describe('failure translation', () => {
   it('maps connection refusal to NOT_RUNNING', async () => {
     const url = mock.baseUrl

@@ -10,7 +10,8 @@
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
-import { ZOTERO_SERVER_ID_HEADER } from './constants.js'
+import { ConcurrencyGate } from './concurrency.js'
+import { ZOTERO_MAX_INFLIGHT_REQUESTS, ZOTERO_SERVER_ID_HEADER } from './constants.js'
 import {
   API_DISABLED_MESSAGE,
   NOT_RUNNING_MESSAGE,
@@ -34,6 +35,12 @@ export interface ZoteroHttpClientOptions {
   readonly baseUrl: string
   readonly timeoutMs: number
   readonly maxResponseBytes: number
+  /**
+   * How many data requests this client keeps in flight. Defaults to
+   * {@link ZOTERO_MAX_INFLIGHT_REQUESTS}; a caller that needs more requests
+   * at once (tests) may raise it, but no route through the plugin does.
+   */
+  readonly maxInFlight?: number
 }
 
 export interface ZoteroHttpGetOptions {
@@ -150,9 +157,18 @@ async function readBody(response: Response, maxResponseBytes: number): Promise<s
 export class ZoteroHttpClient {
   private currentServerId: string | undefined
   private readonly baseUrlWithSlash: string
+  /**
+   * One gate for every data request this client makes. Pools bound each
+   * call's fan-out, but nothing bounded their product: five concurrent tool
+   * calls held twenty requests open against the local server at once. The
+   * slots are held for the whole request — connection, body, streamed read —
+   * because the bytes are what the bound is for.
+   */
+  private readonly gate: ConcurrencyGate
 
   constructor(private readonly options: ZoteroHttpClientOptions) {
     this.baseUrlWithSlash = options.baseUrl.endsWith('/') ? options.baseUrl : `${options.baseUrl}/`
+    this.gate = new ConcurrencyGate(options.maxInFlight ?? ZOTERO_MAX_INFLIGHT_REQUESTS)
   }
 
   /** The instance id remembered from the latest response carrying one (Zotero 10+). */
@@ -186,8 +202,46 @@ export class ZoteroHttpClient {
   ): Promise<ZoteroHttpResponse> {
     const url = new URL(path, this.baseUrlWithSlash)
     url.search = search?.toString() ?? ''
+    // The identity refresh rides the slot of the request that triggered it
+    // rather than taking one of its own: it is a single control request, and
+    // a refresh that waited for a slot could sit behind the very holder it is
+    // refreshing — with every slot held by a request whose 412 is waiting on
+    // its own refresh, nothing would ever move.
+    const release = isIdentityRefresh ? undefined : await this.takeSlot(opts.signal)
+    try {
+      return await this.send(url, opts, isIdentityRefresh)
+    } finally {
+      release?.()
+    }
+  }
+
+  /**
+   * Take one gate slot, translating a queued abort into the same
+   * cancellation error a request aborted mid-flight produces — the caller
+   * cancelled, and how far the request had got is not part of the contract.
+   * `acquire` rejects in exactly one case (a queued holder whose signal was
+   * aborted), so the rejection is reported as that cancellation and carried
+   * along as its cause: a gate that ever failed for another reason stays
+   * visible there rather than being silently reclassified.
+   */
+  private async takeSlot(signal: AbortSignal | undefined): Promise<() => void> {
+    try {
+      return await this.gate.acquire(signal)
+    } catch (error) {
+      throw new HarnessError('tool call aborted', TOOL_ABORTED, { cause: error })
+    }
+  }
+
+  /** Send one request and read its body; the caller holds a slot for this. */
+  private async send(
+    url: URL,
+    opts: ZoteroHttpGetOptions,
+    isIdentityRefresh: boolean,
+  ): Promise<ZoteroHttpResponse> {
     // The deadline fuses caller cancellation with the provider timeout; its
-    // TimeoutReason later distinguishes our timeout from caller aborts.
+    // TimeoutReason later distinguishes our timeout from caller aborts. It
+    // starts here, after the slot was taken, so time spent queued behind the
+    // gate is never reported as Zotero failing to respond in time.
     using d = deadline(opts.signal, this.options.timeoutMs, ZOTERO_TIMEOUT)
     const headers: Record<string, string> = { 'Zotero-API-Version': '3' }
     const serverId =

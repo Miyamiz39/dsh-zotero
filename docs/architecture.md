@@ -44,6 +44,7 @@ graph LR
 - 纯回环 fetch，固定 API 版本（`Zotero-API-Version: 3`）
 - 实例身份保护（`Zotero-Server-ID` 头）
 - 流式响应字节上限（`maxResponseBytes`）
+- 全实例在途请求上限（`ZOTERO_MAX_INFLIGHT_REQUESTS`，默认 8）：各域并发池只约束单次调用的扇出，多个并行工具调用会相乘，因此由 HTTP 客户端统一持有槽位（连接、响应体、流式读取全程），排队请求可被调用方取消，请求超时从拿到槽位后开始计时（排队不计入超时）
 - 不跟随重定向、不保持连接、无后台工作
 - 超时通过 deadline 融合与调用者取消实现
 
