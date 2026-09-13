@@ -91,7 +91,7 @@ Collect and query-rank evidence passages for a single item. Sources include: Zot
 - Only Zotero annotations carry page labels; full-text passages never have fabricated page numbers
 - Unavailable sources are skipped and reported in `sourcesSkipped`
 - Only `annotation` sources have `pageLabel`; full-text passages never carry page numbers
-- `truncated` true indicates more evidence was cut off
+- `truncated` true means more evidence was cut off: a passage over the passage-count or character budget is omitted whole, never edited. The budget charges what the model actually reads — the passage text plus, for an annotation, its comment
 - Every `attachmentPolicy="specified"` attachment must be provably this item's own: its `parentItem` names `ref`, its library and Zotero instance match, and the answer really says `itemType: "attachment"`. If any of that cannot be proven the call fails — a same-key object from another item, another library, or another instance never substitutes for the named one
 - A repeated ref is read once; one call ranks at most 16 attachments and fails rather than silently dropping the rest (split the work across calls)
 - To gather evidence from another item, call `zotero_retrieve` for that item instead of attaching its files to this item's evidence

@@ -295,7 +295,9 @@ export function renderRetrieve(_args: RetrieveArgs, value: RetrieveOutput): Cont
     lines.push(`\nSkipped unavailable sources: ${value.sourcesSkipped.join(', ')}`)
   }
   if (value.truncated)
-    lines.push('\nMore evidence was available but omitted by the passage or character budget.')
+    lines.push(
+      '\nMore evidence was available but omitted by the passage or character budget — a passage charges its text and, for an annotation, its comment. zotero_get with include:["notes", "annotations"] reads the item\u2019s notes and annotations outside this budget.',
+    )
   return [{ type: 'text', text: lines.join('\n') }]
 }
 
@@ -334,7 +336,7 @@ export function registerRetrieveTool(ctx: Context, service: ZoteroService): void
         'A note item contributes its own body; child notes contribute every chunk of their full text (chunkIndex/chunkCount locate each passage).',
         "attachmentPolicy picks the fulltext sources: best (default, Zotero's chosen PDF), allIndexed (every PDF child — use when a work has several files), or specified via attachmentRefs — and a specified attachment must provably be this item's own child.",
         'Unavailable sources are skipped and listed in sourcesSkipped instead of failing the call.',
-        'Results are capped by passage count and character budget; a truncated flag signals omitted evidence.',
+        'Results are capped by passage count and character budget — a passage charges its text and, for an annotation, its comment; a truncated flag signals omitted evidence.',
       ].join(' '),
       parameters: RETRIEVE_PARAMETERS,
       output: {

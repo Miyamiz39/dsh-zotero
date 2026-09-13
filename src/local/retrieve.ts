@@ -461,11 +461,15 @@ export async function retrieve(
   let truncated = matched.length > request.passages || fulltextWasCut || abstractWasCut
   for (const entry of matched.slice(0, request.passages)) {
     const passage = passages[entry.index]!
-    if (used + passage.text.length > deps.limits.maxEvidenceChars) {
+    // The budget charges every character the passage puts in front of the
+    // model: the text and, for an annotation, its comment. Charging only the
+    // text let a long comment ride in above the configured bound.
+    const charged = passage.text.length + (passage.comment?.length ?? 0)
+    if (used + charged > deps.limits.maxEvidenceChars) {
       truncated = true
       break
     }
-    used += passage.text.length
+    used += charged
     const matchedFields = matchedFieldsOf(queryTerms, passage)
     evidence.push({
       source: passage.source,

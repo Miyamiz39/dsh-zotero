@@ -906,6 +906,45 @@ describe('retrieve', () => {
     expect(result.truncated).toBe(false)
   })
 
+  it('charges an annotation comment to the same character budget as its text', async () => {
+    const narrow = makeProvider({ maxEvidenceChars: 20 })
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT),
+    )
+    mock.route('GET', '/api/users/0/items/ABCD1234/children', (req, res, helpers) =>
+      helpers.json([
+        {
+          key: 'ANNO4444',
+          data: {
+            itemType: 'annotation',
+            annotationType: 'highlight',
+            annotationText: 'tiling',
+            // 12 characters of text plus this comment exceed the 20-character
+            // budget; charging only the text would have let the comment in.
+            annotationComment: 'a comment far longer than the budget allows',
+            parentItem: 'WXYZ6789',
+          },
+        },
+      ]),
+    )
+    const result = await narrow.retrieve(
+      retrieveRequest({ sources: ['annotation'], query: 'tiling', passages: 4 }),
+    )
+    expect(result.evidence).toEqual([])
+    // The omission is stated, not hidden: the passage matched and was dropped
+    // by the budget.
+    expect(result.truncated).toBe(true)
+
+    // A comment that fits is returned whole and counted.
+    const roomy = makeProvider({ maxEvidenceChars: 200 })
+    const fitting = await roomy.retrieve(
+      retrieveRequest({ sources: ['annotation'], query: 'tiling', passages: 4 }),
+    )
+    expect(fitting.evidence).toHaveLength(1)
+    expect(fitting.evidence[0]!.comment).toBe('a comment far longer than the budget allows')
+    expect(fitting.truncated).toBe(false)
+  })
+
   it('chunks fulltext at the configured passage word count', async () => {
     const narrow = makeProvider({ fulltextChunkWords: 2 })
     mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>

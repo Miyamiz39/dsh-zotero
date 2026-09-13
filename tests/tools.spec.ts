@@ -1290,8 +1290,9 @@ describe('zotero_retrieve render', () => {
     } as never)
     expect(text).toContain('Full text: zotero://user/0/attachment/WXYZ6789')
     expect(text).toContain(
-      'More evidence was available but omitted by the passage or character budget.',
+      'More evidence was available but omitted by the passage or character budget — a passage charges its text and, for an annotation, its comment.',
     )
+    expect(text).toContain('zotero_get with include:["notes", "annotations"]')
     expect(text).toContain('(0 passages)')
   })
 })
