@@ -86,4 +86,4 @@ User → Agent → dsh Zotero Tools → ZoteroService → Provider → 127.0.0.1
 - **Evidence**: term-based BM25, ranking by query-word frequency match against passages.
 - **Sources tab**: session snapshot, showing items referenced in this conversation.
 - **Exports**: static text, returned as text, ready to copy.
-- **PDF reading**: attachments return path/URL; further reading requires host capability.
+- **PDF reading**: attachments return path/URL; further reading requires host capability. The path belongs to the **machine running Zotero** — the loopback pin keeps the plugin on that machine, but a host may run file access in another environment (sandbox, container, remote worker) where the path is not visible. The tool result states that environment, and the plugin never solves remote access by opening Zotero's unauthenticated port.

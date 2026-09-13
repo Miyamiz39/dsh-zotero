@@ -122,7 +122,7 @@ Resolve a ref to an accessible attachment location. Accepts an item ref (auto-pi
 
 Discriminated union type:
 
-- `{kind: "file", path, ref, title, contentType}` — local file (verified to exist via async stat)
+- `{kind: "file", path, ref, title, contentType}` — local file (verified to exist via async stat). The path belongs to the machine running Zotero; a caller whose file access runs in a sandbox, a container, or on a remote host may not see it, and the rendered answer states that environment
 - `{kind: "url", url, ref, title, contentType}` — linked attachment
 
 Item refs follow Zotero's best-attachment link first, falling back to the earliest PDF child.

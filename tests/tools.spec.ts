@@ -702,9 +702,14 @@ describe('zotero_attachment tool', () => {
         kind: 'file',
         path: filePath,
       })
-      expect((result.content[0] as { text: string }).text).toBe(
+      const text = (result.content[0] as { text: string }).text
+      expect(text).toContain(
         `Full Text PDF (zotero://user/0/attachment/WXYZ6789) application/pdf → ${filePath}`,
       )
+      // The path's environment is part of the answer: a reader that runs
+      // somewhere else cannot assume it sees the file.
+      expect(text).toContain('File environment: the machine running Zotero')
+      expect(text).toContain('may not see this path')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

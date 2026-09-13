@@ -64,10 +64,26 @@ function buildRequest(args: AttachmentArgs): { ref: ReturnType<typeof parseSuppo
   return { ref: parseSupportedRef(args.ref, ['item', 'attachment']) }
 }
 
+/**
+ * The file arm states which filesystem its path belongs to. The plugin's
+ * loopback pin means it and Zotero run on the same machine, so the path is
+ * valid *there* — but the reader is a tool call, and a host may run file
+ * access in another environment (a sandbox, a container, a remote worker).
+ * Saying so costs one line and saves a turn spent on a path that was never
+ * visible to that reader.
+ */
 function renderAttachment(_args: AttachmentArgs, value: AttachmentOutput): ContentBlock[] {
   const label = value.title === '' ? value.ref : `${value.title} (${value.ref})`
-  const target = value.kind === 'file' ? value.path : value.url
-  return [{ type: 'text', text: `${label} ${value.contentType || 'unknown type'} → ${target}` }]
+  const type = value.contentType || 'unknown type'
+  if (value.kind === 'url') {
+    return [{ type: 'text', text: `${label} ${type} → ${value.url}` }]
+  }
+  return [
+    {
+      type: 'text',
+      text: `${label} ${type} → ${value.path}\nFile environment: the machine running Zotero (this plugin only reaches a loopback API, so that is this machine). A reader elsewhere — a sandbox, a container, a remote host — may not see this path.`,
+    },
+  ]
 }
 
 /**
@@ -94,6 +110,7 @@ export function registerAttachmentTool(ctx: Context, service: ZoteroService): vo
       description: [
         'Resolve a Zotero ref to a usable attachment location: an item ref yields the best attachment Zotero itself picks,',
         'an attachment ref pinpoints one attachment. Returns the verified on-disk file path, or the linked URL for web-linked attachments.',
+        'A file path is valid on the machine running Zotero (the loopback pin keeps the plugin there too); a reader in another environment — sandbox, container, remote host — may not see it, and the call says which environment the path belongs to.',
       ].join(' '),
       parameters: ATTACHMENT_PARAMETERS,
       output: {

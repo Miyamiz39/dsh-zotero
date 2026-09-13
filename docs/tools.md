@@ -122,7 +122,7 @@ zotero_retrieve(ref="zotero://user/0/item/ABC123", query="attention mechanism", 
 
 判别联合类型：
 
-- `{kind: "file", path, ref, title, contentType}` — 本地文件（经 `existsSync` 验证存在）
+- `{kind: "file", path, ref, title, contentType}` — 本地文件（经 `existsSync` 验证存在）。路径属于运行 Zotero 的那台机器；在沙箱、容器或远程主机中读取文件的调用方可能看不到它，渲染结果会注明该环境
 - `{kind: "url", url, ref, title, contentType}` — 链接型附件
 
 条目 ref 首先跟随 Zotero 的 best-attachment 链接，回退到最早的 PDF 子项。文件型位置经异步 stat 验证存在后再返回。
