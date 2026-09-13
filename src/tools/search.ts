@@ -351,7 +351,7 @@ export function renderSearch(_args: SearchArgs, value: SearchOutput): ContentBlo
   })
   if (value.nextOffset !== undefined) {
     lines.push(
-      `More results available: search again with offset ${value.nextOffset} and the same scope ref.`,
+      `More results available: search again with offset ${value.nextOffset} and the same scope.`,
     )
   }
   const supplemental = value.supplemental

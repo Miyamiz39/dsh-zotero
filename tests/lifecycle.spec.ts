@@ -204,9 +204,12 @@ describe('prompt section', () => {
     for (const tool of [
       'zotero_search',
       'zotero_get',
+      'zotero_children',
+      'zotero_browse',
       'zotero_retrieve',
       'zotero_attachment',
       'zotero_export',
+      'zotero_changes',
     ]) {
       expect(section!.text).toContain(tool)
     }
@@ -214,7 +217,7 @@ describe('prompt section', () => {
     expect(section!.text).toContain('never invent page numbers')
     expect(section!.text).toContain('use the Zotero tools only when the user explicitly asks')
     expect(section!.text).toContain(
-      'On connectivity failures (Zotero not running, local API disabled, unsupported API version, timeout), the plugin asks you how to proceed with a recommended action',
+      'On connectivity failures (Zotero not running, local API disabled, unsupported API version, timeout), the plugin asks the user how to proceed with a recommended action',
     )
     // Library content is untrusted data, never instructions (prompt-injection
     // hardening for titles, notes, annotations, full text, URLs, exports).

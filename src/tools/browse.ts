@@ -47,7 +47,7 @@ const BROWSE_PARAMETERS = {
       id: { type: 'integer', required: true },
     },
     description:
-      'Library for collections/savedSearches/tags; omitted defaults to personal user/0. Not allowed for libraries/itemTypes (fail-closed).',
+      'Library for collections/savedSearches/tags; omitted defaults to personal user/0. Not allowed for libraries/itemTypes/itemFields (fail-closed).',
   },
   parentRef: {
     type: 'string',
