@@ -342,10 +342,10 @@ describe('status projection helpers', () => {
   })
 
   it('encodes control characters in keys without colliding', () => {
-    const tricky = sessionSignatureOf(chatOf([toolRow(settled({ seq: 1, callId: 'a b' }))]))
+    const tricky = sessionSignatureOf(chatOf([toolRow(settled({ seq: 1, callId: 'a\u0000b' }))]))
     const plain = sessionSignatureOf(chatOf([toolRow(settled({ seq: 1, callId: 'a' }))]))
     expect(tricky).not.toBe(plain)
-    expect(JSON.parse(tricky)).toEqual({ order: ['tool:a b'], running: [] })
+    expect(JSON.parse(tricky)).toEqual({ order: ['tool:a\u0000b'], running: [] })
   })
 
   it('collects in presentation order even when values disagree', () => {
