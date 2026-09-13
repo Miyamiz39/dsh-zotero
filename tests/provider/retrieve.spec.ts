@@ -6,7 +6,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ZOTERO_INVALID_ARGUMENT, ZOTERO_UNEXPECTED } from '../../src/errors.js'
+import {
+  ZOTERO_INVALID_ARGUMENT,
+  ZOTERO_SERVER_MISMATCH,
+  ZOTERO_UNEXPECTED,
+} from '../../src/errors.js'
 import { type LocalApiProvider } from '../../src/local/provider.js'
 import type { LocalApiLimits } from '../../src/local/limits.js'
 import { parseRef } from '../../src/refs.js'
@@ -69,6 +73,7 @@ const RETRIEVE_CHILDREN = [
       title: 'Full Text PDF',
       contentType: 'application/pdf',
       linkMode: 'imported_file',
+      parentItem: 'ABCD1234',
     },
   },
 ]
@@ -318,6 +323,139 @@ describe('retrieve', () => {
       ZOTERO_INVALID_ARGUMENT,
       'not an attachment',
     )
+  })
+
+  it('refuses a specified attachment whose parent is another item', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT, { 'Zotero-Server-ID': 'S1' }),
+    )
+    mock.route('GET', '/api/users/0/items/OTHER999', (req, res, helpers) =>
+      helpers.json({
+        key: 'OTHER999',
+        data: {
+          itemType: 'attachment',
+          parentItem: 'OTHRITEM',
+          contentType: 'application/pdf',
+        },
+      }),
+    )
+    mock.route('GET', '/api/users/0/items/OTHER999/fulltext', (req, res, helpers) =>
+      helpers.json(FULLTEXT_PAYLOAD),
+    )
+    await zoteroError(
+      provider.retrieve(
+        retrieveRequest({
+          sources: ['fulltext'],
+          attachmentPolicy: 'specified',
+          attachmentRefs: [parseRef('zotero://user/0/attachment/OTHER999?server=S1')],
+        }),
+      ),
+      ZOTERO_INVALID_ARGUMENT,
+      'is attached to item OTHRITEM, not to ABCD1234',
+    )
+    // The stranger's file was never read: its text cannot enter this item's corpus.
+    expect(mock.requests.map((entry) => entry.pathname)).toEqual([
+      '/api/users/0/items/ABCD1234',
+      '/api/users/0/items/OTHER999',
+    ])
+  })
+
+  it('refuses a specified attachment that is top-level or of unproven type', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT),
+    )
+    mock.route('GET', '/api/users/0/items/TOPLEVEL', (req, res, helpers) =>
+      helpers.json({ key: 'TOPLEVEL', data: { itemType: 'attachment', title: 'Standalone' } }),
+    )
+    mock.route('GET', '/api/users/0/items/UNTYPED1', (req, res, helpers) =>
+      helpers.json({ key: 'UNTYPED1', data: { parentItem: 'ABCD1234' } }),
+    )
+    await zoteroError(
+      provider.retrieve(
+        retrieveRequest({
+          sources: ['fulltext'],
+          attachmentPolicy: 'specified',
+          attachmentRefs: [parseRef('zotero://user/0/attachment/TOPLEVEL')],
+        }),
+      ),
+      ZOTERO_INVALID_ARGUMENT,
+      'is a top-level attachment with no parent item',
+    )
+    await zoteroError(
+      provider.retrieve(
+        retrieveRequest({
+          sources: ['fulltext'],
+          attachmentPolicy: 'specified',
+          attachmentRefs: [parseRef('zotero://user/0/attachment/UNTYPED1')],
+        }),
+      ),
+      ZOTERO_INVALID_ARGUMENT,
+      'cannot be proven an attachment',
+    )
+  })
+
+  it('refuses a specified attachment ref stamped with another instance', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT, { 'Zotero-Server-ID': 'S1' }),
+    )
+    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
+      helpers.json(RETRIEVE_CHILDREN[1]),
+    )
+    await zoteroError(
+      provider.retrieve(
+        retrieveRequest({
+          sources: ['fulltext'],
+          attachmentPolicy: 'specified',
+          attachmentRefs: [parseRef('zotero://user/0/attachment/WXYZ6789?server=S9')],
+        }),
+      ),
+      ZOTERO_SERVER_MISMATCH,
+      'different Zotero instance',
+    )
+    // A same-key object of the serving instance is never substituted for it.
+    expect(mock.requests.map((entry) => entry.pathname)).toEqual(['/api/users/0/items/ABCD1234'])
+  })
+
+  it('refuses a specified attachment from another library', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT),
+    )
+    await zoteroError(
+      provider.retrieve(
+        retrieveRequest({
+          sources: ['fulltext'],
+          attachmentPolicy: 'specified',
+          attachmentRefs: [parseRef('zotero://group/7/attachment/WXYZ6789')],
+        }),
+      ),
+      ZOTERO_INVALID_ARGUMENT,
+      'belongs to library group/7',
+    )
+    expect(mock.requests.map((entry) => entry.pathname)).toEqual(['/api/users/0/items/ABCD1234'])
+  })
+
+  it('reads a repeated specified ref once and ranks its text once', async () => {
+    mock.route('GET', '/api/users/0/items/ABCD1234', (req, res, helpers) =>
+      helpers.json(RETRIEVE_PARENT, { 'Zotero-Server-ID': 'S1' }),
+    )
+    mock.route('GET', '/api/users/0/items/WXYZ6789', (req, res, helpers) =>
+      helpers.json(RETRIEVE_CHILDREN[1]),
+    )
+    mock.route('GET', '/api/users/0/items/WXYZ6789/fulltext', (req, res, helpers) =>
+      helpers.json(FULLTEXT_PAYLOAD),
+    )
+    const ref = parseRef('zotero://user/0/attachment/WXYZ6789?server=S1')
+    const result = await provider.retrieve(
+      retrieveRequest({
+        sources: ['fulltext'],
+        query: 'flash attention',
+        passages: 4,
+        attachmentPolicy: 'specified',
+        attachmentRefs: [ref, ref],
+      }),
+    )
+    expect(mock.requests.filter((entry) => entry.pathname.endsWith('/fulltext'))).toHaveLength(1)
+    expect(result.evidence).toHaveLength(1)
   })
 
   it('degrades allIndexed to sourcesSkipped when no PDF child exists', async () => {

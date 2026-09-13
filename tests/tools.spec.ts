@@ -1035,6 +1035,38 @@ describe('zotero_retrieve tool', () => {
     expect(mock.requests).toEqual([])
   })
 
+  it('caps the attachment list at distinct refs and reads each one once', async () => {
+    const attachmentRef = (index: number): string =>
+      `zotero://user/0/attachment/A${String(index).padStart(7, '0')}`
+    // Seventeen distinct attachments are more than one ranking may hold.
+    const overCap = await runTool('zotero_retrieve', {
+      ref: 'zotero://user/0/item/ABCD1234',
+      query: 'x',
+      attachmentPolicy: 'specified',
+      attachmentRefs: Array.from({ length: 17 }, (_, index) => attachmentRef(index)),
+    })
+    expect(overCap.isError).toBe(true)
+    if (!overCap.isError) throw new Error('unreachable')
+    expect((overCap.content[0] as { text: string }).text).toContain(
+      'at most 16 can enter one ranking',
+    )
+    expect(mock.requests).toEqual([])
+
+    // The same attachment repeated is one attachment, not a list over the cap:
+    // the call proceeds to the API, where the unscripted mock answers 404.
+    const repeated = await runTool('zotero_retrieve', {
+      ref: 'zotero://user/0/item/ABCD1234',
+      query: 'x',
+      attachmentPolicy: 'specified',
+      attachmentRefs: Array.from({ length: 17 }, () => attachmentRef(0)),
+    })
+    expect(repeated.isError).toBe(true)
+    if (!repeated.isError) throw new Error('unreachable')
+    const text = (repeated.content[0] as { text: string }).text
+    expect(text).not.toContain('at most')
+    expect(mock.requests.map((entry) => entry.pathname)).toEqual(['/api/users/0/items/ABCD1234'])
+  })
+
   it('rejects an empty sources list', async () => {
     const result = await runTool('zotero_retrieve', {
       ref: 'zotero://user/0/item/ABCD1234',

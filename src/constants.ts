@@ -77,3 +77,13 @@ export const ZOTERO_GRAPH_CONCURRENCY = 4
 
 /** How long a scope listing (collections/searches) is trusted before a re-fetch. */
 export const ZOTERO_SCOPE_LISTING_TTL_MS = 30_000
+
+/**
+ * How many attachments one `zotero_retrieve` call may rank full text from.
+ * Each member costs a metadata read and a full-text read, and all of their
+ * text enters one ranking — a bound on the call's own work, not on what a
+ * work may have. `specified` rejects a longer list (the caller splits the
+ * call); `allIndexed` reads the first entries in its selection order and
+ * reports the rest as unread.
+ */
+export const ZOTERO_RETRIEVE_ATTACHMENT_CAP = 16

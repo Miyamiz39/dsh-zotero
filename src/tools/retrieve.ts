@@ -18,6 +18,7 @@ import {
   type ToolResultView,
 } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from '../config.js'
+import { ZOTERO_RETRIEVE_ATTACHMENT_CAP } from '../constants.js'
 import { withConnectivityAsk } from '../ask.js'
 import { boundedPresentationMeta, projectRetrieveMeta } from '../presentation-meta.js'
 import { metaRecordOf } from './present.js'
@@ -69,7 +70,7 @@ const RETRIEVE_PARAMETERS = {
     type: 'array',
     items: { type: 'string' },
     description:
-      'Required with attachmentPolicy="specified": zotero://.../attachment/<KEY> refs of the same library whose full text enters ranking.',
+      'Required with attachmentPolicy="specified": zotero://.../attachment/<KEY> refs of the same library whose full text enters ranking. Each must be an attachment of ref (a child of that item) on the same Zotero instance; anything else fails the call. Repeats are read once; at most 16 attachments enter one call.',
   },
 } as const
 
@@ -139,8 +140,17 @@ function buildRequest(args: RetrieveArgs, config: ResolvedConfig): ZoteroRetriev
     if (raw.length === 0) {
       invalid('attachmentPolicy "specified" requires at least one attachmentRef')
     }
-    attachmentRefs = raw.map((value) => parseSupportedRef(value, ['attachment']))
-    for (const attachmentRef of attachmentRefs) {
+    attachmentRefs = []
+    // The list is a set: the same attachment named twice would be read twice
+    // and would enter the ranking twice, which reads as two sources agreeing
+    // with each other. Order stays the caller's; instance-qualified refs stay
+    // distinct, because a foreign instance is refused rather than folded in.
+    const seen = new Set<string>()
+    for (const value of raw) {
+      const attachmentRef = parseSupportedRef(value, ['attachment'])
+      const identity = `${attachmentRef.library.type}/${attachmentRef.library.id}/${attachmentRef.key}?${attachmentRef.serverId ?? ''}`
+      if (seen.has(identity)) continue
+      seen.add(identity)
       if (
         attachmentRef.library.type !== ref.library.type ||
         attachmentRef.library.id !== ref.library.id
@@ -149,6 +159,12 @@ function buildRequest(args: RetrieveArgs, config: ResolvedConfig): ZoteroRetriev
           `attachmentRefs must belong to the same library as ref (${ref.library.type}/${ref.library.id})`,
         )
       }
+      attachmentRefs.push(attachmentRef)
+    }
+    if (attachmentRefs.length > ZOTERO_RETRIEVE_ATTACHMENT_CAP) {
+      invalid(
+        `attachmentRefs lists ${attachmentRefs.length} attachments; at most ${ZOTERO_RETRIEVE_ATTACHMENT_CAP} can enter one ranking — split the work across calls`,
+      )
     }
   } else if (args.attachmentRefs !== undefined) {
     invalid('attachmentRefs is only valid with attachmentPolicy="specified"')

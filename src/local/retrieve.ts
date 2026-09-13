@@ -11,8 +11,10 @@ import { ZOTERO_GRAPH_CONCURRENCY } from '../constants.js'
 import {
   isNotFoundError,
   NO_FULLTEXT_MESSAGE,
+  SERVER_MISMATCH_MESSAGE,
   ZOTERO_INVALID_ARGUMENT,
   ZOTERO_NO_FULLTEXT,
+  ZOTERO_SERVER_MISMATCH,
   ZoteroError,
 } from '../errors.js'
 import { chunkText, rankChunks, tokenize } from '../evidence.js'
@@ -84,7 +86,11 @@ function normalizeCoverage(payload: ZoteroFulltextPayload): ZoteroCoverage {
  * picks the fulltext sources: `best` (default) keeps Zotero's single
  * choice, `allIndexed` ranks every PDF child, and `specified` ranks the
  * named attachments — multi-attachment results speak through per-passage
- * refs instead of a result-level attachment. A note item's own body is its
+ * refs instead of a result-level attachment. A named attachment is only
+ * read once its ref is proven to describe an attachment of *this* item on
+ * *this* instance: the same key in another library or another Zotero
+ * database names a different object, and its text is not this item's
+ * evidence. A note item's own body is its
  * note source; child notes contribute every chunk of their full text, so
  * long notes rank beyond their first chunk. Sources the item cannot
  * provide are skipped and reported in `sourcesSkipped` — retrieval degrades
@@ -240,6 +246,20 @@ export async function retrieve(
         request.attachmentRefs!,
         ZOTERO_GRAPH_CONCURRENCY,
         async (wanted): Promise<{ key: string; contentType?: string }> => {
+          // The ref is a claim about where this text comes from. Reading a
+          // same-key object out of the wrong library or the wrong database
+          // would attach a stranger's words to this item, so the claim is
+          // checked against the ref itself before any read, and against the
+          // object's own answer after it.
+          if (wanted.library.type !== ref.library.type || wanted.library.id !== ref.library.id) {
+            throw new ZoteroError(
+              `Attachment ref ${wanted.key} belongs to library ${wanted.library.type}/${wanted.library.id}, not to ${ref.library.type}/${ref.library.id}. Full text entering this item's evidence must come from this item's own library.`,
+              ZOTERO_INVALID_ARGUMENT,
+            )
+          }
+          if (wanted.serverId !== undefined && wanted.serverId !== serverId) {
+            throw new ZoteroError(SERVER_MISMATCH_MESSAGE, ZOTERO_SERVER_MISMATCH)
+          }
           const row = await deps.client.getJson<unknown>(
             `${prefix}/items/${wanted.key}`,
             undefined,
@@ -247,9 +267,20 @@ export async function retrieve(
           )
           const rowData = asRecord(asRecord(row.json)?.data)
           const rowType = asString(rowData?.itemType)
-          if (rowType !== undefined && rowType !== 'attachment') {
+          const parentKey = asString(rowData?.parentItem)
+          if (rowType !== 'attachment') {
             throw new ZoteroError(
-              `Attachment ref ${wanted.key} names a ${rowType}, not an attachment.`,
+              rowType === undefined
+                ? `Attachment ref ${wanted.key} cannot be proven an attachment: Zotero's answer named no item type for it, so nothing rules out a bibliographic item. Read the item's children with zotero_children and name an attachment ref from there.`
+                : `Attachment ref ${wanted.key} names a ${rowType}, not an attachment.`,
+              ZOTERO_INVALID_ARGUMENT,
+            )
+          }
+          if (parentKey !== ref.key) {
+            throw new ZoteroError(
+              parentKey === undefined
+                ? `Attachment ref ${wanted.key} is a top-level attachment with no parent item, so its text is not evidence for ${ref.key}.`
+                : `Attachment ref ${wanted.key} is attached to item ${parentKey}, not to ${ref.key}; its text would be another work's evidence. Read this item's children with zotero_children to get refs that belong to it.`,
               ZOTERO_INVALID_ARGUMENT,
             )
           }
@@ -257,6 +288,13 @@ export async function retrieve(
         },
       )
     }
+    // One attachment contributes once: the same text entering the corpus
+    // twice would read as two sources agreeing with each other.
+    const unique = new Map<string, { key: string; contentType?: string }>()
+    for (const candidate of candidates) {
+      if (!unique.has(candidate.key)) unique.set(candidate.key, candidate)
+    }
+    candidates = [...unique.values()]
     if (candidates.length === 0) {
       skipped.push('fulltext')
     } else {

@@ -73,12 +73,14 @@ zotero_get(ref="zotero://user/0/item/ABC123", include=["notes", "annotations"])
 
 ### 参数
 
-| 参数       | 类型     | 默认值    | 说明                                                    |
-| ---------- | -------- | --------- | ------------------------------------------------------- |
-| `ref`      | string   | —         | 条目 ref（必填）                                        |
-| `query`    | string   | —         | 用于排序证据的查询词（必填）                            |
-| `sources`  | string[] | 全部 4 种 | `annotation` / `note` / `abstract` / `fulltext`         |
-| `passages` | integer  | `4`       | 返回段落数上限（受 `maxEvidencePassages` 限制，默认 4） |
+| 参数               | 类型     | 默认值    | 说明                                                    |
+| ------------------ | -------- | --------- | ------------------------------------------------------- |
+| `ref`              | string   | —         | 条目 ref（必填）                                        |
+| `query`            | string   | —         | 用于排序证据的查询词（必填）                            |
+| `sources`          | string[] | 全部 4 种 | `annotation` / `note` / `abstract` / `fulltext`         |
+| `passages`         | integer  | `4`       | 返回段落数上限（受 `maxEvidencePassages` 限制，默认 4） |
+| `attachmentPolicy` | string   | `best`    | 全文来源：`best` / `allIndexed` / `specified`           |
+| `attachmentRefs`   | string[] | —         | `specified` 必填：参与排名的附件 ref 列表               |
 
 ### 输出
 
@@ -90,6 +92,9 @@ zotero_get(ref="zotero://user/0/item/ABC123", include=["notes", "annotations"])
 - 不可用的来源跳过并在 `sourcesSkipped` 中报告，不视为错误
 - 只有 `annotation` 来源有 `pageLabel`；全文段落永远不携带页码
 - `truncated` 为 true 表示有更多证据被截断
+- `attachmentPolicy="specified"` 的每个附件都必须能证明属于 `ref` 这条条目：`parentItem` 指向它、库与 Zotero 实例一致、回答中确有 `itemType: "attachment"`。任一条件无法证明即报错，不会退化成"同 key 的另一个对象"——跨条目或跨实例的附件不会进入当前条目的证据
+- 重复的 ref 只读一次；单次调用最多 16 个附件，超限报错而不是静默丢弃（拆成多次调用）
+- 需要另一条目的全文时按该条目单独调用 `zotero_retrieve`，而不是把它挂到当前条目的证据里
 
 ### 示例
 
