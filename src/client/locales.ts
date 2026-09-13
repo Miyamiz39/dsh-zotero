@@ -33,6 +33,7 @@ export type ZoteroLocaleKey =
   | 'detailsLabel'
   | 'apiVersionLabel'
   | 'schemaVersionLabel'
+  | 'zoteroVersionLabel'
   | 'serverIdLabel'
   | 'buildInfoLabel'
   | 'diagnosisLabel'
@@ -229,6 +230,7 @@ export const en: Record<ZoteroLocaleKey, string> = {
   detailsLabel: 'Diagnostics',
   apiVersionLabel: 'API version',
   schemaVersionLabel: 'Schema version',
+  zoteroVersionLabel: 'Zotero version',
   serverIdLabel: 'Server ID',
   buildInfoLabel: 'Build',
   diagnosisLabel: 'Diagnosis',
@@ -421,6 +423,7 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   detailsLabel: '诊断详情',
   apiVersionLabel: 'API 版本',
   schemaVersionLabel: 'Schema 版本',
+  zoteroVersionLabel: 'Zotero 版本',
   serverIdLabel: 'Server ID',
   buildInfoLabel: '构建',
   diagnosisLabel: '诊断',

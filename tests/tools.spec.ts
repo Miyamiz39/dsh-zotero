@@ -1641,8 +1641,34 @@ describe('zotero_changes tool', () => {
   })
 
   it('renders digests, withheld cursors, and unserved resources honestly', () => {
-    const bare = renderChanges({}, { changed: {} } as never)
-    expect((bare[0] as { text: string }).text).toContain('Baseline reading.')
+    // Three baseline outcomes, three texts: a cursor, a version without an
+    // instance, and no version at all. The last one names the cause instead of
+    // leaving the model to guess why no cursor came back.
+    const noVersion = renderChanges({}, { changed: {}, versionUnavailable: true } as never)
+    expect((noVersion[0] as { text: string }).text).toContain(
+      'this Zotero build reports no library version',
+    )
+    const noInstance = renderChanges({}, { changed: {} } as never)
+    expect((noInstance[0] as { text: string }).text).toContain(
+      'named no instance to pin a cursor to',
+    )
+    const based = renderChanges({}, {
+      changed: {},
+      cursor: { serverId: 'S1', library: { type: 'user', id: 0 }, version: 42 },
+    } as never)
+    expect((based[0] as { text: string }).text).toContain(
+      'Baseline reading: library is at version 42 on instance S1',
+    )
+
+    // A diff whose build reported no version says so instead of blaming the range.
+    const noVersionDiff = renderChanges({}, {
+      fromVersion: 1,
+      changed: {},
+      versionUnavailable: true,
+    } as never)
+    expect((noVersionDiff[0] as { text: string }).text).toContain(
+      'this Zotero build reported no library version for this read',
+    )
 
     // A capped listing is a digest: the cursor still stands and totals carries
     // the counts behind the rows that were dropped.

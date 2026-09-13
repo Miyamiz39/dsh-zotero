@@ -21,10 +21,11 @@ function formatStatus(status: ZoteroStatus): string {
   }
   return [
     'Zotero local API: connected',
+    `Zotero version: ${status.zoteroVersion ?? 'not reported'}`,
     `API version: ${status.apiVersion ?? 'not reported'}`,
     `Schema version: ${status.schemaVersion ?? 'not reported'}`,
     status.serverId === undefined
-      ? 'Server ID: not reported (Zotero 9 or earlier)'
+      ? 'Server ID: not reported — this build does not identify its database, so refs and cursors cannot be pinned to it'
       : `Server ID: ${status.serverId}`,
   ].join('\n')
 }

@@ -123,6 +123,7 @@ const CONNECTED: ConnectionView = {
     apiVersion: '3',
     schemaVersion: '37',
     serverId: 'sPMHtLD6HHBd',
+    zoteroVersion: '10.0.2-beta.9+c77df79af',
     diagnosis: 'ok',
   } as ZoteroStatusView,
   checkedAt: '10:00:00',
@@ -233,6 +234,9 @@ describe('toolbar', () => {
     expect(screen.getByText(zh.statusConnectedNote)).toBeDefined()
     fireEvent.click(screen.getByLabelText(zh.detailsLabel))
     expect(screen.getByText(/API 版本 3/)).toBeDefined()
+    // The answering build is named, so a version-scoped expectation has
+    // something to check against.
+    expect(screen.getByText(/Zotero 版本 10\.0\.2-beta\.9/)).toBeDefined()
     expect(screen.getByText(/sPMHtLD6HHBd/)).toBeDefined()
     expect(screen.getByText(/上次检查 10:00:00/)).toBeDefined()
     view.unmount()

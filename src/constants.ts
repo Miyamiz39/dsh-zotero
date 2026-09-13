@@ -16,6 +16,15 @@ export const LOCAL_PROVIDER_ID = 'local'
 /** The Local API response/request header carrying the serving instance identity. */
 export const ZOTERO_SERVER_ID_HEADER = 'zotero-server-id'
 
+/**
+ * The header naming the answering Zotero build (`10.0.2-beta.9+c77df79af`).
+ * Sent on every response, errors included, and the only one of the three
+ * version headers that distinguishes releases: `Zotero-API-Version` is 3 on
+ * every build that speaks API v3, and `Zotero-Schema-Version` moves with
+ * Zotero's data schema rather than with the release.
+ */
+export const ZOTERO_VERSION_HEADER = 'x-zotero-version'
+
 /** The sort fields `zotero_search` accepts, in Zotero's own vocabulary. */
 export const ZOTERO_SORT_FIELDS: readonly ZoteroSortField[] = [
   'dateModified',

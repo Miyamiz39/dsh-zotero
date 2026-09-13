@@ -1,11 +1,13 @@
 /**
- * The `zotero_changes` tool: incremental awareness of the local library.
- * Zotero 10+ versions are local transaction versions — any edit, sync, or
- * local write advances them — so a `since` diff answers "what changed in my
- * library" request-driven, without the cloud and without background
- * polling. A call without `since` takes a baseline reading and mints the
- * cursor (version plus the instance and library it belongs to) that later
- * calls pass back.
+ * The `zotero_changes` tool: incremental awareness of the local library. On
+ * the verified build (Zotero 10.0.2-beta.9) versions are local transactions —
+ * every object save advances the library counter and stamps the object — so a
+ * `since` diff answers "what changed in my library" request-driven, without the
+ * cloud and without background polling. The domain decides that per call from
+ * the responses (a build that reports no library version is `versionUnavailable`)
+ * rather than from a version number, which no response header carries. A call
+ * without `since` takes a baseline reading and mints the cursor (version plus
+ * the instance and library it belongs to) that later calls pass back.
  * @module dsh-zotero/tools/changes
  */
 
@@ -119,6 +121,7 @@ const CHANGES_OUTPUT_SCHEMA = {
     fromVersion: { type: 'integer' },
     cursor: CURSOR_SCHEMA,
     libraryChanged: { type: 'boolean' },
+    versionUnavailable: { type: 'boolean' },
     changed: {
       type: 'object',
       additionalProperties: false,
@@ -198,16 +201,28 @@ export function renderChanges(_args: ChangesArgs, value: ChangesOutput): Content
   const lines = []
   const cursor = value.cursor
   if (value.fromVersion === undefined) {
-    lines.push(
-      cursor === undefined
-        ? 'Baseline reading.'
-        : `Baseline reading: library is at version ${cursor.version} on instance ${cursor.serverId}. Pass that cursor back as since on a later call to see what changed.`,
-    )
+    if (cursor !== undefined) {
+      lines.push(
+        `Baseline reading: library is at version ${cursor.version} on instance ${cursor.serverId}. Pass that cursor back as since on a later call to see what changed.`,
+      )
+    } else if (value.versionUnavailable === true) {
+      lines.push(
+        'Baseline reading: this Zotero build reports no library version, so there is no cursor to diff from — incremental changes cannot be read here.',
+      )
+    } else {
+      lines.push(
+        'Baseline reading: the library is at a version, but the answering build named no instance to pin a cursor to, so there is nothing to pass back.',
+      )
+    }
   } else if (cursor !== undefined) {
     lines.push(`Changes ${value.fromVersion} → ${cursor.version}`)
   } else if (value.libraryChanged === true) {
     lines.push(
       `Changes ${value.fromVersion} → version not advanced: the library changed while this call was reading — re-run for a settled cursor.`,
+    )
+  } else if (value.versionUnavailable === true) {
+    lines.push(
+      `Changes ${value.fromVersion} → version not advanced: this Zotero build reported no library version for this read, so the diff cannot be pinned to one.`,
     )
   } else {
     lines.push(
@@ -325,7 +340,7 @@ export function registerChangesTool(ctx: Context, service: ZoteroService): void 
       description: [
         'See what changed in the Zotero library since a version: new/edited items, collections, saved searches, reindexed full text, and deletions.',
         'Call without since first to take a baseline reading, then pass the cursor it returns back as since — fully local, no cloud.',
-        'Listings are capped digests; totals reports the true counts behind them. A returned cursor always accounts for every change in the range it reports, so it is safe to pass back as since; a result without one is not. The cursor is pinned to the instance and library it came from, and a cursor from another database is refused instead of diffed against this one.',
+        'Listings are capped digests; totals reports the true counts behind them. A returned cursor always accounts for every change in the range it reports, so it is safe to pass back as since; a result without one is not. The cursor is pinned to the instance and library it came from, and a cursor from another database is refused instead of diffed against this one. versionUnavailable means the build reports no library version at all, so no diff can be taken from it.',
       ].join(' '),
       parameters: CHANGES_PARAMETERS,
       output: {

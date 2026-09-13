@@ -63,6 +63,13 @@ export interface ZoteroStatus {
   apiVersion?: string
   serverId?: string
   schemaVersion?: string
+  /**
+   * The answering Zotero build (`X-Zotero-Version`). The API version and the
+   * schema version are the same on every build that speaks API v3, so this is
+   * the only header that identifies which build is actually answering — the
+   * fact a version-scoped expectation has to be checked against.
+   */
+  zoteroVersion?: string
   diagnosis: string
 }
 
@@ -620,6 +627,14 @@ export interface ZoteroChangesResult {
    * the remedy: the next call either reads a quiet library or reports again.
    */
   libraryChanged?: boolean
+  /**
+   * The answering build reported no library version for this call, so no
+   * version can be read or advanced here — a Zotero build without local
+   * transaction versions cannot be diffed at all. This is decided per call
+   * from what the responses carry, never from a version number: the wire has
+   * no header that says which build serves versioned reads.
+   */
+  versionUnavailable?: boolean
   changed: {
     items?: ZoteroChangedObject[]
     collections?: ZoteroChangedObject[]

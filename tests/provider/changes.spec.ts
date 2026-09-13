@@ -286,6 +286,9 @@ describe('changes', () => {
     expect(result.changed.items).toHaveLength(1)
     expect(result.cursor).toBeUndefined()
     expect(result.libraryChanged).toBeUndefined()
+    // The range was read, but nothing can be pinned to a version — and the
+    // result names the cause instead of leaving it to the reader.
+    expect(result.versionUnavailable).toBe(true)
   })
 
   it('still reports the diff when only the probe degrades', async () => {
@@ -487,5 +490,6 @@ describe('changes', () => {
     const result = await provider.changes({})
     expect(result.cursor).toBeUndefined()
     expect(result.changed).toEqual({})
+    expect(result.versionUnavailable).toBe(true)
   })
 })

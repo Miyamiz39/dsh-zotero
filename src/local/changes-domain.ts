@@ -2,7 +2,9 @@
  * The `zotero_changes` domain: baseline version readings and `?since=` diffs
  * over the versions-format endpoints, with tombstones from /deleted. A
  * resource this Zotero build cannot serve degrades to absence — and is named
- * in `unsupported` — instead of failing the whole read.
+ * in `unsupported` — instead of failing the whole read. A build that reports
+ * no library version at all cannot be diffed, and says so
+ * (`versionUnavailable`) instead of handing back a cursor pinned to nothing.
  *
  * Every versions resource is read unbounded (no `limit`): the local API
  * returns the whole changed set for such a request, which is what lets the
@@ -175,11 +177,14 @@ export async function changes(
   }
 
   if (since === undefined) {
-    // A library that cannot serve versioned items at all has no changes
-    // story; the baseline reading reports an unknown version.
+    // A baseline is one reading: the version a later call diffs from. A build
+    // that reports none — no items read, or no version header on it — has no
+    // changes story to tell, and the result says so rather than handing back a
+    // cursor pinned to nothing.
     const probe = await optional(() => probeVersion())
     const observed = probe?.serverId
-    const cursor = cursorFor(observed, library, probe?.version)
+    const version = probe?.version
+    const cursor = cursorFor(observed, library, version)
     return {
       library,
       ...(observed !== undefined ? { serverId: observed } : {}),
@@ -187,6 +192,7 @@ export async function changes(
       // version, or without an instance to pin it to, there is nothing this
       // call can hand back — a cursor-less result is the honest answer.
       ...(cursor !== undefined ? { cursor } : {}),
+      ...(version === undefined ? { versionUnavailable: true } : {}),
       changed: {},
     }
   }
@@ -373,6 +379,7 @@ export async function changes(
     fromVersion: since.version,
     ...(cursor !== undefined ? { cursor } : {}),
     ...(libraryChanged ? { libraryChanged } : {}),
+    ...(snapshot === undefined ? { versionUnavailable: true } : {}),
     changed,
     ...(deleted.items.length > 0 ||
     deleted.collections.length > 0 ||

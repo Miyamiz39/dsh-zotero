@@ -3,8 +3,8 @@
  * green dot plus the connected note, a refresh action, and a `···` menu
  * (primitives Menu in portal mode — the workspace panes scroll, so an
  * in-place list would be clipped) carrying the diagnostic facts (Server ID,
- * API/schema versions, last checked time, build identity). Failures render
- * as one full-width error banner instead of a developer console: the
+ * Zotero/API/schema versions, last checked time, build identity). Failures
+ * render as one full-width error banner instead of a developer console: the
  * diagnosis line is the whole story, and the refresh action sits beside it.
  * @module dsh-zotero/client/components/workspace/WorkspaceToolbar
  */
@@ -39,6 +39,15 @@ export function WorkspaceToolbar({ connection, onRefresh, t }: WorkspaceToolbarP
   const menuItems = [
     ...(data?.serverId !== undefined
       ? [{ id: 'serverId', label: `${t('serverIdLabel')} ${data.serverId}`, disabled: true }]
+      : []),
+    ...(data?.zoteroVersion !== undefined
+      ? [
+          {
+            id: 'zotero',
+            label: `${t('zoteroVersionLabel')} ${data.zoteroVersion}`,
+            disabled: true,
+          },
+        ]
       : []),
     ...(data?.apiVersion !== undefined
       ? [{ id: 'api', label: `${t('apiVersionLabel')} ${data.apiVersion}`, disabled: true }]

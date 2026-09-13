@@ -24,6 +24,8 @@ export interface ZoteroStatusView {
   readonly apiVersion?: string
   readonly serverId?: string
   readonly schemaVersion?: string
+  /** The answering Zotero build (`X-Zotero-Version`); the only version fact that names a release. */
+  readonly zoteroVersion?: string
   readonly diagnosis: string
 }
 
@@ -35,6 +37,7 @@ const zoteroStatusSchema = z
     apiVersion: z.string().optional(),
     serverId: z.string().optional(),
     schemaVersion: z.string().optional(),
+    zoteroVersion: z.string().optional(),
     diagnosis: z.string(),
   })
   .strict()

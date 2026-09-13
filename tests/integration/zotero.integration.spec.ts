@@ -57,7 +57,7 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
     )
   })
 
-  it('reports a connected status with API version 3', async () => {
+  it('reports a connected status with API version 3 and the answering build', async () => {
     const status = await provider.status()
     expect(status).toEqual(
       expect.objectContaining({
@@ -68,10 +68,17 @@ describe.runIf(process.env.ZOTERO_INTEGRATION === '1')('live Zotero local API', 
       }),
     )
     if (status.serverId === undefined) {
-      // Zotero 9 serves no identity header; provenance just stays off.
-      console.log('[integration] no Zotero-Server-ID header (Zotero 9?)')
+      // A build that serves no identity header: provenance just stays off.
+      console.log('[integration] no Zotero-Server-ID header; provenance stays off')
     } else {
       expect(status.serverId.length).toBeGreaterThan(0)
+    }
+    // The API and schema versions are the same on every API-v3 build, so the
+    // build header is the only fact that names which Zotero is answering.
+    if (status.zoteroVersion === undefined) {
+      console.log('[integration] no X-Zotero-Version header; the build stays unnamed')
+    } else {
+      console.log(`[integration] answering Zotero build: ${status.zoteroVersion}`)
     }
   })
 

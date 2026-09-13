@@ -19,6 +19,7 @@ import {
   LOCAL_PROVIDER_ID,
   ZOTERO_SCOPE_LISTING_TTL_MS,
   ZOTERO_SERVER_ID_HEADER,
+  ZOTERO_VERSION_HEADER,
 } from '../constants.js'
 import { errorMessageOf, ZoteroError } from '../errors.js'
 import type { ZoteroHttpClient } from '../http-client.js'
@@ -102,6 +103,7 @@ export class LocalApiProvider implements ZoteroProvider {
         apiVersion: headers.get('zotero-api-version') ?? undefined,
         serverId: headers.get(ZOTERO_SERVER_ID_HEADER) ?? undefined,
         schemaVersion: headers.get('zotero-schema-version') ?? undefined,
+        zoteroVersion: headers.get(ZOTERO_VERSION_HEADER) ?? undefined,
         diagnosis: 'ok',
       }
     } catch (error) {

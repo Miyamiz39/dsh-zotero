@@ -59,6 +59,7 @@ dsh plugin --profile <profile-name> add ./dsh-zotero-*.tgz
 
 ```
 Zotero local API: connected
+Zotero version: 10.0.2-beta.9+c77df79af
 API version: 12
 Schema version: 11
 Server ID: abc123def456

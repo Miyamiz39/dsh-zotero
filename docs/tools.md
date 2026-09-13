@@ -221,7 +221,7 @@ zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
 
 ## zotero_changes
 
-查看库的增量变化。Zotero 10+ 的版本号是本地事务版本——任何编辑、同步或本地写入都会推进它。不带 `since` 调用先取基线，它给出一个**游标**：版本号连同它所属的实例与库。下次把该游标原样作为 `since` 传回即得差异。
+查看库的增量变化。在核验过的 Zotero 10.0.2-beta.9 上，版本号是本地事务版本——每次对象保存都会递增库计数器并给该对象盖章（Zotero 源码 `dataObject.js` 的 `_finalizeSave`），删除只递增计数器。插件不按 Zotero 版本号猜语义，而是在每次调用里按响应本身判定：拿不到库版本就报 `versionUnavailable`（该构建无法做增量）。不带 `since` 调用先取基线，它给出一个**游标**：版本号连同它所属的实例与库。下次把该游标原样作为 `since` 传回即得差异。
 
 **游标契约**：`cursor` 出现即安全——它表示该调用已把报告范围内的变更整批读完，且读取期间库版本没有前进，因此可以直接作为下次 `since`。读不全（该构建给响应加了上限）或读取期间有写入时不返回 `cursor`（后者另带 `libraryChanged: true`），此时不要从这次结果推进游标。游标只覆盖产生它的那次调用 `include` 的资源种类。
 
@@ -239,7 +239,7 @@ zotero_children(ref="zotero://user/0/item/ABC123", include=["annotations"])
 
 ### 输出
 
-`{library, serverId?, fromVersion?, cursor?, libraryChanged?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, totals?, unsupported?, truncated?}`。每种资源整批读取，但列出的条目按 `maxChangesResults`（默认 50）截断，`truncated` 表示列表是摘要；`totals` 给出每种资源（含 `deletedItems`/`deletedCollections`/`deletedSavedSearches`）被截断前的真实条数。当前构建不支持的资源（如本机 Zotero 10.0.2-beta.9 就没有 `/deleted` 路由）不会导致整个调用失败，而是列入 `unsupported`——该种类的变化（含删除）不可观测，游标也不覆盖它。
+`{library, serverId?, fromVersion?, cursor?, libraryChanged?, versionUnavailable?, changed: {items?, collections?, savedSearches?, fulltextAttachments?}, deleted?: {items, collections, savedSearches}, totals?, unsupported?, truncated?}`。`versionUnavailable` 表示该构建根本不报库版本，因此拿不到基线也做不了差异。每种资源整批读取，但列出的条目按 `maxChangesResults`（默认 50）截断，`truncated` 表示列表是摘要；`totals` 给出每种资源（含 `deletedItems`/`deletedCollections`/`deletedSavedSearches`）被截断前的真实条数。当前构建不支持的资源（如本机 Zotero 10.0.2-beta.9 就没有 `/deleted` 路由）不会导致整个调用失败，而是列入 `unsupported`——该种类的变化（含删除）不可观测，游标也不覆盖它。
 
 ### 示例
 
