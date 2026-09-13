@@ -15,13 +15,12 @@ import { en, zh } from '../../src/client/locales.ts'
 import { ZOTERO_SETTINGS_NAMESPACE } from '../../src/settings-namespace.ts'
 import { fakeScope } from './helpers/fake-scope.ts'
 
-// The page imports primitive icons; stub them so this wiring-level spec does
-// not load the real bundle (katex css, shiki, …).
-vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  IconChevronDownOutline14: () => null,
-  LinkIcon: () => null,
-  Tag: () => null,
-}))
+// The page imports primitive icons; stub them with the shared DOM face so
+// this wiring-level spec does not load the real bundle (katex css, shiki, …).
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
+  const { primitivesStub } = await import('./helpers/primitives-stub.ts')
+  return primitivesStub()
+})
 
 interface FakeSlotsEntry {
   name: string

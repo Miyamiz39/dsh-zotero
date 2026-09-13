@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
-import { ZoteroHttpClient } from '../src/http-client.js'
+import { ZoteroHttpClient } from '../../src/http-client.js'
 import {
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
@@ -12,8 +12,8 @@ import {
   ZOTERO_SERVER_MISMATCH,
   ZOTERO_TIMEOUT,
   ZOTERO_UNEXPECTED,
-} from '../src/errors.js'
-import { MockZotero } from './helpers/mock-zotero.js'
+} from '../../src/errors.js'
+import { MockZotero } from '../helpers/mock-zotero.js'
 
 let mock: MockZotero
 let client: ZoteroHttpClient

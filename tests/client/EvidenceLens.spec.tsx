@@ -17,18 +17,13 @@ import {
 import { EvidenceOverview } from '../../src/client/components/workspace/EvidenceOverview.tsx'
 import { zh } from '../../src/client/locales.ts'
 import type { SourceItem } from '../../src/client/sources/model.ts'
-import { sourceOf, workspaceOf } from './helpers/source-fixtures.ts'
+import { passageOf, sourceOf, workspaceOf } from './helpers/source-fixtures.ts'
 
+// The real primitives bundle pulls heavy dependencies (katex, shiki, the
+// portal machinery); the cards only need the shared DOM face.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
-  const { createElement } = await import('react')
-  return {
-    IconChevronDownOutline14: (props: Record<string, unknown>) =>
-      createElement('span', { 'data-icon': 'chevron-down', ...props }),
-    LinkIcon: (props: Record<string, unknown>) =>
-      createElement('span', { 'data-icon': 'link', ...props }),
-    writeClipboard: vi.fn(async () => true),
-    Tooltip: ({ children }: { children: React.ReactElement }) => children,
-  }
+  const { primitivesStub } = await import('./helpers/primitives-stub.ts')
+  return primitivesStub()
 })
 
 import { mockT } from './helpers/mock-translate.ts'
@@ -49,21 +44,20 @@ const EVIDENCE_ITEM: SourceItem = sourceOf({
     exportCount: 0,
   },
   evidence: [
-    {
+    passageOf({
       source: 'annotation',
       sourceRef: 'zotero://user/0/annotation/ANN00001',
       text: 'highlighted claim',
-      previewTruncated: false,
       pageLabel: '7',
       callIds: ['r1'],
-    },
-    {
+    }),
+    passageOf({
       source: 'fulltext',
       sourceRef: 'zotero://user/0/item/ABCDEFGH',
       text: 'the paper body',
       previewTruncated: true,
       callIds: ['r1', 'r2'],
-    },
+    }),
   ],
   retrievalFacts: {
     attachmentRef: 'zotero://user/0/attachment/WXYZ6789',
@@ -288,13 +282,12 @@ describe('EvidenceOverview', () => {
         exportCount: 0,
       },
       evidence: [
-        {
+        passageOf({
           source: 'note',
           sourceRef: 'zotero://user/0/item/NOTE1',
           text: 'a note',
-          previewTruncated: false,
           callIds: ['r3'],
-        },
+        }),
       ],
       retrievalFacts: {
         truncated: false,

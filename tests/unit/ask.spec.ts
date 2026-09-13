@@ -12,7 +12,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { TOOL_ABORTED, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { AskUserQuestionAnswer, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
 import { describe, expect, it } from 'vitest'
-import { ConnectivityRecovery, withConnectivityAsk } from '../src/ask.js'
+import { ConnectivityRecovery, withConnectivityAsk } from '../../src/ask.js'
 import {
   ZOTERO_API_DISABLED,
   ZOTERO_API_VERSION,
@@ -21,7 +21,7 @@ import {
   ZOTERO_TIMEOUT,
   ZoteroError,
   type ZoteroErrorCode,
-} from '../src/errors.js'
+} from '../../src/errors.js'
 
 function zoteroError(code: ZoteroErrorCode): ZoteroError {
   return new ZoteroError(`failure ${code}`, code)

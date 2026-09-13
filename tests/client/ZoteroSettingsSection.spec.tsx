@@ -14,31 +14,32 @@ import { useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZoteroSettingsSection } from '../../src/client/ZoteroSettingsSection.tsx'
 import type { ZoteroSettingsSectionProps } from '../../src/client/ZoteroSettingsSection.tsx'
-import { en, zh, type ZoteroLocaleKey } from '../../src/client/locales.ts'
+import { en, zh } from '../../src/client/locales.ts'
 import {
   ZoteroCardController,
   type ZoteroCardFace,
   type ZoteroCardState,
 } from '../../src/client/zotero-card-controller.ts'
 import { fakeScope, type FakeScope } from './helpers/fake-scope.ts'
+import { makeTranslate } from './helpers/mock-translate.ts'
 
 // The real primitives bundle pulls heavy dependencies (katex, shiki); the page
-// only needs the pending capsule, so stub it with a DOM face.
+// only needs the pending capsule, so stub it with the shared DOM face.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
-  const { TagStub } = await import('./helpers/tag-stub.tsx')
-  return { Tag: TagStub }
+  const { primitivesStub } = await import('./helpers/primitives-stub.ts')
+  return primitivesStub()
 })
 
-type Dictionary = Record<ZoteroLocaleKey, string>
-
 /** The renderer's binding: a snapshot selector hook over the page's store. */
-function Harness({ face, dictionary = zh }: { face: ZoteroCardFace; dictionary?: Dictionary }) {
+function Harness({ face, dictionary = zh }: { face: ZoteroCardFace; dictionary?: typeof zh }) {
   const state = useSyncExternalStore(
     face.hooks.zoteroCard.subscribe,
     face.hooks.zoteroCard.getSnapshot,
   )
   const props = {
-    t: (key: ZoteroLocaleKey): string => dictionary[key],
+    // The page resolves its copy through the locale runtime, so the fixture
+    // binds the shipped dictionary with the shared translate stub.
+    t: makeTranslate(dictionary),
     // The shell supplies `close`; the page never uses it, so the fixture omits it.
     useZoteroCard: (selector: (snapshot: ZoteroCardState) => unknown) => selector(state),
     edit: face.edit,
@@ -51,7 +52,7 @@ function Harness({ face, dictionary = zh }: { face: ZoteroCardFace; dictionary?:
 
 let scope: FakeScope
 
-function mount(dictionary: Dictionary = zh): void {
+function mount(dictionary: typeof zh = zh): void {
   const controller = new ZoteroCardController(scope)
   render(<Harness face={controller.inject()} dictionary={dictionary} />)
 }
@@ -63,9 +64,9 @@ afterEach(() => {
   scope = undefined as unknown as FakeScope
 })
 
-const saveButton = (): HTMLButtonElement => screen.getByRole('button', { name: '保存' })
+const saveButton = (): HTMLButtonElement => screen.getByRole('button', { name: zh.save })
 
-const discardButton = (): HTMLButtonElement => screen.getByRole('button', { name: '放弃修改' })
+const discardButton = (): HTMLButtonElement => screen.getByRole('button', { name: zh.discard })
 
 describe('ZoteroSettingsSection', () => {
   it('keeps the nav entry and explains itself while the namespace is unavailable', () => {
@@ -73,16 +74,16 @@ describe('ZoteroSettingsSection', () => {
     render(<Harness face={new ZoteroCardController(scope).inject()} />)
     // The left-nav label comes from the registration, so the page must not
     // vanish: it states why it is empty instead.
-    expect(screen.getByText('Zotero')).toBeDefined()
-    expect(screen.getByRole('status').textContent).toContain('本部署没有提供 Zotero 设置项')
+    expect(screen.getByText(zh.nav)).toBeDefined()
+    expect(screen.getByRole('status').textContent).toContain(zh.unavailable)
     expect(document.querySelectorAll('input')).toHaveLength(0)
   })
 
   it('renders the page header, the full grouped form, and the action row', () => {
     scope = fakeScope({ value: { baseUrl: 'http://127.0.0.1:23119/api', timeoutMs: 5000 } })
     mount()
-    expect(screen.getByRole('heading', { name: 'Zotero' })).toBeDefined()
-    expect(screen.getByText('Zotero 文献库的接入配置。')).toBeDefined()
+    expect(screen.getByRole('heading', { name: zh.title })).toBeDefined()
+    expect(screen.getByText(zh.description)).toBeDefined()
     // Every field of the namespace is on the page, with no disclosure to open
     // (now + maxChangesResults).
     expect(document.querySelectorAll('input')).toHaveLength(22)
@@ -109,12 +110,12 @@ describe('ZoteroSettingsSection', () => {
   it('marks the page as unsaved while a draft is staged', () => {
     scope = fakeScope({ value: { timeoutMs: 5000 } })
     mount()
-    expect(screen.queryByText('未保存')).toBeNull()
+    expect(screen.queryByText(zh.unsaved)).toBeNull()
     const timeout = document.querySelector('#zotero-settings-timeoutMs') as HTMLInputElement
     fireEvent.change(timeout, { target: { value: '9000' } })
-    expect(screen.getByText('未保存')).toBeDefined()
+    expect(screen.getByText(zh.unsaved)).toBeDefined()
     fireEvent.click(discardButton())
-    expect(screen.queryByText('未保存')).toBeNull()
+    expect(screen.queryByText(zh.unsaved)).toBeNull()
   })
 
   it('toggles the web tab and saves the boolean write from the action row', async () => {
@@ -153,7 +154,7 @@ describe('ZoteroSettingsSection', () => {
     // The invalid border rides a css-module class; its hashed name carries
     // the source class name (`inputInvalid` per the official fields).
     expect(timeout.className).toMatch(/inputInvalid/)
-    expect(screen.getByText('请填数字；留空表示使用默认值。')).toBeDefined()
+    expect(screen.getByText(zh.invalidNumber)).toBeDefined()
     expect(saveButton().disabled).toBe(true)
   })
 
@@ -176,8 +177,8 @@ describe('ZoteroSettingsSection', () => {
     })
     mount()
     // The toggle's own state is its undo: no badge, no reset, no marker row.
-    expect(screen.queryByText('已覆盖')).toBeNull()
-    expect(screen.queryByText('恢复默认')).toBeNull()
+    expect(screen.queryByText(zh.overridden)).toBeNull()
+    expect(screen.queryByText(zh.reset)).toBeNull()
   })
 
   it('resets an overridden value field back to the base from the action row', async () => {
@@ -187,7 +188,7 @@ describe('ZoteroSettingsSection', () => {
       user: { timeoutMs: 5000 },
     })
     mount()
-    fireEvent.click(screen.getByText('恢复默认'))
+    fireEvent.click(screen.getByText(zh.reset))
     fireEvent.click(saveButton())
     await vi.waitFor(() => expect(scope.writes).toEqual([{ op: 'unset', field: 'timeoutMs' }]))
   })
@@ -209,7 +210,7 @@ describe('ZoteroSettingsSection', () => {
     const timeout = document.querySelector('#zotero-settings-timeoutMs') as HTMLInputElement
     fireEvent.change(timeout, { target: { value: '9000' } })
     fireEvent.click(saveButton())
-    await screen.findByText('本部署没有接受这些值，已保留供你修改。')
+    await screen.findByText(zh.saveFailed)
     expect(timeout.value).toBe('9000')
     // The draft survives so the user can correct it.
     expect(saveButton().disabled).toBe(false)
@@ -218,7 +219,7 @@ describe('ZoteroSettingsSection', () => {
   it('disables every control while the document is read-only', () => {
     scope = fakeScope({ value: { timeoutMs: 5000 }, writable: false })
     mount()
-    expect(screen.getByText('本部署的设置为只读。')).toBeDefined()
+    expect(screen.getByText(zh.readOnly)).toBeDefined()
     for (const input of Array.from(document.querySelectorAll('input'))) {
       expect(input.disabled).toBe(true)
     }

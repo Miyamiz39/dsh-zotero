@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { parseExportItem } from '../src/export-items.js'
+import { parseExportItem } from '../../src/export-items.js'
 
 describe('parseExportItem', () => {
   it('extracts the citation key and title from a BibTeX entry', () => {

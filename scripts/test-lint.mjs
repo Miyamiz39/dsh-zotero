@@ -57,17 +57,17 @@ const ALLOWED_CONTROL = new Set([0x09, 0x0a, 0x0d])
 /**
  * Ratchet: the most lines one spec file may occupy. Lower it in the same
  * commit that splits a file, never preemptively.
- * Target once the refactor lands: 800.
+ * Target once the split of the search spec lands: 800.
  */
-const MAX_SPEC_LINES = 1642
+const MAX_SPEC_LINES = 1057
 
 /**
- * Ratchet: the directories a spec may live in, relative to `tests/`. An empty
- * string is the `tests/` root, which the refactor empties; nested lanes such
- * as `client/sources` are covered by their first segment.
- * Target once the refactor lands: ['unit', 'local', 'tools', 'host', 'client', 'integration'].
+ * Ratchet: the directories a spec may live in, relative to `tests/`. Each lane
+ * mirrors the `src/` layer it covers, so where a spec lives is decided by what
+ * it tests rather than by when it was written. Nested lanes such as
+ * `client/sources` are covered by their first segment.
  */
-const SPEC_LANES = ['', 'provider', 'tools', 'client', 'integration']
+const SPEC_LANES = ['unit', 'local', 'tools', 'host', 'client', 'integration']
 
 const failures = []
 

@@ -12,11 +12,11 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
-import ZoteroService from '../src/index.js'
-import { ZOTERO_PROVIDER_UNAVAILABLE } from '../src/errors.js'
-import { ZOTERO_SETTINGS_NAMESPACE } from '../src/settings-namespace.js'
-import { MemorySettings } from './helpers/memory-settings.js'
-import { MockZotero } from './helpers/mock-zotero.js'
+import ZoteroService from '../../src/index.js'
+import { ZOTERO_PROVIDER_UNAVAILABLE } from '../../src/errors.js'
+import { ZOTERO_SETTINGS_NAMESPACE } from '../../src/settings-namespace.js'
+import { MemorySettings } from '../helpers/memory-settings.js'
+import { MockZotero } from '../helpers/mock-zotero.js'
 
 let mock: MockZotero | undefined
 let ctx: Context | undefined

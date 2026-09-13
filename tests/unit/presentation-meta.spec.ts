@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ZoteroItemDetail, ZoteroRetrieveResult, ZoteroSearchResult } from '../src/types.js'
+import type { ZoteroItemDetail, ZoteroRetrieveResult, ZoteroSearchResult } from '../../src/types.js'
 import {
   MAX_PRESENTATION_EVIDENCE_CHARS,
   MAX_PRESENTATION_GET_VENUE_CHARS,
@@ -20,7 +20,7 @@ import {
   projectGetMeta,
   projectRetrieveMeta,
   projectSearchMeta,
-} from '../src/presentation-meta.js'
+} from '../../src/presentation-meta.js'
 
 function searchResult(rows: number): ZoteroSearchResult {
   return {

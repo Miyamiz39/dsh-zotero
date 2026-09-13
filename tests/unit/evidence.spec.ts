@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chunkText, rankChunks, tokenize } from '../src/evidence.js'
+import { chunkText, rankChunks, tokenize } from '../../src/evidence.js'
 
 describe('tokenize', () => {
   it('lowercases and splits on non-alphanumeric boundaries', () => {

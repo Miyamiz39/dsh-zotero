@@ -22,7 +22,7 @@ import ToolRuntime, {
   type ToolDefinition,
 } from '@deepseek-ai/dsh-tools'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import ZoteroService from '../src/index.js'
+import ZoteroService from '../../src/index.js'
 
 /** Docs every example in them is held to. */
 const DOC_FILES = [

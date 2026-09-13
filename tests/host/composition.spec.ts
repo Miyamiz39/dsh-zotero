@@ -19,8 +19,8 @@ import Include, { entryListSchema, type PatchOptions } from '@deepseek-ai/cordis
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import ZoteroService from '../src/index.js'
-import { MockZotero } from './helpers/mock-zotero.js'
+import ZoteroService from '../../src/index.js'
+import { MockZotero } from '../helpers/mock-zotero.js'
 
 /** Minimal command registry stand-in so the optional /zotero command path loads. */
 class StubCommands extends Service {
@@ -64,7 +64,7 @@ describe('the shipped bundle patch through a real Loader composition', () => {
     // dialect — the same parse `boot()` performs on `--patch` layers — so the
     // shipped artifact's rows (id `zotero`, name `dsh-zotero`, empty config)
     // are what the composition validates.
-    const bundlePatch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+    const bundlePatch = await readFile(new URL('../../cordis.patch.yml', import.meta.url), 'utf8')
     const parsedPatch = load(bundlePatch, { schema: entryListSchema }) as PatchOptions[]
     await writeFile(
       configPath,

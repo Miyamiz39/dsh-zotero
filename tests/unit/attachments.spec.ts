@@ -3,7 +3,7 @@ import {
   bestAttachmentFromLinks,
   normalizeAttachmentRecord,
   selectAttachments,
-} from '../src/attachments.js'
+} from '../../src/attachments.js'
 
 const PDF_CHILD = {
   key: 'WXYZ6789',

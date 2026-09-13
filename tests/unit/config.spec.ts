@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveConfig } from '../src/config.js'
+import { resolveConfig } from '../../src/config.js'
 
 describe('resolveConfig', () => {
   it('applies schema defaults for an empty config', () => {

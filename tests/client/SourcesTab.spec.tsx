@@ -31,57 +31,11 @@ import { callNameOf } from '../../src/client/presenters.ts'
 import { zh } from '../../src/client/locales.ts'
 import { running, settled } from './helpers/blocks.ts'
 
+// The real primitives bundle pulls heavy dependencies (katex, shiki, the
+// portal machinery); the tab only needs the shared DOM face.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
-  const { createElement } = await import('react')
-  const icon = (name: string) => (props: Record<string, unknown>) =>
-    createElement('span', { 'data-icon': name, ...props })
-  return {
-    StateDot: ({ state }: { state: string }) => createElement('span', { 'data-dot': state }),
-    Pill: ({
-      active,
-      children,
-      ...rest
-    }: {
-      active?: boolean
-      children?: unknown
-      [key: string]: unknown
-    }) =>
-      createElement(
-        'button',
-        { 'data-pill': active === true ? 'active' : undefined, ...rest },
-        children as never,
-      ),
-    Menu: ({
-      anchor,
-      items,
-      open,
-    }: {
-      anchor?: unknown
-      items?: Array<{ id: string; label?: unknown; disabled?: boolean }>
-      open?: boolean
-    }) =>
-      createElement(
-        'div',
-        { 'data-menu': open === true ? 'open' : undefined },
-        anchor as never,
-        open === true
-          ? items?.map((item) =>
-              createElement(
-                'span',
-                { key: item.id, 'data-menu-item': item.id },
-                item.label as never,
-              ),
-            )
-          : undefined,
-      ),
-    IconChevronDownOutline14: icon('chevron-down'),
-    IconChevronLeftOutline14: icon('chevron-left'),
-    IconChevronRightOutline14: icon('chevron-right'),
-    IconBrowseOutline16: icon('browse'),
-    LinkIcon: icon('link'),
-    writeClipboard: vi.fn(async () => true),
-    Tooltip: ({ children }: { children: React.ReactElement }) => children,
-  }
+  const { primitivesStub } = await import('./helpers/primitives-stub.ts')
+  return primitivesStub()
 })
 
 import { mockT } from './helpers/mock-translate.ts'

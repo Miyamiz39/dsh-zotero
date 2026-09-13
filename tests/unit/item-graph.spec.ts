@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { loadItemGraph, type LoadItemGraphOptions } from '../src/item-graph.js'
+import { loadItemGraph, type LoadItemGraphOptions } from '../../src/item-graph.js'
 
 function attachment(key: string): unknown {
   return { key, data: { itemType: 'attachment', contentType: 'application/pdf' } }

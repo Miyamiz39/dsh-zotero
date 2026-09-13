@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ConcurrencyGate, GateAbortedError, mapWithConcurrency } from '../src/concurrency.js'
+import { ConcurrencyGate, GateAbortedError, mapWithConcurrency } from '../../src/concurrency.js'
 
 describe('mapWithConcurrency', () => {
   it('preserves input order under concurrency', async () => {

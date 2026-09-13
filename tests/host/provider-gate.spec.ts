@@ -2,12 +2,12 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
-import ZoteroService, { type ZoteroService as ZoteroServiceType } from '../src/index.js'
-import { ZOTERO_CAPABILITY_UNAVAILABLE, ZOTERO_PROVIDER_UNAVAILABLE } from '../src/errors.js'
-import type { ZoteroProvider, ZoteroSearchResult } from '../src/types.js'
-import { MockZotero } from './helpers/mock-zotero.js'
-import { zoteroError } from './helpers/provider-harness.js'
-import { parseRef } from '../src/refs.js'
+import ZoteroService, { type ZoteroService as ZoteroServiceType } from '../../src/index.js'
+import { ZOTERO_CAPABILITY_UNAVAILABLE, ZOTERO_PROVIDER_UNAVAILABLE } from '../../src/errors.js'
+import type { ZoteroProvider, ZoteroSearchResult } from '../../src/types.js'
+import { MockZotero } from '../helpers/mock-zotero.js'
+import { zoteroError } from '../helpers/provider-harness.js'
+import { parseRef } from '../../src/refs.js'
 
 let mock: MockZotero | undefined
 let ctx: Context | undefined

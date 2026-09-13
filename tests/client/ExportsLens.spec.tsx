@@ -29,27 +29,20 @@ import { zh } from '../../src/client/locales.ts'
 import { bibTexKeysOf, citeCommandOf } from '../../src/client/sources/bibtex.ts'
 import type { ExportArtifact } from '../../src/client/sources/model.ts'
 import type { ExportedDocument } from '../../src/client/sources/selectors.ts'
-import { workspaceOf } from './helpers/source-fixtures.ts'
+import { artifactOf, workspaceOf } from './helpers/source-fixtures.ts'
 
+// The real primitives bundle pulls heavy dependencies (katex, shiki, the
+// portal machinery); the export rows only need the shared DOM face.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
-  const { createElement } = await import('react')
-  return {
-    IconChevronDownOutline14: (props: Record<string, unknown>) =>
-      createElement('span', { 'data-icon': 'chevron-down', ...props }),
-    LinkIcon: (props: Record<string, unknown>) =>
-      createElement('span', { 'data-icon': 'link', ...props }),
-    writeClipboard: vi.fn(async () => true),
-  }
+  const { primitivesStub } = await import('./helpers/primitives-stub.ts')
+  return primitivesStub()
 })
 
-const { writeClipboard } = vi.mocked(
-  await vi.importMock<typeof import('@deepseek-ai/dsh-client-ui-primitives')>(
-    '@deepseek-ai/dsh-client-ui-primitives',
-  ),
-)
-
 import { mockT } from './helpers/mock-translate.ts'
+import { writeClipboardSpy } from './helpers/primitives-stub.ts'
+
 const t = mockT
+const writeClipboard = await writeClipboardSpy()
 
 const REF_A = 'zotero://user/0/item/AAAAAAA1'
 const REF_B = 'zotero://user/0/item/BBBBBBBB'
@@ -59,41 +52,38 @@ const RIS_TEXT = 'TY  - JOUR\nTI  - A RIS record\nID  - BBBBBBBB\nER  -\n'
 
 /** An itemized BibTeX artifact whose item locates its entry in the body. */
 function itemizedBibtex(overrides: Partial<ExportArtifact> = {}): ExportArtifact {
-  return {
+  return artifactOf({
     callId: 'e1',
-    format: 'bibtex',
     refs: [REF_A],
-    refsOmitted: 0,
     text: BIBTEX_TEXT,
     items: [
       { ref: REF_A, key: 'dao2023', title: 'A study on dao', start: 0, end: BIBTEX_TEXT.length },
     ],
     ...overrides,
-  }
+  })
 }
 
 /** An itemized RIS artifact whose item locates its record in the body. */
 function itemizedRis(overrides: Partial<ExportArtifact> = {}): ExportArtifact {
-  return {
+  return artifactOf({
     callId: 'e2',
     format: 'ris',
     refs: [REF_B],
-    refsOmitted: 0,
     text: RIS_TEXT,
     items: [{ ref: REF_B, title: 'A RIS record', start: 0, end: RIS_TEXT.length }],
     ...overrides,
-  }
+  })
 }
 
-const BIBTEX_ARTIFACT: ExportArtifact = {
+/** A whole-text BibTeX artifact: scope facts on the head, no per-document data. */
+const BIBTEX_ARTIFACT: ExportArtifact = artifactOf({
   callId: 'e1',
-  format: 'bibtex',
   style: 'apa',
   locale: 'en-US',
   refs: [REF_A, 'zotero://user/0/item/AAAAAAA2'],
-  refsOmitted: 0,
   text: '@article{dao2023,\n title={A}\n}',
-}
+  items: undefined,
+})
 
 const BIBTEX_DOC: ExportedDocument = {
   ref: REF_A,

@@ -14,26 +14,18 @@ import { ZoteroOpenButton } from '../../src/client/components/open/ZoteroOpenBut
 import { badgesOf } from '../../src/client/components/workspace/SourceListItem.tsx'
 import { sourceOf } from './helpers/source-fixtures.ts'
 
+// The real primitives bundle pulls heavy dependencies (katex, shiki, the
+// portal machinery); the row only needs the shared DOM face.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
-  const { createElement } = await import('react')
-  return {
-    IconChevronDownOutline14: (props: Record<string, unknown>) =>
-      createElement('span', { 'data-icon': 'chevron-down', ...props }),
-    LinkIcon: (props: Record<string, unknown>) =>
-      createElement('span', { 'data-icon': 'link', ...props }),
-    writeClipboard: vi.fn(async () => true),
-    Tooltip: ({ children }: { children: React.ReactElement }) => children,
-  }
+  const { primitivesStub } = await import('./helpers/primitives-stub.ts')
+  return primitivesStub()
 })
 
-const { writeClipboard } = vi.mocked(
-  await vi.importMock<typeof import('@deepseek-ai/dsh-client-ui-primitives')>(
-    '@deepseek-ai/dsh-client-ui-primitives',
-  ),
-)
-
 import { mockT } from './helpers/mock-translate.ts'
+import { writeClipboardSpy } from './helpers/primitives-stub.ts'
+
 const t = mockT
+const writeClipboard = await writeClipboardSpy()
 
 afterEach(() => {
   cleanup()

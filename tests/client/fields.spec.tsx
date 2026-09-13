@@ -12,11 +12,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BooleanField, ValueField } from '../../src/client/fields.tsx'
 
 // The real primitives bundle pulls heavy dependencies (katex, shiki); the
-// fields only need the shared Tag capsule, so stub it with its DOM face.
+// fields only need the shared tag capsule, so stub it with its DOM face.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
-  const { TagStub } = await import('./helpers/tag-stub.tsx')
-  return { Tag: TagStub }
+  const { primitivesStub } = await import('./helpers/primitives-stub.ts')
+  return primitivesStub()
 })
+
+import { mockT } from './helpers/mock-translate.ts'
+const t = mockT
 
 afterEach(cleanup)
 
@@ -26,8 +29,11 @@ const base = {
   hint: 'A hint.',
   text: 'true',
   overridden: true,
-  overriddenLabel: '已覆盖',
-  resetLabel: '恢复默认',
+  overriddenLabel: t('overridden'),
+  resetLabel: t('reset'),
+  // A shortened stand-in for the shipped `invalidNumber` copy: this file pins
+  // the control's invalid face, not the sentence the card passes in.
+  invalidLabel: '请填数字。',
   disabled: false,
   onEdit: () => {},
   onReset: () => {},
@@ -36,21 +42,21 @@ const base = {
 describe('BooleanField', () => {
   it('renders the override marker with its reset button', () => {
     render(<BooleanField {...base} />)
-    expect(screen.getByText('已覆盖')).toBeDefined()
-    expect(screen.getByText('恢复默认')).toBeDefined()
+    expect(screen.getByText(t('overridden'))).toBeDefined()
+    expect(screen.getByText(t('reset'))).toBeDefined()
   })
 
   it('routes the reset button to the reset action', () => {
     const onReset = vi.fn()
     render(<BooleanField {...base} onReset={onReset} />)
-    fireEvent.click(screen.getByText('恢复默认'))
+    fireEvent.click(screen.getByText(t('reset')))
     expect(onReset).toHaveBeenCalledTimes(1)
   })
 
   it('renders no marker while the field is not overridden', () => {
     render(<BooleanField {...base} overridden={false} />)
-    expect(screen.queryByText('已覆盖')).toBeNull()
-    expect(screen.queryByText('恢复默认')).toBeNull()
+    expect(screen.queryByText(t('overridden'))).toBeNull()
+    expect(screen.queryByText(t('reset'))).toBeNull()
   })
 })
 
@@ -62,8 +68,8 @@ describe('ValueField', () => {
     text: 'http://127.0.0.1:23119',
     overridden: true,
     invalid: false,
-    overriddenLabel: '已覆盖',
-    resetLabel: '恢复默认',
+    overriddenLabel: t('overridden'),
+    resetLabel: t('reset'),
     invalidLabel: '请填数字。',
     disabled: false,
     onEdit: () => {},
@@ -73,7 +79,7 @@ describe('ValueField', () => {
   it('renders a native input with the override badge and hint', () => {
     const { container } = render(<ValueField {...valueBase} />)
     expect(container.querySelector('input#field-value')).not.toBeNull()
-    expect(screen.getByText('已覆盖')).toBeDefined()
+    expect(screen.getByText(t('overridden'))).toBeDefined()
     expect(screen.getByText('Loopback only.')).toBeDefined()
   })
 

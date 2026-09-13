@@ -34,86 +34,20 @@ import {
   zeroMatchFixture,
 } from './helpers/source-fixtures.ts'
 
+// The real primitives bundle pulls heavy dependencies (katex, shiki, the
+// portal machinery); the view needs the shared DOM face. Its toolbar menu is
+// the one surface this spec drives through the primitive's own callbacks, so
+// it swaps in the interactive variant instead of the display-only default.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
-  const { createElement } = await import('react')
-  const icon = (name: string) => (props: Record<string, unknown>) =>
-    createElement('span', { 'data-icon': name, ...props })
-
-  return {
-    StateDot: ({ state }: { state: string }) => createElement('span', { 'data-dot': state }),
-    Pill: ({
-      active,
-      children,
-      ...rest
-    }: {
-      active?: boolean
-      children?: unknown
-      [key: string]: unknown
-    }) =>
-      createElement(
-        'button',
-        { 'data-pill': active === true ? 'active' : undefined, ...rest },
-        children as never,
-      ),
-    // The menu mock keeps the primitive's contract: item rows invoke
-    // onSelect, Escape invokes onClose — so the components' own callbacks
-    // stay exercised without the real portal.
-    Menu: ({
-      anchor,
-      items,
-      open,
-      onSelect,
-      onClose,
-    }: {
-      anchor?: unknown
-      items?: Array<{ id: string; label?: unknown }>
-      open?: boolean
-      onSelect?: (id: string) => void
-      onClose?: () => void
-    }) =>
-      createElement(
-        'div',
-        {
-          'data-menu': open === true ? 'open' : undefined,
-          onKeyDown: (event: { key: string }) => {
-            if (event.key === 'Escape') onClose?.()
-          },
-        },
-        anchor as never,
-        open === true
-          ? items?.map((item) =>
-              createElement(
-                'span',
-                {
-                  key: item.id,
-                  'data-menu-item': item.id,
-                  onClick: () => {
-                    onSelect?.(item.id)
-                  },
-                },
-                item.label as never,
-              ),
-            )
-          : undefined,
-      ),
-    IconChevronDownOutline14: icon('chevron-down'),
-    IconChevronLeftOutline14: icon('chevron-left'),
-    IconChevronRightOutline14: icon('chevron-right'),
-    IconBrowseOutline16: icon('browse'),
-    LinkIcon: icon('link'),
-    writeClipboard: vi.fn(async () => true),
-    Tooltip: ({ children }: { children: React.ReactElement }) => children,
-  }
+  const { interactiveMenu, primitivesStub } = await import('./helpers/primitives-stub.ts')
+  return primitivesStub({ Menu: interactiveMenu })
 })
 
-const { writeClipboard } = vi.mocked(
-  await vi.importMock<typeof import('@deepseek-ai/dsh-client-ui-primitives')>(
-    '@deepseek-ai/dsh-client-ui-primitives',
-  ),
-)
-
 import { mockT } from './helpers/mock-translate.ts'
+import { writeClipboardSpy } from './helpers/primitives-stub.ts'
+
 const t = mockT
+const writeClipboard = await writeClipboardSpy()
 
 const CONNECTED: ConnectionView = {
   kind: 'connected',

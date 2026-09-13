@@ -11,11 +11,11 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
-import ZoteroService from '../src/index.js'
-import { ZoteroRuntime } from '../src/remote.js'
-import { TYPERT_MANIFEST } from '../src/typert.js'
-import { MemorySettings } from './helpers/memory-settings.js'
-import { MockZotero } from './helpers/mock-zotero.js'
+import ZoteroService from '../../src/index.js'
+import { ZoteroRuntime } from '../../src/remote.js'
+import { TYPERT_MANIFEST } from '../../src/typert.js'
+import { MemorySettings } from '../helpers/memory-settings.js'
+import { MockZotero } from '../helpers/mock-zotero.js'
 
 let ctx: Context | undefined
 

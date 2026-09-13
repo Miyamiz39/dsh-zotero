@@ -9,16 +9,16 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import ZoteroService from '../src/index.js'
+import ZoteroService from '../../src/index.js'
 import {
   ZOTERO_CAPABILITY_UNAVAILABLE,
   ZOTERO_PROVIDER_UNAVAILABLE,
   ZoteroError,
-} from '../src/errors.js'
-import { parseRef } from '../src/refs.js'
-import { ZOTERO_PROMPT_ANCHOR, ZOTERO_PROMPT_ORDER_OFFSET } from '../src/prompt.js'
-import type { ZoteroProvider } from '../src/types.js'
-import { MockZotero } from './helpers/mock-zotero.js'
+} from '../../src/errors.js'
+import { parseRef } from '../../src/refs.js'
+import { ZOTERO_PROMPT_ANCHOR, ZOTERO_PROMPT_ORDER_OFFSET } from '../../src/prompt.js'
+import type { ZoteroProvider } from '../../src/types.js'
+import { MockZotero } from '../helpers/mock-zotero.js'
 
 /** Minimal command registry stand-in so the optional /zotero command path can be exercised. */
 class StubCommands extends Service {

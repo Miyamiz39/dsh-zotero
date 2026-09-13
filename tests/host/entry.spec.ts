@@ -12,8 +12,8 @@ import ZoteroService, {
   ZOTERO_SERVER_MISMATCH,
   ZOTERO_TIMEOUT,
   ZoteroError,
-} from '../src/index.js'
-import type { ZoteroSearchRequest, ZoteroSortField } from '../src/index.js'
+} from '../../src/index.js'
+import type { ZoteroSearchRequest, ZoteroSortField } from '../../src/index.js'
 
 describe('package entry exports', () => {
   it('default-exports the service class', () => {

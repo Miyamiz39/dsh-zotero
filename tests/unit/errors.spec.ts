@@ -8,7 +8,7 @@ import {
   errorMessageOf,
   isNotFoundError,
   isUnreachableCause,
-} from '../src/errors.js'
+} from '../../src/errors.js'
 
 function withCause(cause: unknown): Error {
   return new Error('outer', { cause })

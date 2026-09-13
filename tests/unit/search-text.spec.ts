@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { normalizeForSearch } from '../src/search-text.js'
+import { normalizeForSearch } from '../../src/search-text.js'
 
 describe('normalizeForSearch', () => {
   it('folds diacritics the way Zotero does', () => {

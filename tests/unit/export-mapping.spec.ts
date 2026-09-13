@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { locateExportItems, splitBibtexEntries, splitRisRecords } from '../src/export-mapping.js'
+import { locateExportItems, splitBibtexEntries, splitRisRecords } from '../../src/export-mapping.js'
 
 const R1 = 'zotero://user/0/item/AAAAAAA1'
 const R2 = 'zotero://user/0/item/BBBBBBBB'
