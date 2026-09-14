@@ -40,10 +40,11 @@ import {
   ZOTERO_WRITE_UNAUTHORIZED,
   ZoteroError,
 } from '../errors.js'
-import { asRecord, asString } from '../json.js'
+import { asRecord, asString, stringArrayOf } from '../json.js'
 import {
   formatRef,
   libraryPrefix,
+  parseZoteroRelationUri,
   PERSONAL_LIBRARY,
   refForLibrary,
   requireSupportedLocalRef,
@@ -52,7 +53,6 @@ import { markdownToNoteHtml } from './note-format.js'
 import type { WriteAuthorizer } from '../write-auth.js'
 import type { ZoteroWriteHttpClient, ZoteroWriteObjectFailure } from '../write-http.js'
 import type {
-  SupportedLocalLibrary,
   ZoteroCollectionAddRequest,
   ZoteroCollectionAddResult,
   ZoteroCreateNoteRequest,
@@ -193,14 +193,12 @@ function tagsOf(data: Record<string, unknown> | undefined): ItemSnapshot['tags']
   return entries
 }
 
-function stringArrayOf(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.filter((entry): entry is string => typeof entry === 'string')
-}
+/** The Zotero relations key carrying source-item links. */
+const DC_RELATION = 'dc:relation'
 
 function relationUrisOf(data: Record<string, unknown> | undefined): string[] {
   const relations = asRecord(data?.relations)
-  const raw = relations === undefined ? undefined : relations['dc:relation']
+  const raw = relations === undefined ? undefined : relations[DC_RELATION]
   if (typeof raw === 'string') return [raw]
   if (Array.isArray(raw)) return raw.filter((entry): entry is string => typeof entry === 'string')
   return []
@@ -240,15 +238,28 @@ function relationUriOf(key: string): string {
 
 /** Map Zotero's per-object refusal onto the typed domain error it names. */
 function objectRefusedError(refused: ZoteroWriteObjectFailure): ZoteroError {
-  const code =
-    refused.code === 400
-      ? ZOTERO_INVALID_ARGUMENT
-      : refused.code === 404
-        ? ZOTERO_NOT_FOUND
-        : refused.code === 412
-          ? ZOTERO_WRITE_CONFLICT
-          : ZOTERO_UNEXPECTED
-  return new ZoteroError(writeObjectRefusedMessage(refused.message, refused.code), code)
+  switch (refused.code) {
+    case 400:
+      return new ZoteroError(
+        writeObjectRefusedMessage(refused.message, refused.code),
+        ZOTERO_INVALID_ARGUMENT,
+      )
+    case 404:
+      return new ZoteroError(
+        writeObjectRefusedMessage(refused.message, refused.code),
+        ZOTERO_NOT_FOUND,
+      )
+    case 412:
+      return new ZoteroError(
+        writeObjectRefusedMessage(refused.message, refused.code),
+        ZOTERO_WRITE_CONFLICT,
+      )
+    default:
+      return new ZoteroError(
+        writeObjectRefusedMessage(refused.message, refused.code),
+        ZOTERO_UNEXPECTED,
+      )
+  }
 }
 
 /**
@@ -270,10 +281,9 @@ export async function createNote(
   if (parent !== undefined && (request.collections?.length ?? 0) > 0) {
     throw new ZoteroError(WRITE_CHILD_COLLECTIONS_MESSAGE, ZOTERO_INVALID_ARGUMENT)
   }
-  const collections: ZoteroObjectRef[] = []
-  for (const refOrName of request.collections ?? []) {
-    collections.push(await resolveCollection(refOrName, signal))
-  }
+  const collections: ZoteroObjectRef[] = await Promise.all(
+    (request.collections ?? []).map((refOrName) => resolveCollection(refOrName, signal)),
+  )
   const sources = (request.sourceRefs ?? []).map((ref) => requireWritableRef(ref, ['item']))
   const tags = [...new Set(request.tags ?? [])]
   const entry: Record<string, unknown> = {
@@ -285,7 +295,7 @@ export async function createNote(
       ? { collections: collections.map((ref) => ref.key) }
       : {}),
     ...(sources.length > 0
-      ? { relations: { 'dc:relation': sources.map((ref) => relationUriOf(ref.key)) } }
+      ? { relations: { [DC_RELATION]: sources.map((ref) => relationUriOf(ref.key)) } }
       : {}),
   }
   return await withWriteKey(deps, serverId, signal, async (apiKey) => {
@@ -331,8 +341,10 @@ export async function createNote(
 
 /** A saved relation URI back to the ref form the model uses; unparseable URIs stay verbatim. */
 function relationUriToRef(uri: string, serverId: string): string {
-  const match = /\/items\/([A-Z0-9]{8})$/.exec(uri)
-  return match === null ? uri : noteRef(match[1], serverId)
+  const parsed = parseZoteroRelationUri(uri)
+  if (parsed === null) return uri
+  if (parsed.library.type !== 'user' || parsed.library.id !== 0) return uri
+  return noteRef(parsed.key, serverId)
 }
 
 /**

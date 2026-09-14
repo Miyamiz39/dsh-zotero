@@ -15,7 +15,7 @@ import {
 } from './attachments.js'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ZOTERO_UNEXPECTED, ZoteroError } from './errors.js'
-import { asJsonValue, asRecord, asString, isObjectKey } from './json.js'
+import { asJsonValue, asRecord, asString, isObjectKey, stringArrayOf } from './json.js'
 import { formatRef, parseZoteroRelationUri, refForLibrary } from './refs.js'
 import type {
   SupportedLocalLibrary,
@@ -249,10 +249,7 @@ export function normalizeVenue(data: Record<string, unknown> | undefined): strin
 
 /** The collection keys an item belongs to, from its `data.collections` block. */
 export function collectionKeysOf(json: unknown): string[] {
-  const collections = asRecord(asRecord(json)?.data)?.collections
-  return Array.isArray(collections)
-    ? collections.filter((key): key is string => typeof key === 'string')
-    : []
+  return stringArrayOf(asRecord(asRecord(json)?.data)?.collections)
 }
 
 /** Cut a text at `max` characters; `truncated` records whether the cut happened. */

@@ -322,26 +322,6 @@ export class ZoteroHttpClient {
   }
 
   /**
-   * Read what a failure's own statement (a 501 body) under the byte bound.
-   * Caller cancellation and the deadline still win over the statement: the
-   * request did reach Zotero, but an aborted read is the caller's failure,
-   * not a fact about the refusal. Any other read failure leaves the
-   * statement unavailable — the status itself is still the finding.
-   */
-  private readStatement = async (
-    response: Response,
-    signal: AbortSignal,
-    callerSignal: AbortSignal | undefined,
-  ): Promise<string> =>
-    readFailureStatement(
-      response,
-      this.options.maxResponseBytes,
-      signal,
-      callerSignal,
-      this.options.timeoutMs,
-    )
-
-  /**
    * GET a path relative to the API base (no leading slash; `''` is `/api/`).
    * @param path - relative path, e.g. `users/0/items/ABCD1234`.
    * @param search - query parameters, serialized verbatim.
@@ -408,7 +388,9 @@ export class ZoteroHttpClient {
     // starts here, after the slot was taken, so time spent queued behind the
     // gate is never reported as Zotero failing to respond in time.
     using d = deadline(opts.signal, this.options.timeoutMs, ZOTERO_TIMEOUT)
-    const headers: Record<string, string> = { 'Zotero-API-Version': ZOTERO_LOCAL_API_VERSION }
+    const headers: Record<string, string> = {
+      [ZOTERO_API_VERSION_HEADER]: ZOTERO_LOCAL_API_VERSION,
+    }
     const serverId =
       opts.serverId ?? (opts.sendServerId === false ? undefined : this.currentServerId)
     if (serverId !== undefined) headers[ZOTERO_SERVER_ID_HEADER] = serverId
@@ -449,9 +431,18 @@ export class ZoteroHttpClient {
     if (!response.ok) {
       // Only a 501 needs its body: Zotero states there what it refused, and
       // that statement is the difference between a version mismatch and an
-      // unimplemented endpoint or format. It is read under the same bound.
+      // unimplemented endpoint or format. It is read under the same bound;
+      // caller cancellation and the deadline still win over the statement.
       const detail =
-        response.status === 501 ? await this.readStatement(response, d.signal, opts.signal) : ''
+        response.status === 501
+          ? await readFailureStatement(
+              response,
+              this.options.maxResponseBytes,
+              d.signal,
+              opts.signal,
+              this.options.timeoutMs,
+            )
+          : ''
       translateHttpStatus(response, detail, relativePathOf(url, this.baseUrlWithSlash))
     }
     // Body reads can still fail mid-stream (connection resets, deadline

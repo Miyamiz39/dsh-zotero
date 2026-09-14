@@ -825,7 +825,7 @@ export interface ZoteroCreateNoteResult {
   collections: string[]
   /** Tags as Zotero saved them. */
   tags: string[]
-  /** The source relations as Zotero recorded them (`http://zotero.org/...` URIs). */
+  /** The source relations as Zotero recorded them, echoed back as `zotero://...` refs. */
   sourceRefs: string[]
   /** The library version the write advanced the library to. */
   libraryVersion: number

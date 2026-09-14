@@ -262,8 +262,6 @@ zotero_changes(since={serverId: "<from cursor>", library: {type: "user", id: 0},
 
 ---
 
----
-
 ## zotero_create_note
 
 Create a research note — standalone, or a child note under a parent item — with tags, collections, and source relations applied at creation. The plugin converts the markdown body to Zotero note HTML under a whitelisted grammar (paragraphs, headings to level four, bold/italic, inline and fenced code, quotes, one-level lists, pipe tables with a `---` separator row, links on `https://`/`http://`/`zotero://` only); **anything outside the grammar is escaped to literal text, and raw HTML never passes through**. Zotero's server converts nothing on write — markdown stored verbatim renders as raw markup, the failure mode community integrations hit — which is why the conversion lives in the plugin. Child notes inherit their parent item's collections; only standalone notes take `collections`. Sources are recorded as `dc:relation` links (Zotero's item relations), and the saved state comes back inside the batch's successful bucket, so no follow-up read is needed. Every write first shows a plan card for approval; Zotero 10 additionally shows its own authorization dialog on first use (Allow / Always Allow / Deny, Deny the default).

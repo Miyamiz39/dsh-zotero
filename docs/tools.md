@@ -263,8 +263,6 @@ zotero_changes(since={serverId: "<from cursor>", library: {type: "user", id: 0},
 
 ---
 
----
-
 ## zotero_create_note
 
 创建研究笔记：独立笔记，或挂到某条目下的子笔记，创建时可同时带标签、合集与来源关系。markdown 由插件转换为 Zotero 笔记 HTML——白名单语法（段落、一至四级标题、粗斜体、行内与围栏代码、引用、一层列表、带 `---` 分隔行的管道表格、仅 `https://`/`http://`/`zotero://` 链接），**语法之外的任何内容一律转义为字面文本，原始 HTML 不透传**。Zotero 服务端对写入不做格式转换，markdown 原样存入就会显示为原始标记（社区集成踩过的坑），所以转换发生在插件侧。子笔记继承父条目的合集，只有独立笔记可携带 `collections`。来源以 `dc:relation` 关系记录（Zotero 的"关联条目"），创建后从批量写响应的 `successful` 桶读回保存态，无需再发 GET。每次写入先展示计划卡片等待批准；Zotero 10 首次写入还会弹它自己的授权对话框（允许 / 总是允许 / 拒绝，默认拒绝）。

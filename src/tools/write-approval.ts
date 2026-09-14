@@ -53,9 +53,8 @@ export async function askPlanApproval(
   if (questions === undefined) {
     throw new ZoteroError(WRITE_APPROVAL_UNAVAILABLE_MESSAGE, ZOTERO_WRITE_UNAUTHORIZED)
   }
-  let answer
   try {
-    answer = await questions.ask({
+    const answer = await questions.ask({
       questions: [
         {
           id: WRITE_PLAN_QUESTION_ID,
@@ -71,6 +70,7 @@ export async function askPlanApproval(
       ...(exec.agent !== undefined ? { agent: exec.agent } : {}),
       signal: exec.signal,
     })
+    return (answer.answers[0]?.selected ?? []).includes(APPROVE_LABEL)
   } catch (error) {
     if (error instanceof HarnessError && error.code === 'ASK_ABORTED') {
       throw new HarnessError(TOOL_ABORTED_MESSAGE, TOOL_ABORTED, { cause: error })
@@ -81,5 +81,4 @@ export async function askPlanApproval(
       cause: error,
     })
   }
-  return (answer.answers[0]?.selected ?? []).includes(APPROVE_LABEL)
 }

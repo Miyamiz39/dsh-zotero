@@ -27,8 +27,8 @@ import { createNote, updateTags } from '../../src/local/write-domain.js'
 const BASE_URL = process.env.ZOTERO_BASE_URL ?? 'http://127.0.0.1:23119/api'
 const PROBE_COLLECTION = '[dsh-zotero-probe]'
 
-describe.runIf(process.env.ZOTERO_WRITE_PROBE === '1')(
-  'live write probe (ZOTERO_WRITE_PROBE=1)',
+describe.runIf(process.env.ZOTERO_INTEGRATION === '1' && process.env.ZOTERO_WRITE_PROBE === '1')(
+  'live write probe (ZOTERO_INTEGRATION=1 AND ZOTERO_WRITE_PROBE=1)',
   () => {
     let client: ZoteroHttpClient
     let writer: ZoteroWriteHttpClient

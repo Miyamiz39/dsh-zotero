@@ -22,6 +22,12 @@ export function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
+/** String entries of an array-shaped field; anything else yields nothing. */
+export function stringArrayOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry): entry is string => typeof entry === 'string')
+}
+
 /** True when the string is a Zotero object key: 8 uppercase alphanumerics. */
 export function isObjectKey(value: string): boolean {
   return OBJECT_KEY_PATTERN.test(value)

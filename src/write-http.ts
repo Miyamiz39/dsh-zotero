@@ -119,7 +119,7 @@ export interface ZoteroBatchWrite {
   readonly libraryVersion: number
 }
 
-export interface ZoteroBatchWriteOptions extends ZoteroWriteOptions {}
+export type ZoteroBatchWriteOptions = ZoteroWriteOptions
 
 export interface ZoteroPatchWriteOptions extends ZoteroWriteOptions {
   /** The object version the caller read; Zotero refuses a stale write with 412. */
@@ -153,6 +153,15 @@ function libraryVersionOf(headers: Headers): number | undefined {
   return Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
+/** Require the library version off a write response; absence is protocol drift. */
+function requireLibraryVersion(headers: Headers): number {
+  const libraryVersion = libraryVersionOf(headers)
+  if (libraryVersion === undefined) {
+    throw new ZoteroError(WRITE_LIBRARY_VERSION_MISSING_MESSAGE, ZOTERO_UNEXPECTED)
+  }
+  return libraryVersion
+}
+
 /**
  * The write transport of the Zotero Local API. One request in flight, no
  * retries, no identity refresh — the write path has exactly one legitimate
@@ -160,18 +169,12 @@ function libraryVersionOf(headers: Headers): number | undefined {
  * replay belongs to the domain, not to transport heuristics.
  */
 export class ZoteroWriteHttpClient {
-  private currentServerId: string | undefined
   private readonly baseUrlWithSlash: string
   private readonly gate: ConcurrencyGate
 
   constructor(private readonly options: ZoteroWriteHttpClientOptions) {
     this.baseUrlWithSlash = options.baseUrl.endsWith('/') ? options.baseUrl : `${options.baseUrl}/`
     this.gate = new ConcurrencyGate(ZOTERO_MAX_WRITE_INFLIGHT_REQUESTS)
-  }
-
-  /** The instance id remembered from the latest write response carrying one. */
-  get serverId(): string | undefined {
-    return this.currentServerId
   }
 
   /**
@@ -192,11 +195,7 @@ export class ZoteroWriteHttpClient {
       { 'Zotero-Write-Token': writeToken },
       JSON.stringify(entries),
     )
-    const libraryVersion = libraryVersionOf(headers)
-    if (libraryVersion === undefined) {
-      throw new ZoteroError(WRITE_LIBRARY_VERSION_MISSING_MESSAGE, ZOTERO_UNEXPECTED)
-    }
-    return this.parseBatchWrite(body, libraryVersion)
+    return this.parseBatchWrite(body, requireLibraryVersion(headers))
   }
 
   /**
@@ -216,11 +215,7 @@ export class ZoteroWriteHttpClient {
       { 'If-Unmodified-Since-Version': String(opts.ifUnmodifiedSinceVersion) },
       JSON.stringify(body),
     )
-    const libraryVersion = libraryVersionOf(headers)
-    if (libraryVersion === undefined) {
-      throw new ZoteroError(WRITE_LIBRARY_VERSION_MISSING_MESSAGE, ZOTERO_UNEXPECTED)
-    }
-    return { libraryVersion }
+    return { libraryVersion: requireLibraryVersion(headers) }
   }
 
   /**
@@ -274,8 +269,8 @@ export class ZoteroWriteHttpClient {
     try {
       using d = deadline(opts.signal, deadlineMs, ZOTERO_TIMEOUT)
       const headers: Record<string, string> = {
-        'Zotero-API-Version': ZOTERO_LOCAL_API_VERSION,
-        'Zotero-Server-ID': opts.serverId,
+        [ZOTERO_API_VERSION_HEADER]: ZOTERO_LOCAL_API_VERSION,
+        [ZOTERO_SERVER_ID_HEADER]: opts.serverId,
         ...extraHeaders,
       }
       if (opts.apiKey !== '') headers['Zotero-API-Key'] = opts.apiKey
@@ -286,7 +281,6 @@ export class ZoteroWriteHttpClient {
       } catch (error) {
         translateFetchError(error, d.signal, opts.signal, deadlineMs)
       }
-      this.rememberServerId(response.headers)
       if (!response.ok) {
         // Zotero states its refusals in the body for the statuses the write
         // path distinguishes (the 403 deny grant, the 412 identity-vs-version
@@ -326,11 +320,6 @@ export class ZoteroWriteHttpClient {
     } catch (error) {
       throw new HarnessError(TOOL_ABORTED_MESSAGE, TOOL_ABORTED, { cause: error })
     }
-  }
-
-  private rememberServerId(headers: Headers): void {
-    const id = headers.get(ZOTERO_SERVER_ID_HEADER)
-    if (id !== null && id !== '') this.currentServerId = id
   }
 
   /**

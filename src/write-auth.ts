@@ -70,6 +70,16 @@ export interface ZoteroWriteKey {
   readonly oneTime: boolean
 }
 
+/** A persisted grant narrowed to the fields the authorizer routes on. */
+function parseGrantRecord(record: unknown): { key: string; boundTo: string } | undefined {
+  if (asRecord(record)?.kind !== 'grant') return undefined
+  const payload = asRecord(asRecord(record)?.payload)
+  const key = payload === undefined ? undefined : asString(payload.key)
+  const boundTo = payload === undefined ? undefined : asString(payload.serverId)
+  if (key === undefined || key === '' || boundTo === undefined) return undefined
+  return { key, boundTo }
+}
+
 /**
  * Resolve and maintain the plugin's write authorization for the connected
  * Zotero instance. `keyFor` is the entry point the write domain calls before
@@ -78,14 +88,10 @@ export interface ZoteroWriteKey {
  * authorize dialog and answers with what the user granted.
  */
 export class WriteAuthorizer {
-  private memoryKey: string | undefined
-  private memoryServerId: string | undefined
-  private memoryOneTime: boolean
+  private memory: { key: string; serverId: string; oneTime: boolean } | undefined
   private authorizing: Promise<ZoteroWriteKey> | undefined
 
-  constructor(private readonly deps: WriteAuthorizerDeps) {
-    this.memoryOneTime = false
-  }
+  constructor(private readonly deps: WriteAuthorizerDeps) {}
 
   /**
    * The key to write with for this Zotero instance.
@@ -97,8 +103,8 @@ export class WriteAuthorizer {
   async keyFor(serverId: string, signal?: AbortSignal): Promise<ZoteroWriteKey> {
     const stored = await this.storedKey(serverId)
     if (stored !== undefined) return { key: stored, oneTime: false }
-    if (this.memoryKey !== undefined && this.memoryServerId === serverId) {
-      return { key: this.memoryKey, oneTime: this.memoryOneTime }
+    if (this.memory !== undefined && this.memory.serverId === serverId) {
+      return { key: this.memory.key, oneTime: this.memory.oneTime }
     }
     if (this.authorizing === undefined) {
       this.authorizing = this.authorize(serverId, signal).finally(() => {
@@ -115,15 +121,12 @@ export class WriteAuthorizer {
    * never a capability: {@link keyFor} still runs the full resolution.
    */
   async hasGrant(serverId: string): Promise<boolean> {
-    if (this.memoryKey !== undefined && this.memoryServerId === serverId) return true
+    if (this.memory !== undefined && this.memory.serverId === serverId) return true
     const credentials = this.deps.credentials
     if (credentials === undefined) return false
     const record = await credentials.readRecord(WRITE_KEY_RECORD)
-    if (record?.kind !== 'grant') return false
-    const payload = asRecord(record.payload)
-    const key = payload === undefined ? undefined : asString(payload.key)
-    const boundTo = payload === undefined ? undefined : asString(payload.serverId)
-    return key !== undefined && key !== '' && boundTo === serverId
+    const grant = parseGrantRecord(record)
+    return grant !== undefined && grant.boundTo === serverId
   }
 
   /**
@@ -134,9 +137,8 @@ export class WriteAuthorizer {
    * @param key - the one-time key the domain is done with.
    */
   forget(key: string): void {
-    if (this.memoryKey === key) {
-      this.memoryKey = undefined
-      this.memoryServerId = undefined
+    if (this.memory?.key === key) {
+      this.memory = undefined
     }
   }
 
@@ -151,16 +153,13 @@ export class WriteAuthorizer {
     const credentials = this.deps.credentials
     if (credentials === undefined) return undefined
     const record = await credentials.readRecord(WRITE_KEY_RECORD)
-    if (record?.kind !== 'grant') return undefined
-    const payload = asRecord(record.payload)
-    const key = payload === undefined ? undefined : asString(payload.key)
-    const boundTo = payload === undefined ? undefined : asString(payload.serverId)
-    if (key === undefined || key === '') return undefined
-    if (boundTo !== serverId) {
+    const grant = parseGrantRecord(record)
+    if (grant === undefined) return undefined
+    if (grant.boundTo !== serverId) {
       await credentials.deleteRecord(WRITE_KEY_RECORD)
       return undefined
     }
-    return key
+    return grant.key
   }
 
   /**
@@ -171,9 +170,7 @@ export class WriteAuthorizer {
    */
   private async authorize(serverId: string, signal?: AbortSignal): Promise<ZoteroWriteKey> {
     const grant = await this.deps.client.authorize(WRITE_APP_NAME, { serverId, signal })
-    this.memoryKey = grant.key
-    this.memoryServerId = serverId
-    this.memoryOneTime = !grant.remember
+    this.memory = { key: grant.key, serverId, oneTime: !grant.remember }
     if (grant.remember && this.deps.persistKey() && this.deps.credentials !== undefined) {
       const payload: ZoteroWriteGrantPayload = {
         key: grant.key,
