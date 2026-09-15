@@ -175,7 +175,7 @@ export function registerDocxTools(ctx: Context, service: ZoteroService): void {
     ctx.systemPrompt.section({
       name: 'zotero:docx-policy',
       order: 10_100,
-      text: 'Zotero DOCX workflow: use zotero_docx_finalize only when the user requests native Zotero fields and only after the Univer worktree is approved and exported. Author canonical {{zotero-cite:<zotero:// item ref>}} markers in the document, finalize to a distinct DOCX, probe it, then tell the user to open desktop Microsoft Word and run Zotero Refresh. Never claim compatibility from marker text alone.',
+      text: 'Zotero DOCX workflow: use zotero_docx_finalize only when the user requests native Zotero fields and only after the Univer worktree is approved and exported. Use its documented canonical zotero-cite marker syntax with complete zotero:// item refs, finalize to a distinct DOCX, probe it, then tell the user to open desktop Microsoft Word and run Zotero Refresh. Never claim compatibility from marker text alone.',
     })
   }
 }
