@@ -368,6 +368,14 @@ export class ZoteroService extends Service {
     return await doExport(request, signal)
   }
 
+  /** Resolve Zotero's authoritative HTTP item URI for a native Word field. */
+  async canonicalItemUri(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<string> {
+    const provider = this.resolveProvider()
+    this.requireCapability(provider, 'citation')
+    const resolveUri = this.requireMethod(provider, 'canonicalItemUri')
+    return await resolveUri(ref, signal)
+  }
+
   async browse(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult> {
     const provider = this.resolveProvider()
     this.requireCapability(provider, 'browse')

@@ -5,7 +5,11 @@ import type { ZoteroExportResult } from '../../src/types.js'
 
 const ref = parseRef('zotero://user/0/item/ABCD1234')
 
-function service(cslText: string, citationText = '<i>(Doe &amp; Roe, 2024)</i>') {
+function service(
+  cslText: string,
+  citationText = '<i>(Doe &amp; Roe, 2024)</i>',
+  uri = 'http://zotero.org/users/123456/items/ABCD1234',
+) {
   return {
     async export(request: { format: 'citation' | 'csljson' }): Promise<ZoteroExportResult> {
       return request.format === 'citation'
@@ -23,6 +27,10 @@ function service(cslText: string, citationText = '<i>(Doe &amp; Roe, 2024)</i>')
             items: [{ ref: 'zotero://user/0/item/ABCD1234', entryIndex: 0 }],
           }
     },
+    async canonicalItemUri() {
+      if (uri === '') throw new Error('authoritative URI unavailable')
+      return uri
+    },
   }
 }
 
@@ -32,7 +40,7 @@ describe('DOCX Zotero citation data', () => {
       service(
         JSON.stringify([
           {
-            id: 'http://zotero.org/users/123456/items/ABCD1234',
+            id: 'kwon2025',
             type: 'article-journal',
             title: 'Paper',
           },
@@ -53,12 +61,12 @@ describe('DOCX Zotero citation data', () => {
   it('fails closed instead of fabricating a canonical URI', async () => {
     await expect(
       loadWordCitationCluster(
-        service(JSON.stringify([{ id: 'citation-key', type: 'book' }])),
+        service(JSON.stringify([{ id: 'citation-key', type: 'book' }]), undefined, ''),
         [ref],
         'apa',
         'en-US',
       ),
-    ).rejects.toThrow(/canonical item URI/)
+    ).rejects.toThrow(/authoritative URI unavailable/)
   })
 
   it('decodes visible citation HTML without treating it as markup', () => {

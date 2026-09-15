@@ -2,8 +2,8 @@
 
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { ZOTERO_UNEXPECTED, ZoteroError } from '../errors.js'
-import { asRecord, asString } from '../json.js'
-import { formatRef, parseZoteroRelationUri } from '../refs.js'
+import { asRecord } from '../json.js'
+import { formatRef } from '../refs.js'
 import type { ZoteroExportResult, ZoteroObjectRef } from '../types.js'
 
 export interface WordCitationItemData {
@@ -27,6 +27,7 @@ export interface CitationExportService {
     },
     signal?: AbortSignal,
   ): Promise<ZoteroExportResult>
+  canonicalItemUri(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<string>
 }
 
 /** Build one CSL cluster (not independently concatenated citations) and exact item data. */
@@ -73,24 +74,26 @@ export async function loadWordCitationCluster(
     }
     return { ref: entry.ref, record: records[entry.entryIndex] }
   })
-  const items = refs.map((ref) => {
-    const formattedRef = formatRef(ref)
-    const match = byRef.find((entry) => entry.ref === formattedRef)
-    const record = asRecord(match?.record)
-    if (record === undefined) {
-      throw new ZoteroError(
-        `Zotero did not return CSL JSON for ${formattedRef}.`,
-        ZOTERO_UNEXPECTED,
-      )
-    }
-    const id = cslIdOf(record)
-    const uri = canonicalItemUri(ref, record, id)
-    return {
-      id: uri,
-      uris: [uri],
-      itemData: { ...(record as Record<string, JsonValue>), id: uri },
-    }
-  })
+  const items = await Promise.all(
+    refs.map(async (ref) => {
+      const formattedRef = formatRef(ref)
+      const match = byRef.find((entry) => entry.ref === formattedRef)
+      const record = asRecord(match?.record)
+      if (record === undefined) {
+        throw new ZoteroError(
+          `Zotero did not return CSL JSON for ${formattedRef}.`,
+          ZOTERO_UNEXPECTED,
+        )
+      }
+      cslIdOf(record)
+      const uri = await service.canonicalItemUri(ref, signal)
+      return {
+        id: uri,
+        uris: [uri],
+        itemData: { ...(record as Record<string, JsonValue>), id: uri },
+      }
+    }),
+  )
   return { formattedText, items }
 }
 
@@ -103,29 +106,6 @@ function cslIdOf(record: Record<string, unknown>): string | number {
     return id
   }
   throw new ZoteroError('A CSL JSON item has no usable id.', ZOTERO_UNEXPECTED)
-}
-
-function canonicalItemUri(
-  ref: ZoteroObjectRef,
-  record: Record<string, unknown>,
-  id: string | number,
-): string {
-  const candidates = [asString(record['uri']), typeof id === 'string' ? id : undefined].filter(
-    (value): value is string => value !== undefined,
-  )
-  for (const candidate of candidates) {
-    const parsed = parseZoteroRelationUri(candidate)
-    if (parsed === null || parsed.key !== ref.key) continue
-    if (ref.library.type === 'group') {
-      if (parsed.library.type === 'group' && parsed.library.id === ref.library.id) return candidate
-      continue
-    }
-    if (parsed.library.type === 'user') return candidate
-  }
-  throw new ZoteroError(
-    `Zotero did not return a canonical item URI for ${formatRef(ref)}; the Word field was not created.`,
-    ZOTERO_UNEXPECTED,
-  )
 }
 
 /** Decode the limited HTML citation output into honest visible text. */

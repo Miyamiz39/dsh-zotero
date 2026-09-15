@@ -31,6 +31,7 @@ import { getItem as getItemDomain, children as childrenDomain } from './detail.j
 import { retrieve as retrieveDomain } from './retrieve.js'
 import { getAttachmentLocation as attachmentLocationDomain } from './attachment-location.js'
 import { exportItems as exportItemsDomain } from './export-domain.js'
+import { canonicalItemUri as canonicalItemUriDomain } from './item-uri.js'
 import { changes as changesDomain } from './changes-domain.js'
 import { runBrowse } from './browse-domain.js'
 import {
@@ -249,6 +250,11 @@ export class LocalApiProvider implements ZoteroProvider {
    */
   async export(request: ZoteroExportRequest, signal?: AbortSignal): Promise<ZoteroExportResult> {
     return exportItemsDomain(this.deps(), request, signal)
+  }
+
+  /** Resolve Zotero's authoritative Web/API item URI for a native document field. */
+  async canonicalItemUri(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<string> {
+    return canonicalItemUriDomain(this.client, ref, signal)
   }
 
   /**

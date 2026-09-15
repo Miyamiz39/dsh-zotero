@@ -963,6 +963,8 @@ export interface ZoteroProvider {
    * @returns per-ref citations or the joined export text.
    */
   export?(request: ZoteroExportRequest, signal?: AbortSignal): Promise<ZoteroExportResult>
+  /** Resolve Zotero's own canonical HTTP item URI for native word-processor fields. */
+  canonicalItemUri?(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<string>
   browse?(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult>
   /**
    * Create a research note (standalone or under a parent item) with tags,
