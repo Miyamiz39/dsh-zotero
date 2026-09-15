@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import { defineTool, type InferArgs, type InferValue } from '@deepseek-ai/dsh-tools'
 import { withConnectivityAsk } from '../ask.js'
 import type { ZoteroService } from '../service.js'
@@ -76,6 +77,7 @@ type ProbeValue = InferValue<typeof PROBE_OUTPUT_SCHEMA>
 
 /** Register both tools as effects of the service's agent-scoped Cordis fiber. */
 export function registerDocxTools(ctx: Context, service: ZoteroService): void {
+  const fs = ctx.get('fs') as FileSystem | undefined
   ctx.tools.register(
     defineTool({
       name: 'zotero_docx_finalize',
@@ -95,8 +97,19 @@ export function registerDocxTools(ctx: Context, service: ZoteroService): void {
       isConcurrencySafe: () => false,
       async execute(args, exec) {
         const config = service.config
-        const input = await readWorkspaceDocx(ctx, args.input_path, config.docxMaxBytes, exec)
-        const output = await prepareWorkspaceOutput(ctx, input, args.output_name, exec.signal)
+        const fileSystem = requireFileSystem(fs)
+        const input = await readWorkspaceDocx(
+          fileSystem,
+          args.input_path,
+          config.docxMaxBytes,
+          exec,
+        )
+        const output = await prepareWorkspaceOutput(
+          fileSystem,
+          input,
+          args.output_name,
+          exec.signal,
+        )
         const finalized = await withConnectivityAsk(ctx, service.recovery, exec, () =>
           finalizeDocxBytes(
             input.inputBytes,
@@ -112,7 +125,7 @@ export function registerDocxTools(ctx: Context, service: ZoteroService): void {
         )
         await publishDocxExclusive(output, finalized.bytes, exec.signal)
         const reopened = await readWorkspaceDocx(
-          ctx,
+          fileSystem,
           output.relativePath,
           config.docxMaxBytes,
           exec,
@@ -156,7 +169,12 @@ export function registerDocxTools(ctx: Context, service: ZoteroService): void {
       isConcurrencySafe: () => true,
       async execute(args, exec) {
         const config = service.config
-        const input = await readWorkspaceDocx(ctx, args.input_path, config.docxMaxBytes, exec)
+        const input = await readWorkspaceDocx(
+          requireFileSystem(fs),
+          args.input_path,
+          config.docxMaxBytes,
+          exec,
+        )
         const probe = probeDocxBytes(input.inputBytes, {
           legacyMarkers: config.docxLegacyMarkers,
           maxArchiveBytes: config.docxMaxBytes,
@@ -178,6 +196,13 @@ export function registerDocxTools(ctx: Context, service: ZoteroService): void {
       text: 'Zotero DOCX workflow: use zotero_docx_finalize only when the user requests native Zotero fields and only after the Univer worktree is approved and exported. Use its documented canonical zotero-cite marker syntax with complete zotero:// item refs, finalize to a distinct DOCX, probe it, then tell the user to open desktop Microsoft Word and run Zotero Refresh. Never claim compatibility from marker text alone.',
     })
   }
+}
+
+function requireFileSystem(fs: FileSystem | undefined): FileSystem {
+  if (fs === undefined) {
+    throw new Error('Zotero DOCX tools require the host filesystem service.')
+  }
+  return fs
 }
 
 function renderFinalize(_args: FinalizeArgs, value: FinalizeValue): ContentBlock[] {

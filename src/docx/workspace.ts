@@ -1,6 +1,5 @@
-/** Workspace-confined binary DOCX I/O over ctx.fs plus exclusive native publication. */
+/** Workspace-confined binary DOCX I/O over fs plus exclusive native publication. */
 
-import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
 import '@deepseek-ai/dsh-fs'
@@ -24,7 +23,7 @@ export interface WorkspaceDocxOutput {
 
 /** Resolve/read a regular, non-symlink DOCX strictly under the calling Agent's cwd. */
 export async function readWorkspaceDocx(
-  ctx: Context & { readonly fs: FileSystem },
+  fs: FileSystem,
   inputPath: string,
   maxBytes: number,
   exec: ToolExecutionInput,
@@ -34,7 +33,7 @@ export async function readWorkspaceDocx(
     throw new Error('The DOCX tool requires an Agent session with an absolute workspace cwd.')
   }
   validateRelativeDocxPath(inputPath, 'input_path')
-  const lexical = await ctx.fs.lstat(inputPath, { cwd }, exec.signal)
+  const lexical = await fs.lstat(inputPath, { cwd }, exec.signal)
   if (lexical === undefined) throw new Error(`DOCX input ${inputPath} does not exist.`)
   if (lexical.type === 'symlink') throw new Error('DOCX input_path must not be a symbolic link.')
   if (lexical.type !== 'file') throw new Error('DOCX input_path must be a regular file.')
@@ -42,17 +41,17 @@ export async function readWorkspaceDocx(
     throw new Error(`DOCX input exceeds the ${maxBytes}-byte limit.`)
   }
   const [workspace, inputTarget] = await Promise.all([
-    ctx.fs.resolve('.', { cwd, signal: exec.signal }),
-    ctx.fs.resolve(inputPath, { cwd, signal: exec.signal }),
+    fs.resolve('.', { cwd, signal: exec.signal }),
+    fs.resolve(inputPath, { cwd, signal: exec.signal }),
   ])
-  if (!ctx.fs.contains(workspace, inputTarget)) {
+  if (!fs.contains(workspace, inputTarget)) {
     throw new Error('DOCX input_path resolves outside the current workspace.')
   }
-  const info = await ctx.fs.stat(inputTarget, exec.signal)
+  const info = await fs.stat(inputTarget, exec.signal)
   if (info?.type !== 'file') throw new Error('DOCX input_path must resolve to a regular file.')
-  const bytes = await ctx.fs.readBytes(inputTarget, exec.signal, maxBytes)
-  const inputProcessPath = ctx.fs.processPath(inputTarget)
-  const sharedCwd = ctx.fs.processPathFromHostPath(cwd)
+  const bytes = await fs.readBytes(inputTarget, exec.signal, maxBytes)
+  const inputProcessPath = fs.processPath(inputTarget)
+  const sharedCwd = fs.processPathFromHostPath(cwd)
   if (sharedCwd === undefined || resolve(sharedCwd) !== resolve(cwd)) {
     throw new Error(
       'This DOCX operation requires a local filesystem whose execution world matches the Agent workspace.',
@@ -69,7 +68,7 @@ export async function readWorkspaceDocx(
 
 /** Build and prove an absent, contained sibling output target. */
 export async function prepareWorkspaceOutput(
-  ctx: Context & { readonly fs: FileSystem },
+  fs: FileSystem,
   input: WorkspaceDocxInput,
   outputName: string | undefined,
   signal: AbortSignal,
@@ -90,11 +89,10 @@ export async function prepareWorkspaceOutput(
   if (outputPath.toLowerCase() === inputPath.toLowerCase()) {
     throw new Error('The DOCX output must be distinct from the input.')
   }
-  const parentTarget = await ctx.fs.resolve(dirname(outputPath), { signal })
-  const workspace = await ctx.fs.resolve('.', { cwd: input.cwd, signal })
-  if (!ctx.fs.contains(workspace, parentTarget))
-    throw new Error('DOCX output escapes the workspace.')
-  const existing = await ctx.fs.lstat(name, { cwd: dirname(inputPath) }, signal)
+  const parentTarget = await fs.resolve(dirname(outputPath), { signal })
+  const workspace = await fs.resolve('.', { cwd: input.cwd, signal })
+  if (!fs.contains(workspace, parentTarget)) throw new Error('DOCX output escapes the workspace.')
+  const existing = await fs.lstat(name, { cwd: dirname(inputPath) }, signal)
   if (existing !== undefined)
     throw new Error(`DOCX output ${name} already exists; it will not be overwritten.`)
   return {

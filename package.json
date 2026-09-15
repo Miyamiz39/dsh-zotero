@@ -146,7 +146,6 @@
     "@deepseek-ai/schemastery": "^3.18.2",
     "@xmldom/xmldom": "^0.8.11",
     "clsx": "^2.1.1",
-    "dsh-zotero": "file:C:/Users/miyaizu/Projects/dsh-zotero-fork/dsh-zotero-0.8.4.tgz",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -168,6 +167,7 @@
     "@deepseek-ai/dsh-commands": "0.1.5-rc.2",
     "@deepseek-ai/dsh-credentials": "0.1.5-rc.2",
     "@deepseek-ai/dsh-fs": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-fs-local": "0.1.5-rc.2",
     "@deepseek-ai/dsh-llm": "0.1.5-rc.2",
     "@deepseek-ai/dsh-settings": "0.1.5-rc.2",
     "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.2",
