@@ -153,6 +153,9 @@ export async function getAttachmentLocation(
     noUsableFileLocationMessage(attachmentKey),
   )
   if (target.protocol === 'file:') {
+    if (target.hostname !== '' && target.hostname.toLowerCase() !== 'localhost') {
+      throw new ZoteroError(NOT_A_LOCAL_PATH_MESSAGE, ZOTERO_NO_ATTACHMENT)
+    }
     let path: string
     try {
       path = fileURLToPath(target)

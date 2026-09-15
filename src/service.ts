@@ -58,6 +58,7 @@ import { registerSearchTool } from './tools/search.js'
 import { registerCreateNoteTool } from './tools/create-note.js'
 import { registerAddTagsTool } from './tools/add-tags.js'
 import { registerAddToCollectionTool } from './tools/add-to-collection.js'
+import { registerDocxTools } from './docx/register.js'
 import type {
   ZoteroAttachmentLocation,
   ZoteroBrowseRequest,
@@ -121,47 +122,52 @@ export class ZoteroService extends Service {
     const entry = resolveConfig(config)
     this.source = () => entry
     this.rebuild()
-    registerStatusCommand(ctx, this)
-    registerPromptSection(ctx, () => this.config)
-    registerSearchTool(ctx, this)
-    registerGetTool(ctx, this)
-    registerChildrenTool(ctx, this)
-    registerAttachmentTool(ctx, this)
-    registerRetrieveTool(ctx, this)
-    registerExportTool(ctx, this)
-    registerBrowseTool(ctx, this)
-    registerChangesTool(ctx, this)
+    if (entry.researchEnabled) {
+      registerStatusCommand(ctx, this)
+      registerPromptSection(ctx, () => this.config)
+      registerSearchTool(ctx, this)
+      registerGetTool(ctx, this)
+      registerChildrenTool(ctx, this)
+      registerAttachmentTool(ctx, this)
+      registerRetrieveTool(ctx, this)
+      registerExportTool(ctx, this)
+      registerBrowseTool(ctx, this)
+      registerChangesTool(ctx, this)
+    }
+    if (entry.docxEnabled) registerDocxTools(ctx, this)
     // The settings attach runs through a cordis fiber, never synchronously
     // inside the install: when a settings service is composed, setSource
     // switches the config authority and onChange rebuilds shortly after this
     // constructor — the entry-config build here serves headless compositions
     // and the window before that attach.
-    ctx.inject(['settings'], (settingsCtx) => {
-      settingsCtx.settings.installSection(ctx, ZOTERO_SETTINGS_NAMESPACE, ConfigSchema, entry, {
-        validate: resolveConfig,
-        setSource: (current) => {
-          // The settings-resolved value carries every schema default and has
-          // passed the resolveConfig validate hook, so it is ResolvedConfig at
-          // runtime even though the seam types it as Config.
-          this.source = current as () => ResolvedConfig
-        },
-        onChange: () => {
-          this.rebuild()
-        },
+    if (entry.researchEnabled) {
+      ctx.inject(['settings'], (settingsCtx) => {
+        settingsCtx.settings.installSection(ctx, ZOTERO_SETTINGS_NAMESPACE, ConfigSchema, entry, {
+          validate: resolveConfig,
+          setSource: (current) => {
+            // The settings-resolved value carries every schema default and has
+            // passed the resolveConfig validate hook, so it is ResolvedConfig at
+            // runtime even though the seam types it as Config.
+            this.source = current as () => ResolvedConfig
+          },
+          onChange: () => {
+            this.rebuild()
+          },
+        })
       })
-    })
-    // The settings page's data channel: the Remote service binds the wire
-    // namespace, and the strict manifest claims its endpoints. See typert.ts
-    // for why the manifest self-registers through ctx.inject(['typert']).
-    new ZoteroRuntime(ctx)
-    ctx.inject(['typert'], (host) => {
-      host.effect(() => {
-        const dispose = host.typert.register(TYPERT_MANIFEST)
-        return () => {
-          void dispose()
-        }
-      }, 'dsh-zotero: typert manifest')
-    })
+      // The settings page's data channel: the Remote service binds the wire
+      // namespace, and the strict manifest claims its endpoints. See typert.ts
+      // for why the manifest self-registers through ctx.inject(['typert']).
+      new ZoteroRuntime(ctx)
+      ctx.inject(['typert'], (host) => {
+        host.effect(() => {
+          const dispose = host.typert.register(TYPERT_MANIFEST)
+          return () => {
+            void dispose()
+          }
+        }, 'dsh-zotero: typert manifest')
+      })
+    }
   }
 
   /**
@@ -210,7 +216,7 @@ export class ZoteroService extends Service {
     this.providerDispose = this.registerProvider(
       new LocalApiProvider(client, localProviderLimits(config), {}, writer, authorizer),
     )
-    this.reconcileWriteTools(config.writeEnabled)
+    this.reconcileWriteTools(config.researchEnabled && config.writeEnabled)
   }
 
   /**

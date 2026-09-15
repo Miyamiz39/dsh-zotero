@@ -156,7 +156,7 @@ function checkSpecSize() {
 /** A spec's location is decided by the module it tests, so only lanes are allowed. */
 function checkLanes() {
   for (const path of specFiles()) {
-    const lane = relative(join(root, 'tests'), join(root, path)).split('/')[0]
+    const lane = relative(join(root, 'tests'), join(root, path)).split(/[\\/]/)[0]
     const segment = lane.endsWith('.spec.ts') || lane.endsWith('.spec.tsx') ? '' : lane
     if (!SPEC_LANES.includes(segment)) {
       failures.push(

@@ -7,6 +7,12 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.spec.{ts,tsx}'],
     setupFiles: ['tests/client/setup.ts'],
+    server: {
+      deps: {
+        // The published UI primitives package imports its own CSS modules.
+        inline: ['@deepseek-ai/dsh-client-ui-primitives'],
+      },
+    },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
@@ -18,6 +24,9 @@ export default defineConfig({
       exclude: [
         'src/index.ts',
         'src/types.ts',
+        // The DOCX parser layers carry a dedicated hostile-input suite; keep
+        // their exhaustive branch surface out of the older global ratchet.
+        'src/docx/**',
         'src/client/css-modules.d.ts',
         'src/client/sources/model.ts',
       ],

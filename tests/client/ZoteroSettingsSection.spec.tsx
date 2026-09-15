@@ -84,9 +84,9 @@ describe('ZoteroSettingsSection', () => {
     mount()
     expect(screen.getByRole('heading', { name: zh.title })).toBeDefined()
     expect(screen.getByText(zh.description)).toBeDefined()
-    // Every field of the namespace is on the page, with no disclosure to open
-    // (now + maxChangesResults).
-    expect(document.querySelectorAll('input')).toHaveLength(25)
+    // Every field of the namespace is on the page, with no disclosure to open,
+    // including the selective research/DOCX surface controls.
+    expect(document.querySelectorAll('input')).toHaveLength(29)
     expect(saveButton().disabled).toBe(true)
     expect(discardButton().disabled).toBe(true)
   })

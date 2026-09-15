@@ -52,6 +52,14 @@ export interface Config {
   defaultStyle?: string
   /** CSL locale for citation/bibliography formats. */
   defaultLocale?: string
+  /** Register the research tools, prompt, settings, command, and browser Remote surfaces. */
+  researchEnabled?: boolean
+  /** Register native Zotero-field DOCX finalization and probing tools. */
+  docxEnabled?: boolean
+  /** Accept opt-in legacy [@ABCD1234] markers in DOCX files. */
+  docxLegacyMarkers?: boolean
+  /** Inclusive compressed byte cap for one DOCX input/output. */
+  docxMaxBytes?: number
   /**
    * Whether the write tools register and the `local` provider serves writes
    * (research notes, tags, collection membership). Off by default: writing
@@ -101,6 +109,10 @@ export const Config: Schema<Config> = Schema.object({
   maxChangesResults: Schema.number().default(50),
   defaultStyle: Schema.string().default('apa'),
   defaultLocale: Schema.string().default('en-US'),
+  researchEnabled: Schema.boolean().default(true),
+  docxEnabled: Schema.boolean().default(false),
+  docxLegacyMarkers: Schema.boolean().default(false),
+  docxMaxBytes: Schema.number().default(64 * 1024 * 1024),
   writeEnabled: Schema.boolean().default(false),
   writeConfirm: Schema.boolean().default(true),
   writePersistKey: Schema.boolean().default(true),
@@ -129,6 +141,10 @@ export interface ResolvedConfig {
   readonly maxChangesResults: number
   readonly defaultStyle: string
   readonly defaultLocale: string
+  readonly researchEnabled: boolean
+  readonly docxEnabled: boolean
+  readonly docxLegacyMarkers: boolean
+  readonly docxMaxBytes: number
   readonly writeEnabled: boolean
   readonly writeConfirm: boolean
   readonly writePersistKey: boolean
@@ -236,5 +252,6 @@ export function resolveConfig(config: Config): ResolvedConfig {
   assertPositiveInteger('maxExportRefs', applied.maxExportRefs)
   assertPositiveInteger('maxBrowseResults', applied.maxBrowseResults)
   assertPositiveInteger('maxChangesResults', applied.maxChangesResults)
+  assertPositiveInteger('docxMaxBytes', applied.docxMaxBytes)
   return { ...applied, baseUrl: url.toString() }
 }

@@ -50,7 +50,15 @@ function expectedPaths(manifest) {
 const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
 const expected = expectedPaths(manifest)
 
-const stdout = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+const npmCommand =
+  process.platform === 'win32'
+    ? resolve(process.execPath, '..', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    : 'npm'
+const npmArgs =
+  process.platform === 'win32'
+    ? [npmCommand, 'pack', '--dry-run', '--json', '--ignore-scripts', '--foreground-scripts=false']
+    : ['pack', '--dry-run', '--json', '--ignore-scripts', '--foreground-scripts=false']
+const stdout = execFileSync(process.platform === 'win32' ? process.execPath : npmCommand, npmArgs, {
   cwd: root,
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'inherit'],

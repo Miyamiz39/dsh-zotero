@@ -232,6 +232,17 @@ export const en: Record<ZoteroLocaleKey, string> = {
   defaultStyleHint: 'CSL style id for citation and bibliography formats (e.g. apa).',
   defaultLocale: 'Default locale',
   defaultLocaleHint: 'CSL locale for citation and bibliography formats (e.g. en-US).',
+  researchEnabled: 'Enable research surfaces',
+  researchEnabledHint:
+    'Registers Zotero research tools, policy, status, settings, and browser surfaces. Disable only for an isolated DOCX-only preset instance.',
+  docxEnabled: 'Enable DOCX field tools',
+  docxEnabledHint:
+    'Registers zotero_docx_finalize and zotero_docx_probe for native Word citation fields.',
+  docxLegacyMarkers: 'Accept legacy DOCX markers',
+  docxLegacyMarkersHint:
+    'Also accepts [@ABCD1234] markers; canonical zotero-cite refs remain preferred.',
+  docxMaxBytes: 'DOCX byte cap',
+  docxMaxBytesHint: 'Maximum compressed size accepted for a DOCX input or generated output.',
   groupWeb: 'Literature panel',
   webEnabled: 'Zotero literature tab',
   webEnabledHint:
@@ -439,6 +450,15 @@ export const zh: Record<ZoteroLocaleKey, string> = {
   defaultStyleHint: 'citation/bibliography 格式的 CSL 样式 id（如 apa）。',
   defaultLocale: '默认区域设置',
   defaultLocaleHint: 'citation/bibliography 格式的 CSL locale（如 en-US）。',
+  researchEnabled: '启用研究表面',
+  researchEnabledHint:
+    '注册 Zotero 研究工具、策略、状态、设置和浏览器表面；仅在隔离的纯 DOCX 预设实例中关闭。',
+  docxEnabled: '启用 DOCX 动态域工具',
+  docxEnabledHint: '注册 zotero_docx_finalize 和 zotero_docx_probe，用于 Word 原生 Zotero 引文域。',
+  docxLegacyMarkers: '接受旧式 DOCX 标记',
+  docxLegacyMarkersHint: '同时接受 [@ABCD1234] 标记；仍优先使用带完整引用的 zotero-cite 标记。',
+  docxMaxBytes: 'DOCX 字节上限',
+  docxMaxBytesHint: '单个 DOCX 输入或生成输出允许的最大压缩大小。',
   groupWeb: '文献面板',
   webEnabled: 'Zotero 文献标签页',
   webEnabledHint:

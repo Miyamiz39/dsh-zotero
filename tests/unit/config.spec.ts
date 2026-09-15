@@ -25,6 +25,10 @@ describe('resolveConfig', () => {
       maxChangesResults: 50,
       defaultStyle: 'apa',
       defaultLocale: 'en-US',
+      researchEnabled: true,
+      docxEnabled: false,
+      docxLegacyMarkers: false,
+      docxMaxBytes: 64 * 1024 * 1024,
       writeEnabled: false,
       writeConfirm: true,
       writePersistKey: true,
@@ -45,6 +49,10 @@ describe('resolveConfig', () => {
         maxNoteBodyChars: 123,
         maxNoteScanRecords: 9,
         maxExportRefs: 7,
+        researchEnabled: false,
+        docxEnabled: true,
+        docxLegacyMarkers: true,
+        docxMaxBytes: 4096,
       }),
     ).toMatchObject({
       timeoutMs: 900,
@@ -57,6 +65,10 @@ describe('resolveConfig', () => {
       maxNoteBodyChars: 123,
       maxNoteScanRecords: 9,
       maxExportRefs: 7,
+      researchEnabled: false,
+      docxEnabled: true,
+      docxLegacyMarkers: true,
+      docxMaxBytes: 4096,
     })
   })
 
@@ -131,6 +143,8 @@ describe('resolveConfig', () => {
     expect(() => resolveConfig({ maxNoteRecords: 1.5 })).toThrowError(/maxNoteRecords/)
     expect(() => resolveConfig({ maxAnnotationRecords: -2 })).toThrowError(/maxAnnotationRecords/)
     expect(() => resolveConfig({ fulltextChunkWords: 0 })).toThrowError(/fulltextChunkWords/)
+    expect(() => resolveConfig({ docxMaxBytes: 0 })).toThrowError(/docxMaxBytes/)
+    expect(() => resolveConfig({ docxMaxBytes: 1.5 })).toThrowError(/docxMaxBytes/)
   })
 
   it('rejects empty provider and style strings', () => {
