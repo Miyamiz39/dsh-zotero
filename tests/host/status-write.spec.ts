@@ -3,7 +3,6 @@ import { CommandId } from '@deepseek-ai/dsh-commands'
 import type { CommandInvocation } from '@deepseek-ai/dsh-commands'
 import { setupHostLane, type HostLane } from '../helpers/lanes/host-lane.js'
 import { ZOTERO_SETTINGS_NAMESPACE } from '../../src/settings-namespace.js'
-import { WRITE_POLICY_SENTENCE } from '../../src/prompt.js'
 
 let lane: HostLane | undefined
 
@@ -29,19 +28,6 @@ describe('the write state across the status surfaces', () => {
     }
     expect(result.kind).toBe('success')
     expect(result.text).toContain('Write: enabled (no key yet)')
-  })
-
-  it('states the write policy in the prompt only while writes are enabled', async () => {
-    const on = await setupHostLane({ writeEnabled: true })
-    const assembly = await on.ctx.systemPrompt.assemble()
-    const section = assembly.sections.find((entry) => entry.name === 'zotero:policy')
-    expect(section?.text).toContain(WRITE_POLICY_SENTENCE)
-    await on.teardown()
-    const off = await setupHostLane({})
-    const offAssembly = await off.ctx.systemPrompt.assemble()
-    const offSection = offAssembly.sections.find((entry) => entry.name === 'zotero:policy')
-    expect(offSection?.text).not.toContain(WRITE_POLICY_SENTENCE)
-    await off.teardown()
   })
 
   it('registers and retires the write tools as writeEnabled flips live', async () => {

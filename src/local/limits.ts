@@ -9,6 +9,8 @@
 export interface LocalApiProviderOptions {
   /** How long a scope listing stays fresh before a re-fetch. */
   readonly scopeListingTtlMs?: number
+  /** Zotero Desktop origin used for Connector endpoints outside `/api`. */
+  readonly connectorBaseUrl?: string
 }
 
 /** Deployment-varying bounds the local provider needs beyond the HTTP client limits. */

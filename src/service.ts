@@ -55,6 +55,8 @@ import { registerGetTool } from './tools/get.js'
 import { registerExportTool } from './tools/export.js'
 import { registerRetrieveTool } from './tools/retrieve.js'
 import { registerSearchTool } from './tools/search.js'
+import { registerFulltextTool } from './tools/fulltext.js'
+import { registerImportTool } from './tools/import.js'
 import { registerCreateNoteTool } from './tools/create-note.js'
 import { registerAddTagsTool } from './tools/add-tags.js'
 import { registerAddToCollectionTool } from './tools/add-to-collection.js'
@@ -74,6 +76,8 @@ import type {
   ZoteroCreateNoteResult,
   ZoteroGetRequest,
   ZoteroItemDetail,
+  ZoteroFulltextResult,
+  ZoteroImportResult,
   ZoteroObjectRef,
   ZoteroExportRequest,
   ZoteroExportResult,
@@ -133,6 +137,8 @@ export class ZoteroService extends Service {
       registerExportTool(ctx, this)
       registerBrowseTool(ctx, this)
       registerChangesTool(ctx, this)
+      registerFulltextTool(ctx, this)
+      registerImportTool(ctx, this)
     }
     if (entry.docxEnabled) registerDocxTools(ctx, this)
     // The settings attach runs through a cordis fiber, never synchronously
@@ -214,7 +220,13 @@ export class ZoteroService extends Service {
             persistKey: () => this.config.writePersistKey,
           })
     this.providerDispose = this.registerProvider(
-      new LocalApiProvider(client, localProviderLimits(config), {}, writer, authorizer),
+      new LocalApiProvider(
+        client,
+        localProviderLimits(config),
+        { connectorBaseUrl: new URL(config.baseUrl).origin },
+        writer,
+        authorizer,
+      ),
     )
     this.reconcileWriteTools(config.researchEnabled && config.writeEnabled)
   }
@@ -374,6 +386,24 @@ export class ZoteroService extends Service {
     this.requireCapability(provider, 'citation')
     const resolveUri = this.requireMethod(provider, 'canonicalItemUri')
     return await resolveUri(ref, signal)
+  }
+
+  async fulltext(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<ZoteroFulltextResult> {
+    const provider = this.resolveProvider()
+    this.requireCapability(provider, 'fulltext')
+    const getFulltext = this.requireMethod(provider, 'getFulltext')
+    return await getFulltext(ref, signal)
+  }
+
+  async importRecords(
+    content: string,
+    options: { sessionId?: string } = {},
+    signal?: AbortSignal,
+  ): Promise<ZoteroImportResult> {
+    const provider = this.resolveProvider()
+    this.requireCapability(provider, 'import')
+    const importRecords = this.requireMethod(provider, 'importRecords')
+    return await importRecords(content, options, signal)
   }
 
   async browse(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult> {

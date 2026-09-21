@@ -186,7 +186,7 @@ export async function getAttachmentLocation(
  * child from a lazy `/children` fetch.
  * @throws {ZoteroError} `ZOTERO_NO_ATTACHMENT` when the item has none.
  */
-async function resolveAttachmentKey(
+export async function resolveAttachmentKey(
   deps: { client: ZoteroHttpClient },
   ref: ZoteroObjectRef,
   signal?: AbortSignal,

@@ -27,6 +27,8 @@ export type ZoteroCapability =
   | 'retrieve'
   /** Incremental library reads through local transaction versions (`?since=`). */
   | 'changes'
+  /** Import bibliographic records through the Zotero Connector endpoint. */
+  | 'import'
   /**
    * Writes to the local personal library: research notes, tags, collection
    * membership. Zotero 10 gates every write behind a locally issued API key
@@ -900,6 +902,33 @@ export type ZoteroCollectionAddOutcome = ZoteroCollectionAddResult | ZoteroWrite
  * request-driven providers fail with typed domain errors, and only `status()`
  * performs a health check.
  */
+export interface ZoteroFulltextResult {
+  attachmentKey: string
+  indexedPages?: number
+  totalPages?: number
+  chars: number
+  content: string
+}
+
+export interface ZoteroImportItem {
+  key?: string
+  title: string
+  itemType: string
+}
+
+export interface ZoteroImportResult {
+  kind: 'applied'
+  importedCount: number
+  items: ZoteroImportItem[]
+  message: string
+}
+
+export interface ZoteroImportDeclined {
+  kind: 'declined'
+}
+
+export type ZoteroImportOutcome = ZoteroImportResult | ZoteroImportDeclined
+
 export interface ZoteroProvider {
   id: string
   capabilities: ReadonlySet<ZoteroCapability>
@@ -965,6 +994,14 @@ export interface ZoteroProvider {
   export?(request: ZoteroExportRequest, signal?: AbortSignal): Promise<ZoteroExportResult>
   /** Resolve Zotero's own canonical HTTP item URI for native word-processor fields. */
   canonicalItemUri?(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<string>
+  /** Return Zotero's complete indexed text for an item or attachment. */
+  getFulltext?(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<ZoteroFulltextResult>
+  /** Import raw BibTeX or RIS records through Zotero Connector. */
+  importRecords?(
+    content: string,
+    options?: { sessionId?: string },
+    signal?: AbortSignal,
+  ): Promise<ZoteroImportResult>
   browse?(request: ZoteroBrowseRequest, signal?: AbortSignal): Promise<ZoteroBrowseResult>
   /**
    * Create a research note (standalone or under a parent item) with tags,

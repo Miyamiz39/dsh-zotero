@@ -1,6 +1,6 @@
 /**
- * The plugin's eight registered tools, in the order `ZoteroService` registers
- * them (`registerSearchTool` … `registerChangesTool`). A ninth tool otherwise
+ * The plugin's registered research tools, in the order `ZoteroService` registers
+ * them. A new tool otherwise
  * means editing every host spec that names the set, and whichever one is
  * missed keeps asserting a stale list.
  *
@@ -20,4 +20,6 @@ export const ZOTERO_TOOL_NAMES = [
   'zotero_export',
   'zotero_browse',
   'zotero_changes',
+  'zotero_fulltext',
+  'zotero_import',
 ] as const

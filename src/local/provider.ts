@@ -34,6 +34,8 @@ import { exportItems as exportItemsDomain } from './export-domain.js'
 import { canonicalItemUri as canonicalItemUriDomain } from './item-uri.js'
 import { changes as changesDomain } from './changes-domain.js'
 import { runBrowse } from './browse-domain.js'
+import { getFulltext as getFulltextDomain } from './fulltext-domain.js'
+import { importRecords as importRecordsDomain } from './import-domain.js'
 import {
   WRITE_CAPABILITY_UNAVAILABLE_CODE,
   writeCapabilityUnavailableMessage,
@@ -63,6 +65,8 @@ import type {
   ZoteroExportResult,
   ZoteroGetRequest,
   ZoteroItemDetail,
+  ZoteroFulltextResult,
+  ZoteroImportResult,
   ZoteroObjectRef,
   ZoteroProvider,
   ZoteroRetrieveRequest,
@@ -106,6 +110,7 @@ export class LocalApiProvider implements ZoteroProvider {
       'browse',
       'retrieve',
       'changes',
+      'import',
       ...(writer !== undefined && authorizer !== undefined ? (['write'] as const) : []),
     ])
   }
@@ -231,6 +236,23 @@ export class LocalApiProvider implements ZoteroProvider {
     signal?: AbortSignal,
   ): Promise<ZoteroAttachmentLocation> {
     return attachmentLocationDomain(this.deps(), ref, signal)
+  }
+
+  async getFulltext(ref: ZoteroObjectRef, signal?: AbortSignal): Promise<ZoteroFulltextResult> {
+    return getFulltextDomain(this.deps(), ref, signal)
+  }
+
+  async importRecords(
+    content: string,
+    options: { sessionId?: string } = {},
+    signal?: AbortSignal,
+  ): Promise<ZoteroImportResult> {
+    return importRecordsDomain(
+      { connectorBaseUrl: this.options.connectorBaseUrl ?? 'http://127.0.0.1:23119' },
+      content,
+      options,
+      signal,
+    )
   }
 
   /**
