@@ -43,8 +43,8 @@ import { en, zh } from './locales.ts'
 /** Dictionary namespace owned by this plugin. */
 const NS = 'zotero'
 
-/** Required services (cordis fiber inject): settingsScope's binder resolves the caller's connection and remote. */
-export const inject = ['locale', 'slots', 'connection', 'settingsScope', 'remote']
+/** Required services (cordis fiber inject): settingsScope is a soft dependency (waits without blocking). */
+export const inject = ['locale', 'slots', 'connection', 'remote']
 
 /**
  * The mounted `zotero` namespace face, or `undefined` when this fiber cannot
@@ -96,42 +96,6 @@ function heldNamespaces(ctx: ClientContext): string {
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-zotero: page dictionaries')
-  // One binder for the namespace the host half registers; the card stages and
-  // saves through it. The default decode (schema rehydrate + validate,
-  // fail-closed to non-ready) is the authority — no lenient bypass. This entry
-  // declares only its own dependency (`webEnabled` for the tab gate); the card
-  // form owns the full field table through `ZoteroCardController` (which binds
-  // the same scope as a record), so the narrow type is the entry's read
-  // contract, not a truncation of the stored document.
-  const scope = ctx.settingsScope.bind<{ webEnabled?: boolean }>({
-    namespace: ZOTERO_SETTINGS_NAMESPACE,
-  })
-  const card = new ZoteroCardController(scope)
-  // The nav label is shell chrome, so it is read through a bound reader at
-  // registration time (the shell re-renders from the ledger bump when the
-  // locale changes, not from its own subscription).
-  const t = ctx.locale.bind(NS)
-
-  // The configuration page: one left-nav entry in the Settings panel, beside
-  // General, Models, and Plugins. The shell renders the nav label from these
-  // options and mounts the page in its content column; `slots.inject` waits
-  // for the settings shell's declaration of `settings.section`, so the page
-  // survives shell reloads and vanishes atomically with this fiber. Order 25
-  // keeps this page inside the shipped block (0–20) and clear of the
-  // third-party sections that start at 30.
-  ctx.slots.inject('settings.section', () =>
-    ctx.slots.register(
-      {
-        name: 'settings.section',
-        id: 'zotero',
-        order: 25,
-        label: () => t('nav'),
-        locale: NS,
-        inject: () => card.inject(),
-      },
-      ZoteroSettingsSection,
-    ),
-  )
 
   // Live connectivity for the conversation tab's status strip. The Remote
   // namespace mounts asynchronously, so the probe resolves it on every call
@@ -146,45 +110,87 @@ export function apply(ctx: ClientContext): void {
     throw new Error(`dsh-zotero: the zotero Remote namespace is not mounted (${mountState})`)
   }
 
-  // The dedicated Sources panel (a conversation tab) registers unless the
-  // `webEnabled` namespace flag is explicitly off; before the first snapshot
-  // the tab stays on, so a config hiccup never blocks it. The gate is live:
-  // toggling the flag in the page hides or restores the tab without a reload.
-  let tabDispose: (() => void) | undefined
-  const tabT = ctx.locale.bind(NS)
-  const sync = (): void => {
-    const snapshot = scope.getSnapshot()
-    const enabled = snapshot.status !== 'ready' || snapshot.value?.webEnabled !== false
-    if (enabled && tabDispose === undefined) {
-      tabDispose = ctx.slots.inject('conversation.view', () =>
-        ctx.slots.register(
-          {
-            name: 'conversation.view',
-            id: 'zotero',
-            order: 30,
-            locale: NS,
-            label: () => tabT('nav'),
-            // Read through the mutable binding, so a probe that arrives after
-            // the tab was mounted is the one the strip actually calls.
-            inject: (): SourcesTabFace => ({ status: () => probe() }),
-          },
-          SourcesTab,
-        ),
-      )
-    } else if (!enabled && tabDispose !== undefined) {
-      tabDispose()
-      tabDispose = undefined
+  // settingsScope is a soft dependency: the settings page and conversation tab
+  // activate only after the settings service is available, without blocking
+  // the rest of the plugin (host-side tools, Remote mount, etc.).
+  ctx.inject(['settingsScope'], (settingsCtx) => {
+    // One binder for the namespace the host half registers; the card stages and
+    // saves through it. The default decode (schema rehydrate + validate,
+    // fail-closed to non-ready) is the authority — no lenient bypass. This entry
+    // declares only its own dependency (`webEnabled` for the tab gate); the card
+    // form owns the full field table through `ZoteroCardController` (which binds
+    // the same scope as a record), so the narrow type is the entry's read
+    // contract, not a truncation of the stored document.
+    const scope = settingsCtx.settingsScope.bind<{ webEnabled?: boolean }>({
+      namespace: ZOTERO_SETTINGS_NAMESPACE,
+    })
+    const card = new ZoteroCardController(scope)
+    // The nav label is shell chrome, so it is read through a bound reader at
+    // registration time (the shell re-renders from the ledger bump when the
+    // locale changes, not from its own subscription).
+    const t = settingsCtx.locale.bind(NS)
+
+    // The configuration page: one left-nav entry in the Settings panel, beside
+    // General, Models, and Plugins. The shell renders the nav label from these
+    // options and mounts the page in its content column; `slots.inject` waits
+    // for the settings shell's declaration of `settings.section`, so the page
+    // survives shell reloads and vanishes atomically with this fiber. Order 25
+    // keeps this page inside the shipped block (0–20) and clear of the
+    // third-party sections that start at 30.
+    settingsCtx.slots.inject('settings.section', () =>
+      settingsCtx.slots.register(
+        {
+          name: 'settings.section',
+          id: 'zotero',
+          order: 25,
+          label: () => t('nav'),
+          locale: NS,
+          inject: () => card.inject(),
+        },
+        ZoteroSettingsSection,
+      ),
+    )
+
+    // The dedicated Sources panel (a conversation tab) registers unless the
+    // `webEnabled` namespace flag is explicitly off; before the first snapshot
+    // the tab stays on, so a config hiccup never blocks it. The gate is live:
+    // toggling the flag in the page hides or restores the tab without a reload.
+    let tabDispose: (() => void) | undefined
+    const tabT = settingsCtx.locale.bind(NS)
+    const sync = (): void => {
+      const snapshot = scope.getSnapshot()
+      const enabled = snapshot.status !== 'ready' || snapshot.value?.webEnabled !== false
+      if (enabled && tabDispose === undefined) {
+        tabDispose = settingsCtx.slots.inject('conversation.view', () =>
+          settingsCtx.slots.register(
+            {
+              name: 'conversation.view',
+              id: 'zotero',
+              order: 30,
+              locale: NS,
+              label: () => tabT('nav'),
+              // Read through the mutable binding, so a probe that arrives after
+              // the tab was mounted is the one the strip actually calls.
+              inject: (): SourcesTabFace => ({ status: () => probe() }),
+            },
+            SourcesTab,
+          ),
+        )
+      } else if (!enabled && tabDispose !== undefined) {
+        tabDispose()
+        tabDispose = undefined
+      }
     }
-  }
-  ctx.effect(() => {
-    const unsubscribe = scope.subscribe(sync)
-    sync()
-    return () => {
-      unsubscribe()
-      tabDispose?.()
-      tabDispose = undefined
-    }
-  }, 'dsh-zotero: conversation tab')
+    settingsCtx.effect(() => {
+      const unsubscribe = scope.subscribe(sync)
+      sync()
+      return () => {
+        unsubscribe()
+        tabDispose?.()
+        tabDispose = undefined
+      }
+    }, 'dsh-zotero: conversation tab')
+  })
 
   ctx.effect(async () => {
     let dispose: (() => void) | undefined
